@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+*.egg-info/
+dist/
+build/
+
+# Node / Vite / npm
+node_modules/
+.npm
+.pnpm-store/
+.vite/
+.parcel-cache/
+next/
+out/
+build/
+*.tsbuildinfo
+.npmrc.local
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# OS
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Test / coverage artifacts
+coverage/
+.nyc_output/
+junit.xml
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Local secrets — never commit
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Build output
+*.log
+logs/
+
+# Backend Python venv (already covered by .venv above, but explicit)
+backend/.venv/
+
+# Frontend node_modules
+frontend/node_modules/
+
+# Runtime future: when runtime/ arrives, ignore its venv too
+runtime/.venv/

@@ -1,0 +1,92 @@
+// ROXY JARVIS AI Gateway — Prisma schema
+// Multi-Provider AI Abstraction: Provider, Model, TokenUsageLog, UserPreference
+// Migration: run `prisma migrate dev --name add_ai_provider_models`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Provider
+// -----------------------------------------------------------------------------
+
+model Provider {
+  id                String         @id @default(uuid())
+  name              String         @unique // e.g. "deepseek", "grok", "openai", "gemini"
+  enabled           Boolean        @default(true)
+  apiKeyEnvVar      String         // Name of env var holding the API key, not the key itself
+  baseUrl           String
+  timeoutSeconds    Float          @default(10.0)
+  routingPriority   Int            @unique // lower = higher priority
+  supportsStreaming Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  models    Model[]
+  tokenLogs TokenUsageLog[]
+
+  @@map("providers")
+}
+
+// -----------------------------------------------------------------------------
+// Model
+// -----------------------------------------------------------------------------
+
+model Model {
+  id                   String   @id @default(uuid())
+  providerId           String
+  provider             Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  name                 String   // Provider-native model name, e.g. "deepseek-chat-v3", "grok-3"
+  displayName          String   // Human-readable, e.g. "DeepSeek V3", "Grok 3"
+  taskTypes            String[] // JSON array stored as string[], e.g. ["general","coding"]
+  costPer1kInputTokens Float
+  costPer1kOutputTokens Float
+  maxTokens            Int
+  enabled              Boolean  @default(true)
+
+  tokenLogs TokenUsageLog[]
+
+  @@unique([providerId, name])
+  @@map("models")
+}
+
+// -----------------------------------------------------------------------------
+// TokenUsageLog
+// -----------------------------------------------------------------------------
+
+model TokenUsageLog {
+  id                  String   @id @default(uuid())
+  requestId           String   @index // Links to conversation / request trace ID
+  providerId          String
+  provider            Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  modelId             String
+  model                Model   @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  inputTokens         Int      @default(0)
+  outputTokens        Int      @default(0)
+  costUsd             Float    @default(0.0)
+  latencyMs           Int      @default(0)
+  providerResponseMs  Int?
+  timestamp           DateTime @default(now())
+
+  @@index([providerId])
+  @@index([timestamp])
+  @@map("token_usage_logs")
+}
+
+// -----------------------------------------------------------------------------
+// UserPreference
+// -----------------------------------------------------------------------------
+
+model UserPreference {
+  id                String    @id @default(uuid())
+  userId            String    @unique // FK to User model (post-auth)
+  preferredProvider String?   // Nullable = auto routing
+  updatedAt         DateTime  @updatedAt
+
+  @@map("user_preferences")
+}

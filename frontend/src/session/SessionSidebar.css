@@ -1,0 +1,144 @@
+.session-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 16rem;
+  flex-shrink: 0;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  height: 100%;
+  overflow: hidden;
+}
+
+.session-sidebar__header {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.session-sidebar__new {
+  width: 100%;
+  background: var(--color-accent);
+  color: var(--color-surface);
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.session-sidebar__new:hover {
+  background: var(--color-accent-hover);
+}
+
+.session-sidebar__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.session-sidebar__item {
+  position: relative;
+  border-radius: 0.5rem;
+  transition: background 0.12s;
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.session-sidebar__item:hover {
+  background: var(--color-input-bg);
+}
+
+.session-sidebar__item--active {
+  background: var(--color-input-bg);
+}
+
+.session-sidebar__select {
+  flex: 1;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+  color: var(--color-text);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.session-sidebar__title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-sidebar__meta {
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-sidebar__actions {
+  display: none;
+  align-items: center;
+  padding-right: 0.4rem;
+  gap: 0.15rem;
+}
+
+.session-sidebar__item:hover .session-sidebar__actions,
+.session-sidebar__item--active .session-sidebar__actions {
+  display: flex;
+}
+
+.session-sidebar__icon {
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 0.3rem;
+}
+
+.session-sidebar__icon:hover {
+  color: var(--color-text);
+  background: var(--color-border);
+}
+
+.session-sidebar__rename {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+}
+
+.session-sidebar__rename-input {
+  width: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  border-radius: 0.3rem;
+  color: var(--color-text);
+  padding: 0.25rem 0.4rem;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.session-sidebar__empty,
+.session-sidebar__status {
+  padding: 0.5rem 0.75rem;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+.session-sidebar__status--error {
+  color: var(--color-error);
+}

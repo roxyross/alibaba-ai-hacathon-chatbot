@@ -1,0 +1,78 @@
+import { useCallback, useEffect, useState } from 'react';
+import { useAuth } from '../auth';
+
+export interface ChatSession {
+  id: string;
+  title: string | null;
+  provider: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface CreateSessionInput {
+  provider: string;
+  model: string;
+  title?: string;
+}
+
+export function useSessions() {
+  const { authedFetch } = useAuth();
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await authedFetch<ChatSession[]>('/sessions');
+      setSessions(data);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [authedFetch]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const create = useCallback(
+    async (input: CreateSessionInput): Promise<ChatSession> => {
+      const created = await authedFetch<ChatSession>('/sessions', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+      setSessions((prev) => [created, ...prev]);
+      return created;
+    },
+    [authedFetch],
+  );
+
+  const rename = useCallback(
+    async (id: string, title: string): Promise<ChatSession> => {
+      const updated = await authedFetch<ChatSession>(`/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title }),
+      });
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...updated } : s)),
+      );
+      return updated;
+    },
+    [authedFetch],
+  );
+
+  const remove = useCallback(
+    async (id: string): Promise<void> => {
+      await authedFetch<void>(`/sessions/${id}`, { method: 'DELETE' });
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+    },
+    [authedFetch],
+  );
+
+  return { sessions, loading, error, refresh, create, rename, remove };
+}

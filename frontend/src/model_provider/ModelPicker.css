@@ -1,0 +1,38 @@
+.model-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--color-input-bg);
+  border: 1.5px solid var(--color-border);
+  border-radius: 0.75rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.75rem;
+  flex-shrink: 0;
+}
+
+.model-picker__label {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
+.model-picker__select {
+  background: transparent;
+  border: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.4rem;
+  outline: none;
+  cursor: pointer;
+  min-width: 9rem;
+}
+
+.model-picker__select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.model-picker__error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: 0.75rem;
+}
