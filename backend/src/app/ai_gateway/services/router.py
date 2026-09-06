@@ -15,6 +15,7 @@ import asyncio
 import uuid
 from typing import TYPE_CHECKING
 
+import structlog
 from app.ai_gateway.adapters.base import (
     AIProviderAdapter,
     AllProvidersUnavailableError,
@@ -31,6 +32,8 @@ from app.ai_gateway.services.token_logger import TokenUsageLogger
 
 if TYPE_CHECKING:
     pass
+
+log = structlog.get_logger()
 
 
 # Lazy-initialized adapter registry

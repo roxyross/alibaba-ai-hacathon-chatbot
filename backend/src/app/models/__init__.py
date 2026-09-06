@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models — mirrors Prisma schema.
+"""SQLAlchemy ORM models — source of truth (replaces prior Prisma scaffold)."""
 
 Models: Provider, Model, TokenUsageLog, UserPreference, User, MagicLinkToken,
         ChatSession, ChatMessage

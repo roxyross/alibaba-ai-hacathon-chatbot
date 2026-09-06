@@ -18,19 +18,37 @@ from collections.abc import AsyncIterator
 import pytest
 import pytest_asyncio
 
+# ---------------------------------------------------------------------------
+# CRITICAL: Set blocking values BEFORE any app imports.
+#
+# app.main calls load_dotenv(".env", override=False) which loads the .env file.
+# Since override=False, dotenv SKIPS vars that are ALREADY in os.environ.
+# By pre-setting the vars we want to isolate, load_dotenv sees them as
+# "already set" and leaves our test values untouched.
+# ---------------------------------------------------------------------------
+# Block the real DATABASE_URL from being loaded → forces in-memory auth storage.
+os.environ["DATABASE_URL"] = ""
+
+# Ensure all providers start in known enabled state (override .env defaults).
+os.environ["PROVIDER_DEEPSEEK_ENABLED"] = "true"
+os.environ["PROVIDER_OPENAI_ENABLED"] = "true"
+os.environ["PROVIDER_GROK_ENABLED"] = "true"
+os.environ["PROVIDER_GEMINI_ENABLED"] = "true"
+
 sys.path.insert(0, "src")
 
-# A unique email per fixture invocation so each test gets a fresh user and
-# token (tokens are single-use and consume themselves on first verify).
-_test_emails = (f"test{i}@example.com" for i in itertools.count())
-
-# Set deterministic test env BEFORE any app imports.
+# Set deterministic test env AFTER blocking above.
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-key")
 os.environ.setdefault("GROK_API_KEY", "test-key")
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("GEMINI_API_KEY", "test-key")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
 os.environ.setdefault("APP_BASE_URL", "http://localhost:5173")
+
+
+# A unique email per fixture invocation so each test gets a fresh user and
+# token (tokens are single-use and consume themselves on first verify).
+_test_emails = (f"test{i}@example.com" for i in itertools.count())
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +115,23 @@ async def authed_client() -> AsyncIterator["httpx.AsyncClient"]:
         yield client
     finally:
         await client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Reset provider feature flags before each test so toggle-test assumptions hold.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _reset_provider_flags():
+    """Ensure each test starts with all providers in the known enabled state.
+
+    The toggle test modifies os.environ[PROVIDER_DEEPSEEK_ENABLED] directly.
+    Without this, a prior test that left it at 'false' breaks the next test.
+    """
+    os.environ["PROVIDER_DEEPSEEK_ENABLED"] = "true"
+    os.environ["PROVIDER_OPENAI_ENABLED"] = "true"
+    yield
+    # No cleanup needed — each test gets a fresh known state.
 
 
 # ---------------------------------------------------------------------------

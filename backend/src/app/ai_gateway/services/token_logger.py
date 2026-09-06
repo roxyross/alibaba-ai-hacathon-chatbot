@@ -49,8 +49,8 @@ class TokenUsageLogger:
 
         usage_record = TokenUsageLogCreate(
             request_id=response.request_id,
-            provider_id=response.provider,  # str name until Prisma migration
-            model_id=response.model,  # str name until Prisma migration
+            provider_id=response.provider,
+            model_id=response.model,
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
             cost_usd=round(cost_usd, 6),

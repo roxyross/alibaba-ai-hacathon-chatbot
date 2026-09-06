@@ -334,7 +334,7 @@ async def token_usage(limit: int = 100, provider: str | None = None):
     """Return recent token usage logs.
 
     Requires authentication.
-    Persistence: in-memory (T026) → Prisma after `prisma migrate dev`.
+    Persistence: in-memory (T026) → SQLAlchemy async (T027/ADR-001).
     """
     records = await _router._token_logger.get_recent(limit=limit, provider=provider)
     return {
