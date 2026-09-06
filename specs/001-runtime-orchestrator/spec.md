@@ -62,6 +62,19 @@ User stories are listed in priority order. Each is independently testable; a wor
 
 - As a user, I want the runtime to read my calendar and draft email so that I can plan and communicate without leaving the conversation.
 
+### 2.10 Finance and budgeting (P2)
+
+- As a user, I want to connect my bank accounts so the runtime can read transaction history and help me understand my spending patterns.
+- As a user, I want the runtime to categorize my transactions and show me a monthly budget summary so I can track where my money goes.
+- As a user, I want alerts when I exceed a budget category so I can stay on top of my finances.
+- As a system operator, I want bank aggregation handled by a read-only, credential-gated integration so no funds can be moved without explicit user confirmation.
+
+### 2.11 Critic/Evaluator Agent (P2)
+
+- As a user, I want the runtime to silently check every specialist response for errors, bias, and hallucination before it reaches me so that I see higher-quality answers.
+- As a user, I want the Critic to explain its concerns in plain language when it flags something so I can make an informed decision.
+- As a system operator, I want the Critic to be invisible in normal operation (no "this response was reviewed by the Critic" label) so it doesn't undermine trust in agents that are doing well.
+
 ---
 
 ## 3. Acceptance Criteria
@@ -69,7 +82,7 @@ User stories are listed in priority order. Each is independently testable; a wor
 ### 3.1 Routing (P1)
 
 - [ ] All user requests enter through the Coordinator Agent.
-- [ ] Coordinator analyzes the request and routes to the appropriate specialist (Coding, Research, Files, Planner, Automation, Study, Voice, Browser, or Security/Privacy) based on intent classification.
+- [ ] Coordinator analyzes the request and routes to the appropriate specialist (Coordinator, Coding, Research, Files, Planner, Automation, Study, Voice, Browser, Critic, Finance, or Security/Privacy) based on intent classification.
 - [ ] If intent classification is uncertain, the Coordinator re-prompts the user with a short clarification rather than routing to a default specialist. *(Resolves the prior version's open question Q1, now §8.)*
 - [ ] Coordinator and each specialist are separate execution contexts with distinct system prompts derived from the agent's `.md` definition.
 - [ ] Every response is labeled with the handling agent name (e.g. "Coding Agent").
@@ -120,7 +133,25 @@ User stories are listed in priority order. Each is independently testable; a wor
 - [ ] The user can adjust any threshold.
 - [ ] A run report is produced and stored in the runtime's job log; the user is notified on their next session if the "notify on memory changes" preference is on.
 
-### 3.10 Cross-cutting (P1)
+### 3.10 Finance (P2)
+
+- [ ] The Finance Agent connects to a bank via read-only OAuth (Plaid-style) and reads transaction history.
+- [ ] The Finance Agent categorizes transactions using an LLM call against the transaction description and merchant name.
+- [ ] Monthly budget summaries are generated per category; the user can set custom limits per category.
+- [ ] Budget alerts fire (via in-app notification) when a category exceeds 80% and 100% of its limit.
+- [ ] The Finance Agent cannot initiate transfers, payments, or any write operation against the bank — it is strictly read-only.
+- [ ] Bank credentials are stored via the bank's OAuth flow only; no username/password is ever stored by the runtime.
+
+### 3.11 Critic/Evaluator Agent (P2)
+
+- [ ] The Critic Agent silently reviews every specialist response (except its own) before it reaches the user.
+- [ ] The Critic checks for: factual hallucinations (assertable claims not grounded in retrieved context), harmful content, and PII leakage.
+- [ ] If the Critic raises a `caution` flag, the response is returned with a `[review: caution]` prefix and the concern in plain language — never silently modified.
+- [ ] If the Critic raises a `block` flag, the response is replaced with: "I'm not able to share that response. [Explain in one sentence why.]" — the user can override with explicit confirmation.
+- [ ] The Critic is invisible in the UI: no badge, no attribution label, no mention in the response unless its verdict is `caution` or `block`.
+- [ ] The Critic's verdict (and the reviewed agent name) is logged to `audit_log` for privacy review.
+
+### 3.12 Cross-cutting (P1)
 
 - [ ] Agent and skill definitions are loaded from `.claude/agents/*.md` and `.claude/skills/*/SKILL.md` at startup; no Python changes are required to add a new agent or skill.
 - [ ] Agents marked `internal: true` (`memory-curator`) are not routable from the Coordinator.
@@ -173,11 +204,11 @@ The full scope is delivered in three implementation PRs after PR 1 (this spec + 
 
 **Delivers:** Real `web_search` (Brave/SerpAPI — ADR-003 if material), `code_generate` / `code_explain` / `code_debug` (delegate to existing AI gateway), `store_memory` / `retrieve_memory` (backed by Neon DB, new `memory_entries` table), `calendar_read` (read-only Google Calendar OAuth), `calculator` (strict parser, no `eval`), `task_breakdown` (LLM call). Agents `files`, `coding`, `planner`, `automation`, `security-privacy` are now fully wired.
 
-**Demoable:** A user can ask a code question, recall a memory, check a calendar, summarize a document. Five of eleven agents are real.
+**Demoable:** A user can ask a code question, recall a memory, check a calendar, summarize a document. Five of thirteen agents are real.
 
 ### PR 4 — Scheduler, Memory Curator, sensitive-skill gate, last agents (P3)
 
-**Delivers:** APScheduler for `schedule_job`; Memory Curator nightly pass; the Security/Privacy gate implemented in code; `email_draft` / `email_send` (Gmail API, gated); `speech_to_text` / `text_to_speech` (Deepgram/ElevenLabs — ADR if material); `voice` session lifecycle (WebSocket); `browser` driver (Playwright, gated); `flashcard_generate` / `quiz_generate`. All eleven agents and nineteen skills are real.
+**Delivers:** APScheduler for `schedule_job`; Memory Curator nightly pass; the Security/Privacy gate implemented in code; `email_draft` / `email_send` (Gmail API, gated); `speech_to_text` / `text_to_speech` (Deepgram/ElevenLabs — ADR if material); `voice` session lifecycle (WebSocket); `browser` driver (Playwright, gated); `flashcard_generate` / `quiz_generate`; `bank_connect` (read-only Plaid-style OAuth); `critic_review` (silent pre-flight review). All thirteen agents and twenty-one skills are real.
 
 **Demoable:** A user can have a voice session, schedule a daily briefing, get study cards, fill a form on a website, and have the memory curator prune their long-term memory overnight.
 
