@@ -1,0 +1,36 @@
+# Render Blueprint — ROXY AI Backend
+# Deploy: render.com → New → Blueprint → connect this repo
+#
+# Or via CLI:
+#   render blueprint create render.yaml
+
+services:
+  - type: web
+    name: roxy-ai-backend
+    env: docker
+    region: oregon
+    plan: free
+    dockerfilePath: ./huggingface-space-roxy-hub/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PYTHONPATH
+        value: /app
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROK_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: JWT_SERVICE_SECRET
+        sync: false
+        description: Generate with: openssl rand -hex 32
+      - key: JWT_SECRET
+        sync: false
+        description: Same as JWT_SERVICE_SECRET
+      - key: DATABASE_URL
+        value: ""
+        description: Not used — in-memory storage on free tier
