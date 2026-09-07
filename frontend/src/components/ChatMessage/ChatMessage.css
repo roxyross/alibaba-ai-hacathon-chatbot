@@ -72,3 +72,123 @@
 .chat-message__provider { font-weight: 600; }
 .chat-message__sep       { opacity: 0.5; }
 .chat-message__model     { opacity: 0.8; }
+
+/* ─── Critic review badge ─────────────────────────────────────── */
+
+.critic-badge {
+  margin-top: 0.25rem;
+  border: 1px solid var(--color-border, #45475a);
+  border-radius: 0.625rem;
+  overflow: hidden;
+  font-size: 0.8125rem;
+}
+
+.critic-badge__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  background: color-mix(in srgb, var(--color-surface, #1e1e2e) 60%, transparent);
+  border: none;
+  color: var(--color-muted, #6c7086);
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0.375rem 0.625rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.critic-badge__toggle:hover {
+  background: color-mix(in srgb, var(--color-surface, #1e1e2e) 80%, transparent);
+  color: var(--color-text, #cdd6f4);
+}
+
+.critic-badge__icon {
+  font-size: 0.875rem;
+}
+
+.critic-badge__label {
+  font-weight: 600;
+  flex: 1;
+}
+
+.critic-badge__verdict {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.critic-badge__chevron {
+  font-size: 0.7rem;
+  transition: transform 0.15s;
+}
+
+.critic-badge__chevron--up {
+  transform: rotate(180deg);
+}
+
+.critic-badge__body {
+  padding: 0.625rem 0.75rem;
+  border-top: 1px solid var(--color-border, #45475a);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: color-mix(in srgb, var(--color-surface, #1e1e2e) 40%, transparent);
+}
+
+.critic-badge__overall {
+  margin: 0;
+  color: var(--color-text, #cdd6f4);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.critic-badge__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.critic-badge__section-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.critic-badge__section-title--strong { color: #a6e3a1; }
+.critic-badge__section-title--weak   { color: #f38ba8; }
+
+.critic-badge__list {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: var(--color-text, #cdd6f4);
+  font-size: 0.8125rem;
+}
+
+.critic-badge__why {
+  color: var(--color-muted, #6c7086);
+  font-size: 0.75rem;
+}
+
+.critic-badge__summary {
+  margin: 0;
+  color: var(--color-muted, #6c7086);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--color-border, #45475a);
+}
+
+/* ─── Mobile ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .critic-badge {
+    font-size: 0.8125rem;
+  }
+
+  .critic-badge__body {
+    padding: 0.5rem;
+  }
+}

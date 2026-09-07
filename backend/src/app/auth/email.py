@@ -81,4 +81,6 @@ def build_magic_link(token: str) -> str:
     """Compose the full URL the user clicks in their email."""
     base = os.environ.get("APP_BASE_URL", "http://localhost:5173").rstrip("/")
     qs = urlencode({"token": token})
-    return f"{base}/auth/callback?{qs}"
+    # Use / (root) — the frontend is a plain SPA with no router, so every
+    # path serves index.html and AuthGate is always mounted there.
+    return f"{base}/?{qs}"

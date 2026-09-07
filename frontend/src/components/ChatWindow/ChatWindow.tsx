@@ -14,6 +14,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   attribution,
   isStreaming,
   error,
+  criticReview,
   onSend,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -62,6 +63,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               role={msg.role}
               content={msg.content}
               attribution={msg.role === 'assistant' && showAttribution ? attribution ?? undefined : undefined}
+              criticReview={msg.role === 'assistant' ? criticReview ?? null : null}
               isStreaming={isLastAssistant && isStreaming}
             />
           );

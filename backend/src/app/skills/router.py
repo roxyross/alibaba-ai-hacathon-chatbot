@@ -31,6 +31,8 @@ from app.skills.schemas import (
     CriticReviewResponse,
     DocumentRagQueryRequest,
     DocumentRagQueryResponse,
+    DocumentIngestRequest,
+    DocumentIngestResponse,
     EmailDraftRequest,
     EmailDraftResponse,
     EmailSendRequest,
@@ -73,6 +75,7 @@ from app.skills.critic_review import get_executor as critic_review_executor
 from app.skills.schedule_job import get_executor as schedule_job_executor
 from app.skills.email_send import get_executor as email_send_executor
 from app.skills.document_rag_query import get_executor as document_rag_query_executor
+from app.skills.document_ingest import get_executor as document_ingest_executor
 from app.skills.flashcard_generate import get_executor as flashcard_generate_executor
 from app.skills.quiz_generate import get_executor as quiz_generate_executor
 from app.skills.speech_to_text import get_executor as speech_to_text_executor
@@ -466,3 +469,20 @@ async def skill_text_to_speech(
     """Synthesize speech from text using OpenAI TTS or ElevenLabs (Voice Agent)."""
     executor = text_to_speech_executor()
     return await _run_skill(executor, req, current_user, skill_slug="text_to_speech")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/skills/document_ingest
+# ---------------------------------------------------------------------------
+
+@router.post("/document_ingest", response_model=DocumentIngestResponse)
+async def skill_document_ingest(
+    req: DocumentIngestRequest,
+    current_user: User = Depends(get_current_user),
+) -> DocumentIngestResponse:
+    """Parse a file and ingest it into the RAG vector store (Files Agent).
+
+    Accepts base64-encoded file bytes and stores chunked text with embeddings.
+    """
+    executor = document_ingest_executor()
+    return await _run_skill(executor, req, current_user, skill_slug="document_ingest")

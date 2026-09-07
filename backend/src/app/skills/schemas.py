@@ -408,6 +408,25 @@ class DocumentRagQueryRequest(BaseModel):
     user_id: str | None = Field(default=None, description="Stamped by the router from the authenticated user.")
 
 
+class DocumentIngestRequest(BaseModel):
+    document_id: str | None = Field(default=None, description="Stable ID; a new UUID is generated if None")
+    document_name: str = Field(..., min_length=1, max_length=500, description="Human-readable name shown in citations")
+    file_bytes: str = Field(..., description="Base64-encoded file content")
+    content_type: str = Field(default="", description="MIME type of the file")
+    filename: str = Field(default="", description="Original filename for extension-based dispatch")
+    replace_existing: bool = Field(default=False, description="Delete existing chunks before ingesting")
+    user_id: str | None = Field(default=None, description="Stamped by the router from the authenticated user.")
+
+
+class DocumentIngestResponse(BaseModel):
+    document_id: str
+    document_name: str
+    chunks_stored: int
+    chunk_ids: list[str]
+    doc_type: str
+    metadata: dict[str, str | int | float]
+
+
 class DocumentChunk(BaseModel):
     chunk_id: str
     document_id: str

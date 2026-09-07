@@ -20,6 +20,7 @@ elif Path(".env").exists():
 
 from app.api.v1.ai import router as ai_router
 from app.api.v1.bank import router as bank_router
+from app.api.v1.documents import router as documents_router
 from app.api.v1.runtime import router as runtime_router
 from app.api.v1.finance import router as finance_router
 from app.auth.router import router as auth_router
@@ -55,6 +56,7 @@ app.include_router(chat_history_router, prefix="/api/v1")
 app.include_router(ai_router, prefix="/api/v1")
 app.include_router(skills_router, prefix="/api/v1")
 app.include_router(bank_router, prefix="/api/v1")
+app.include_router(documents_router, prefix="/api/v1")
 app.include_router(runtime_router, prefix="/api/v1")
 app.include_router(finance_router, prefix="/api/v1")
 

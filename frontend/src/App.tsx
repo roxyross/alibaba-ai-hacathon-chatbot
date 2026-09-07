@@ -15,7 +15,9 @@ import {
 import { ScheduledJobsPanel } from './components/ScheduledJobsPanel/ScheduledJobsPanel';
 import { EmailSendPanel } from './components/EmailSendPanel/EmailSendPanel';
 import { VoiceSession } from './components/VoiceSession/VoiceSession';
+import { DocumentUpload } from './components/DocumentUpload';
 import './App.css';
+import './components/DocumentUpload/DocumentUpload.css';
 
 const API_BASE =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
@@ -25,7 +27,7 @@ const RUNTIME_URL =
   (import.meta as { env: { VITE_RUNTIME_URL?: string } }).env.VITE_RUNTIME_URL ??
   'http://localhost:8000';
 
-export type AppView = 'chat' | 'finance' | 'jobs' | 'email' | 'voice';
+export type AppView = 'chat' | 'finance' | 'jobs' | 'email' | 'voice' | 'documents';
 
 export function ChatScreen() {
   const { accessToken, signOut, user } = useAuth();
@@ -191,9 +193,17 @@ export function ChatScreen() {
                   >
                     📧
                   </button>
+                  <button
+                    type="button"
+                    className="app__view-btn"
+                    onClick={() => setActiveView('documents')}
+                    title="Documents"
+                  >
+                    📄
+                  </button>
                 </>
               )}
-              {(activeView === 'finance' || activeView === 'jobs' || activeView === 'email' || activeView === 'voice') && (
+              {(activeView === 'finance' || activeView === 'jobs' || activeView === 'email' || activeView === 'voice' || activeView === 'documents') && (
                 <button
                   type="button"
                   className="app__view-btn"
@@ -231,6 +241,15 @@ export function ChatScreen() {
           />
         ) : activeView === 'voice' ? (
           <VoiceSession accessToken={accessToken} />
+        ) : activeView === 'documents' ? (
+          <DocumentUpload
+            accessToken={accessToken}
+            runtimeUrl={isRuntime ? RUNTIME_URL : undefined}
+            onUploadDone={(_result) => {
+              // After upload, user can ask about the document
+              setActiveView('chat');
+            }}
+          />
         ) : (
           <div className="app__chat">
             <ChatWindow

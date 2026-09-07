@@ -1,9 +1,12 @@
 // FinanceDashboard — full finance UI: accounts, transactions, budgets, alerts
 
 import React, { useState } from 'react';
+import { usePlaidLink } from 'react-plaid-link';
 import { useFinance } from '../../hooks/useFinance';
 import type { Budget, SpendingAlert, Transaction } from '../../hooks/useFinance';
 import './FinanceDashboard.css';
+
+const API_BASE = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '/api/v1';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -56,18 +59,95 @@ interface BankConnectionCardProps {
   accounts: { connection_id: string; institution: string | null; account_id: string; name: string; type: string; mask: string | null; balance: number | null }[];
   totalBalance: number;
   loading: boolean;
+  accessToken: string | null;
+  onConnected: () => void;
 }
 
-const BankConnectionCard: React.FC<BankConnectionCardProps> = ({ accounts, totalBalance, loading }) => {
+const BankConnectionCard: React.FC<BankConnectionCardProps> = ({
+  accounts,
+  totalBalance,
+  loading,
+  accessToken,
+  onConnected,
+}) => {
+  const [linkToken, setLinkToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [plaidError, setPlaidError] = useState<string | null>(null);
 
+  // Fetch link token from backend
   const handleConnect = async () => {
+    if (!accessToken) return;
     setConnecting(true);
-    // TODO: Integrate with Plaid Link modal via bank_connect skill
-    // The actual flow: frontend calls /api/v1/skills/bank_connect with op=connect
-    // which returns a link_token, then Plaid Link opens in an iframe
-    setTimeout(() => setConnecting(false), 1500);
+    setPlaidError(null);
+    try {
+      const res = await fetch(`${API_BASE}/bank/link-token`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Failed to get link token' }));
+        throw new Error(err.detail ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setLinkToken(data.link_token);
+    } catch (e) {
+      setPlaidError((e as Error).message);
+      setConnecting(false);
+    }
   };
+
+  // Plaid Link handler — fires after user completes Plaid Link
+  const onPlaidSuccess = async (publicToken: string, metadata: { institution?: { name?: string } | null }) => {
+    if (!accessToken) return;
+    try {
+      const institution = metadata.institution?.name ?? null;
+      const res = await fetch(`${API_BASE}/bank/exchange-token`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'me', // backend stamps user from JWT
+          access_token: publicToken,
+          item_id: `item_${Date.now()}`, // backend gets real item_id from Plaid response
+          institution,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail ?? 'Token exchange failed');
+      }
+      onConnected();
+    } catch (e) {
+      setPlaidError((e as Error).message);
+    } finally {
+      setConnecting(false);
+      setLinkToken(null);
+    }
+  };
+
+  // react-plaid-link hook — activates when linkToken is set
+  const { open, ready } = usePlaidLink({
+    token: linkToken ?? null,
+    onSuccess: (publicToken, metadata) => {
+      void onPlaidSuccess(publicToken, metadata);
+    },
+    onExit: (err) => {
+      if (err) setPlaidError(err.display_message ?? 'Plaid Link exited with an error');
+      setConnecting(false);
+      setLinkToken(null);
+    },
+  });
+
+  // Auto-open Plaid Link once ready and token is available (called once per token)
+  const openedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (linkToken && ready && !openedRef.current) {
+      openedRef.current = true;
+      open();
+    }
+    if (!linkToken) {
+      openedRef.current = false;
+    }
+  }, [linkToken, ready, open]);
 
   if (loading) {
     return (
@@ -128,7 +208,31 @@ const BankConnectionCard: React.FC<BankConnectionCardProps> = ({ accounts, total
           <button className="connect-bank-btn" onClick={handleConnect} style={{ marginTop: '0.25rem' }}>
             + Connect Another Account
           </button>
+
+          {/* Disconnect */}
+          <button
+            className="connect-bank-btn"
+            onClick={async () => {
+              if (!confirm('Disconnect all bank accounts?')) return;
+              if (!accessToken) return;
+              await fetch(`${API_BASE}/bank/connect`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${accessToken}` },
+              });
+              onConnected();
+            }}
+            style={{ background: 'none', border: '1px solid var(--color-border)', color: 'var(--color-muted)', marginTop: '0.25rem' }}
+          >
+            Disconnect
+          </button>
         </>
+      )}
+
+      {/* Plaid error */}
+      {plaidError && (
+        <p role="alert" style={{ color: 'var(--color-error)', fontSize: '0.8125rem', margin: 0 }}>
+          {plaidError}
+        </p>
       )}
     </div>
   );
@@ -566,6 +670,8 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ accessToken 
           accounts={summary?.accounts ?? []}
           totalBalance={summary?.total_balance ?? 0}
           loading={loading}
+          accessToken={accessToken ?? null}
+          onConnected={() => void fetchSummary()}
         />
         <MonthSpendingCard
           monthSpending={summary?.month_spending ?? 0}

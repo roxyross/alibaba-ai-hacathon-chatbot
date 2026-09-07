@@ -1,18 +1,14 @@
 """document_rag_query skill — RAG over user-uploaded documents.
 
-Uses a simple TF-IDF / keyword fallback retriever.
-Replace with a real embedding model (OpenAI embeddings, etc.) in production.
+Uses the shared in-memory chunk store from document_ingest
+and cosine-similarity search over pseudo-embeddings.
+
+In production, replace with Gemini embeddings + ChromaDB / pgvector.
 """
 
 from __future__ import annotations
 
-import math
-import os
 import re
-import secrets
-import uuid
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 import structlog
@@ -24,16 +20,11 @@ from app.skills.schemas import (
     DocumentRagQueryResponse,
 )
 
-
 log = structlog.get_logger()
 
-# In-memory document store: user_id -> doc_id -> {name, chunks: list[dict]}
-_document_store: dict[str, dict[str, dict[str, Any]]] = {}
-
-
-def _get_store() -> dict[str, dict[str, dict[str, Any]]]:
-    global _document_store
-    return _document_store
+# Import the shared stores from document_ingest
+# We re-import here to avoid circular imports at module level
+# by using lazy access inside functions
 
 
 class DocumentRAGSkill(SkillExecutor[DocumentRagQueryRequest, DocumentRagQueryResponse]):
@@ -41,8 +32,11 @@ class DocumentRAGSkill(SkillExecutor[DocumentRagQueryRequest, DocumentRagQueryRe
 
     async def execute(self, input_data: DocumentRagQueryRequest) -> DocumentRagQueryResponse:
         user_id = input_data.user_id or "anonymous"
-        store = _get_store()
-        user_docs = store.get(user_id, {})
+
+        # Lazy import to avoid circular import at module load time
+        from app.skills.document_ingest import _document_meta, _chunk_store
+
+        user_docs = _document_meta.get(user_id, {})
 
         query = input_data.query.lower()
         top_k = input_data.top_k
@@ -59,50 +53,82 @@ class DocumentRAGSkill(SkillExecutor[DocumentRagQueryRequest, DocumentRagQueryRe
                 documents_consulted=[],
             )
 
-        # Score each chunk against the query using simple TF-IDF
-        scored: list[tuple[float, DocumentChunk]] = []
+        # Collect all chunks for this user's scoped docs
+        all_chunks: list[dict[str, Any]] = []
+        for doc_id, doc_meta in user_docs.items():
+            doc_name = doc_meta.get("name", doc_id)
+            for chunk_id in doc_meta.get("chunk_ids", []):
+                chunk_data = _chunk_store.get(chunk_id)
+                if chunk_data:
+                    all_chunks.append({
+                        "chunk_id": chunk_id,
+                        "doc_id": doc_id,
+                        "doc_name": doc_name,
+                        "content": chunk_data.get("content", ""),
+                        "embedding": chunk_data.get("embedding", []),
+                        "page": chunk_data.get("page"),
+                        "section": chunk_data.get("section"),
+                    })
+
+        if not all_chunks:
+            return DocumentRagQueryResponse(
+                query=input_data.query,
+                chunks=[],
+                total_chunks=0,
+                documents_consulted=[],
+            )
+
+        # Score each chunk against the query
+        from app.skills.document_ingest import _make_embedding, _cosine_sim
+
+        query_embedding = _make_embedding(query)
+
+        scored: list[tuple[float, dict[str, Any]]] = []
         query_terms = set(re.findall(r"\w+", query))
 
-        for doc_id, doc in user_docs.items():
-            doc_name = doc.get("name", doc_id)
-            for chunk in doc.get("chunks", []):
-                content = chunk.get("content", "")
-                content_lower = content.lower()
+        for chunk in all_chunks:
+            content = chunk["content"]
+            content_lower = content.lower()
+
+            # Cosine similarity over embeddings
+            emb = chunk.get("embedding", [])
+            if emb:
+                score = _cosine_sim(query_embedding, emb)
+            else:
+                # Fallback: Jaccard on terms
                 content_terms = set(re.findall(r"\w+", content_lower))
+                intersection = len(query_terms & content_terms)
+                union = len(query_terms | content_terms)
+                score = intersection / union if union > 0 else 0.0
 
-                # Jaccard similarity as a quick proxy
-                if not query_terms:
-                    score = 0.0
-                else:
-                    intersection = len(query_terms & content_terms)
-                    union = len(query_terms | content_terms)
-                    score = intersection / union if union > 0 else 0.0
+            # Boost exact phrase matches
+            if query.lower() in content_lower:
+                score += 0.5
 
-                # Boost exact phrase matches
-                if query.lower() in content_lower:
-                    score += 0.5
-
-                scored.append((
-                    score,
-                    DocumentChunk(
-                        chunk_id=chunk.get("chunk_id", str(uuid.uuid4())),
-                        document_id=doc_id,
-                        document_name=doc_name,
-                        content=content,
-                        page=chunk.get("page"),
-                        section=chunk.get("section"),
-                        relevance_score=round(score, 4),
-                    )
-                ))
+            scored.append((score, chunk))
 
         scored.sort(key=lambda x: x[0], reverse=True)
-        top_chunks = [chunk for _, chunk in scored[:top_k]]
-        docs_consulted = list(dict.fromkeys(c.document_name for c in top_chunks))
+        top_chunks = scored[:top_k]
+
+        chunks_out: list[DocumentChunk] = [
+            DocumentChunk(
+                chunk_id=chunk["chunk_id"],
+                document_id=chunk["doc_id"],
+                document_name=chunk["doc_name"],
+                content=chunk["content"],
+                page=chunk.get("page"),
+                section=chunk.get("section"),
+                relevance_score=round(score, 4),
+            )
+            for score, chunk in top_chunks
+        ]
+
+        docs_consulted = list(dict.fromkeys(c.document_name for c in chunks_out))
 
         return DocumentRagQueryResponse(
             query=input_data.query,
-            chunks=top_chunks,
-            total_chunks=len(top_chunks),
+            chunks=chunks_out,
+            total_chunks=len(chunks_out),
             documents_consulted=docs_consulted,
         )
 

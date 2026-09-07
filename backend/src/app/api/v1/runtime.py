@@ -395,3 +395,267 @@ async def runtime_chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Runtime document ingestion endpoints
+# ---------------------------------------------------------------------------
+
+import uuid
+
+from fastapi import File, Form, UploadFile
+
+class RuntimeUploadResponse(BaseModel):
+    document_id: str
+    document_name: str
+    chunks_stored: int
+    chunk_ids: list[str]
+    doc_type: str
+    metadata: dict[str, Any]
+
+
+class RuntimeDocumentItem(BaseModel):
+    document_id: str
+    document_name: str
+    chunk_count: int
+    last_ingested: str | None
+
+
+class RuntimeDocumentListResponse(BaseModel):
+    documents: list[RuntimeDocumentItem]
+
+
+class RuntimeDocumentDeleteResponse(BaseModel):
+    document_id: str
+    chunks_deleted: int
+
+
+class RuntimeDocumentQueryRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=1000)
+    top_k: int = Field(default=8, ge=1, le=50)
+    min_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    document_ids: list[str] = Field(default_factory=list)
+
+
+async def _ingest_document(
+    file_bytes: bytes,
+    document_name: str,
+    filename: str,
+    content_type: str,
+    replace_existing: bool,
+    user_id: str,
+) -> RuntimeUploadResponse:
+    """Shared ingest logic used by the upload endpoint."""
+    from app.skills.document_parser import parse_document
+    from app.skills.document_ingest import (
+        _chunk_store,
+        _chunk_text,
+        _document_meta,
+        _make_embedding,
+    )
+
+    if not document_name:
+        document_name = filename or "unnamed"
+
+    # Parse
+    result = parse_document(file_bytes, content_type=content_type, filename=filename)
+    if result.is_empty():
+        raise ValueError("Document text is empty after parsing")
+
+    document_id = str(uuid.uuid4())
+
+    # Replace existing
+    if replace_existing:
+        user_docs = _document_meta.get(user_id, {})
+        if document_id in user_docs:
+            for cid in user_docs[document_id].get("chunk_ids", []):
+                _chunk_store.pop(cid, None)
+            del user_docs[document_id]
+
+    # Chunk
+    chunks = _chunk_text(result.content)
+    if not chunks:
+        raise ValueError("Could not chunk document text")
+
+    # Embed
+    embeddings = [_make_embedding(c) for c in chunks]
+
+    # Store
+    from datetime import datetime, timezone
+    chunk_ids: list[str] = []
+    now = datetime.now(timezone.utc).isoformat()
+
+    if user_id not in _document_meta:
+        _document_meta[user_id] = {}
+    user_docs = _document_meta[user_id]
+    user_docs[document_id] = {
+        "name": document_name,
+        "doc_type": result.doc_type,
+        "created_at": now,
+        "chunk_ids": [],
+    }
+
+    for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
+        chunk_id = str(uuid.uuid4())
+        chunk_ids.append(chunk_id)
+        _chunk_store[chunk_id] = {
+            "user_id": user_id,
+            "doc_id": document_id,
+            "content": chunk_text,
+            "embedding": embedding,
+            "chunk_index": i,
+            "page": None,
+            "section": None,
+        }
+        user_docs[document_id]["chunk_ids"].append(chunk_id)
+
+    log.info("runtime.upload.done", document_id=document_id, chunks=len(chunk_ids))
+
+    return RuntimeUploadResponse(
+        document_id=document_id,
+        document_name=document_name,
+        chunks_stored=len(chunk_ids),
+        chunk_ids=chunk_ids,
+        doc_type=result.doc_type,
+        metadata=result.metadata,
+    )
+
+
+# Upload endpoint using multipart form data
+@router.post(
+    "/upload",
+    response_model=RuntimeUploadResponse,
+    responses={413: {"description": "File too large"}, 422: {"description": "Could not parse file"}},
+)
+async def runtime_upload(
+    file: UploadFile = File(..., description="File to upload"),
+    document_name: str | None = Form(default=None),
+    content_type: str = Form(default=""),
+    filename: str = Form(default=""),
+    replace_existing: bool = Form(default=False),
+    current_user: User = Depends(get_current_user),
+):
+    """Parse and ingest a file into the RAG vector store.
+
+    Accepts multipart/form-data with the file and optional metadata fields.
+    """
+    user_id = str(current_user.id)
+
+    # Read file bytes
+    try:
+        file_bytes = await file.read()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Failed to read file: {exc}") from exc
+
+    if len(file_bytes) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File exceeds 50 MB limit")
+
+    if not file_bytes:
+        raise HTTPException(status_code=422, detail="Empty file")
+
+    # Determine content type and filename from UploadFile if not provided
+    actual_content_type = content_type or (file.content_type or "")
+    actual_filename = filename or (file.filename or "unnamed")
+    doc_name = (document_name or actual_filename or "unnamed").strip()
+
+    log.info("runtime.upload", user_id=user_id, filename=actual_filename, size=len(file_bytes))
+
+    try:
+        return await _ingest_document(
+            file_bytes=file_bytes,
+            document_name=doc_name,
+            filename=actual_filename,
+            content_type=actual_content_type,
+            replace_existing=replace_existing,
+            user_id=user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        log.error("runtime.upload.failed", user_id=user_id, error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Ingest failed: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/runtime/documents
+# ---------------------------------------------------------------------------
+
+@router.get("/documents", response_model=RuntimeDocumentListResponse)
+async def runtime_list_documents(
+    current_user: User = Depends(get_current_user),
+):
+    """List all documents ingested by the authenticated user."""
+    user_id = str(current_user.id)
+    from app.skills.document_ingest import _document_meta
+
+    user_docs = _document_meta.get(user_id, {})
+
+    docs = [
+        RuntimeDocumentItem(
+            document_id=doc_id,
+            document_name=meta.get("name", doc_id),
+            chunk_count=len(meta.get("chunk_ids", [])),
+            last_ingested=meta.get("created_at"),
+        )
+        for doc_id, meta in user_docs.items()
+    ]
+
+    return RuntimeDocumentListResponse(documents=docs)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/v1/runtime/documents/{document_id}
+# ---------------------------------------------------------------------------
+
+@router.delete("/documents/{document_id}", response_model=RuntimeDocumentDeleteResponse)
+async def runtime_delete_document(
+    document_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a document and all its chunks from the RAG store."""
+    user_id = str(current_user.id)
+    from app.skills.document_ingest import _document_meta, _chunk_store
+
+    user_docs = _document_meta.get(user_id, {})
+
+    if document_id not in user_docs:
+        raise HTTPException(status_code=404, detail=f"Document '{document_id}' not found")
+
+    chunk_ids = user_docs[document_id].get("chunk_ids", [])
+    for chunk_id in chunk_ids:
+        _chunk_store.pop(chunk_id, None)
+
+    chunks_deleted = len(chunk_ids)
+    del user_docs[document_id]
+
+    log.info("runtime.delete_document", user_id=user_id, document_id=document_id, chunks_deleted=chunks_deleted)
+
+    return RuntimeDocumentDeleteResponse(document_id=document_id, chunks_deleted=chunks_deleted)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/runtime/documents/query
+# ---------------------------------------------------------------------------
+
+@router.post("/documents/query")
+async def runtime_documents_query(
+    body: RuntimeDocumentQueryRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """RAG query over the user's uploaded documents.
+
+    Proxy to the document_rag_query skill with user context injected.
+    """
+    from app.skills.schemas import DocumentRagQueryRequest
+
+    executor = DocumentRAGSkill()
+    req = DocumentRagQueryRequest(
+        query=body.query,
+        top_k=body.top_k,
+        document_ids=body.document_ids if body.document_ids else None,
+        user_id=str(current_user.id),
+    )
+    return await executor.execute(req)
+
+
+from app.skills.document_rag_query import DocumentRAGSkill

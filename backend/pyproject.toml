@@ -29,6 +29,22 @@ dependencies = [
     "playwright>=1.40.0",
     # Scheduler for scheduled job firing
     "apscheduler>=3.10.4",
+    # Document parsing
+    "pdfplumber>=0.11.0",
+    "PyPDF2>=3.0.0",
+    "python-docx>=1.1.0",
+    "python-pptx>=1.0.0",
+    "pytesseract>=0.3.10",
+    "Pillow>=10.0.0",
+    # Video processing
+    "moviepy>=2.0.0",
+    "ffmpeg-python>=0.2.0",
+    # General document parsing (optional — fallback)
+    "unstructured>=0.15.0",
+    # LlamaParse — premium document parsing (PDF, DOCX, PPTX, etc.)
+    "llamaparse>=0.1.0",
+    # Embeddings / vector store
+    "chromadb>=0.5.0",
 ]
 
 [project.optional-dependencies]
