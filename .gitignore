@@ -77,3 +77,5 @@ chat_result.json
 fronte
 data/memory_store.json
 data/job_store.json
+
+.vercel
