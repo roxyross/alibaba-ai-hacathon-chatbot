@@ -1,0 +1,22 @@
+# Files/dirs to exclude from gcloud uploads
+.git/
+.gitignore
+.github/
+node_modules/
+frontend/node_modules/
+backend/.venv/
+backend/.pytest_cache/
+backend/data/
+*.pyc
+__pycache__/
+*.md
+!README.md
+CLAUDE.md
+LICENSE
+*.log
+.env
+.env.example
+.vercel/
+render.yaml
+vercel.json
+cloudbuild.yaml

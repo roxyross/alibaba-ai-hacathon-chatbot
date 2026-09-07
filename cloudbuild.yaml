@@ -1,0 +1,75 @@
+# Cloud Build — ROXY AI Backend
+# Triggers on: push to `master` branch
+# Deploys to: Cloud Run (us-central1)
+#
+# Setup:
+#   1. gcloud builds triggers create --repo=roxy-personal-ai ...
+#   2. Or create manually in Cloud Console > Cloud Build > Triggers
+
+steps:
+  # Step 1: Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/roxy-ai-backend:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/roxy-ai-backend:latest'
+      - '-f'
+      - 'huggingface-space-roxy-hub/Dockerfile'
+      - '.'
+
+  # Step 2: Push to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/roxy-ai-backend:$COMMIT_SHA'
+    waitFor: ['-']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/roxy-ai-backend:latest'
+    waitFor: ['-']
+
+  # Step 3: Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'roxy-ai-backend'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/roxy-ai-backend:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '10'
+      - '--concurrency'
+      - '80'
+      - '--timeout'
+      - '300'
+      - '--set-env-vars'
+      - 'PORT=8080,PYTHONPATH=/app'
+      - '--allow-unauthenticated'
+
+# Store images in Container Registry
+images:
+  - 'gcr.io/$PROJECT_ID/roxy-ai-backend:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/roxy-ai-backend:latest'
+
+# Build timeout
+timeout: '1200s'
+
+# Build options
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
