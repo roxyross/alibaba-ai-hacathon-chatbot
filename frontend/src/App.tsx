@@ -1,12 +1,11 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AuthProvider, AuthGate, useAuth } from './auth';
 import { ChatWindow } from './components/ChatWindow';
-import { ChatInput } from './components/ChatInput';
 import { FinanceDashboard } from './components/FinanceDashboard/FinanceDashboard';
-import { SessionSidebar } from './session';
+import { SessionSidebar, type AppView } from './session';
 import { useSessions, type ChatSession, type CreateSessionInput } from './session';
 import { useSessionMessages, type ChatMessageRecord } from './chat_history';
-import { ModelPicker, type ModelSelection } from './model_provider';
+import { type ModelSelection } from './model_provider';
 import { useChat } from './hooks/useChat';
 import {
   SensitiveActionConfirm,
@@ -27,17 +26,32 @@ const RUNTIME_URL =
   (import.meta as { env: { VITE_RUNTIME_URL?: string } }).env.VITE_RUNTIME_URL ??
   'http://localhost:8000';
 
-export type AppView = 'chat' | 'finance' | 'jobs' | 'email' | 'voice' | 'documents';
-
 export function ChatScreen() {
   const { accessToken, signOut, user } = useAuth();
   const { create } = useSessions();
 
   const [activeSession, setActiveSession] = useState<ChatSession | null>(null);
-  const [modelSelection, setModelSelection] = useState<ModelSelection | null>(
-    null,
-  );
+  // Default to Runtime Coordinator so buttons and prompt cards immediately work without blocking
+  const [modelSelection, setModelSelection] = useState<ModelSelection | null>({
+    provider: 'runtime',
+    model: 'coordinator',
+  });
   const [activeView, setActiveView] = useState<AppView>('chat');
+
+  // Light / Dark mode toggle with persistent state
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('roxy-theme');
+    return saved === 'light' || saved === 'dark' ? saved : 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('roxy-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   // History for the active session, if any.
   const history = useSessionMessages(activeSession?.id ?? null);
@@ -65,34 +79,40 @@ export function ChatScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // When the user clicks a past session, adopt its model and let history load.
-  const handleSelectSession = useCallback((s: ChatSession) => {
-    setActiveSession(s);
-    setModelSelection({ provider: s.provider, model: s.model });
-  }, []);
+  const handleSelectSession = useCallback(
+    (s: ChatSession) => {
+      chat.clearMessages();
+      setActiveSession(s);
+      setModelSelection({ provider: s.provider, model: s.model });
+      setActiveView('chat');
+    },
+    [chat],
+  );
 
-  // "New chat" — clear active session so the picker is required again.
+  // "New chat" — clear active session and in-flight messages, keep selected model, and switch back to chat view.
   const handleNewChat = useCallback(() => {
+    chat.clearMessages();
     setActiveSession(null);
-    setModelSelection(null);
+    setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
     setActiveView('chat');
-  }, []);
+    void history.reload();
+  }, [chat, history]);
 
   // After a turn completes in a brand-new (just-created) session, adopt it
   // as the active session so the sidebar highlights it.
   const handleSend = useCallback(
     async (text: string) => {
-      if (!modelSelection) return;
+      const activeModel = modelSelection ?? { provider: 'runtime', model: 'coordinator' };
       let session = activeSession;
       if (!session) {
         session = await create({
-          provider: modelSelection.provider,
-          model: modelSelection.model,
+          provider: activeModel.provider,
+          model: activeModel.model,
         } satisfies CreateSessionInput);
         setActiveSession(session);
       }
-      await chat.sendMessage(text);
+      await chat.sendMessage(text, session?.id);
       // Refresh history once the server has persisted the turn.
-      // (A small delay keeps the read from racing the write on slow boxes.)
       window.setTimeout(() => {
         void history.reload();
       }, 500);
@@ -107,7 +127,10 @@ export function ChatScreen() {
     if (activeSession) {
       const historyMsgs = history.messages.map(toUiMessage);
       if (chat.messages.length > 0) {
-        return [...historyMsgs, ...chat.messages.map(toUiMessage)];
+        if (historyMsgs.length >= chat.messages.length) {
+          return historyMsgs;
+        }
+        return [...historyMsgs, ...chat.messages.slice(historyMsgs.length).map(toUiMessage)];
       }
       return historyMsgs;
     }
@@ -127,8 +150,10 @@ export function ChatScreen() {
 
       <SessionSidebar
         activeSessionId={activeSession?.id ?? null}
+        activeView={activeView}
         onSelect={(s) => { handleSelectSession(s); setSidebarOpen(false); }}
         onNewChat={() => { handleNewChat(); setSidebarOpen(false); }}
+        onViewChange={(view) => { setActiveView(view); setSidebarOpen(false); }}
       />
 
       <div className="app__main">
@@ -157,63 +182,16 @@ export function ChatScreen() {
           <div className="app__header-right">
             {user && <span className="app__user">{user.email}</span>}
 
-            {/* View switcher */}
-            <div className="app__views" role="group" aria-label="App views">
-              {activeView === 'chat' && (
-                <>
-                  <button
-                    type="button"
-                    className="app__view-btn"
-                    onClick={() => setActiveView('voice')}
-                    title="Voice"
-                  >
-                    🎙️
-                  </button>
-                  <button
-                    type="button"
-                    className="app__view-btn"
-                    onClick={() => setActiveView('finance')}
-                    title="Finance"
-                  >
-                    💰
-                  </button>
-                  <button
-                    type="button"
-                    className="app__view-btn"
-                    onClick={() => setActiveView('jobs')}
-                    title="Scheduled Jobs"
-                  >
-                    ⏰
-                  </button>
-                  <button
-                    type="button"
-                    className="app__view-btn"
-                    onClick={() => setActiveView('email')}
-                    title="Email"
-                  >
-                    📧
-                  </button>
-                  <button
-                    type="button"
-                    className="app__view-btn"
-                    onClick={() => setActiveView('documents')}
-                    title="Documents"
-                  >
-                    📄
-                  </button>
-                </>
-              )}
-              {(activeView === 'finance' || activeView === 'jobs' || activeView === 'email' || activeView === 'voice' || activeView === 'documents') && (
-                <button
-                  type="button"
-                  className="app__view-btn"
-                  onClick={() => setActiveView('chat')}
-                  title="Back to Chat"
-                >
-                  💬
-                </button>
-              )}
-            </div>
+            {/* Light / Dark Mode Toggle */}
+            <button
+              type="button"
+              className="theme-toggle-btn"
+              onClick={toggleTheme}
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
 
             <button
               type="button"
@@ -229,22 +207,24 @@ export function ChatScreen() {
         </header>
 
         {activeView === 'finance' ? (
-          <FinanceDashboard accessToken={accessToken} />
+          <FinanceDashboard accessToken={accessToken} onBack={() => setActiveView('chat')} />
         ) : activeView === 'jobs' ? (
-          <ScheduledJobsPanel accessToken={accessToken} />
+          <ScheduledJobsPanel accessToken={accessToken} onBack={() => setActiveView('chat')} />
         ) : activeView === 'email' ? (
           <EmailSendPanel
             accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
             onConfirmRequired={(token, skill, action) => {
               triggerConfirmation(token, skill, action);
             }}
           />
         ) : activeView === 'voice' ? (
-          <VoiceSession accessToken={accessToken} />
+          <VoiceSession accessToken={accessToken} onBack={() => setActiveView('chat')} />
         ) : activeView === 'documents' ? (
           <DocumentUpload
             accessToken={accessToken}
             runtimeUrl={isRuntime ? RUNTIME_URL : undefined}
+            onBack={() => setActiveView('chat')}
             onUploadDone={(_result) => {
               // After upload, user can ask about the document
               setActiveView('chat');
@@ -260,14 +240,11 @@ export function ChatScreen() {
               needsClarification={chat.needsClarification}
               nextActions={chat.nextActions}
               onSend={handleSend}
-            />
-            <ChatInput
-              onSend={handleSend}
-              isStreaming={chat.isStreaming}
+              modelSelection={modelSelection}
+              onModelChange={setModelSelection}
+              onVoiceClick={() => setActiveView('voice')}
+              onAttachmentClick={() => setActiveView('documents')}
               disabledNoModel={!modelSelection}
-              leftSlot={
-                <ModelPicker value={modelSelection} onChange={setModelSelection} />
-              }
             />
           </div>
         )}

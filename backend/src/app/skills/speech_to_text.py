@@ -51,32 +51,67 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
             )
 
     async def _whisper(self, audio_bytes: bytes, language: str | None) -> tuple[str, float | None]:
-        """Transcribe via OpenAI Whisper API (routed through AI gateway)."""
+        """Transcribe via Groq Whisper API (primary, ultra-fast) or OpenAI Whisper."""
         import os
+        import io
+        import httpx
 
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-        if not api_key:
+        grok_key = os.environ.get("GROK_API_KEY", "").strip()
+        openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+
+        if not grok_key and not openai_key:
             return self._mock_transcribe(), None
 
-        import httpx
-        import io
+        # Determine audio filename & mime type
+        is_webm = audio_bytes.startswith(b"\x1a\x45\xdf\xa3") or len(audio_bytes) > 4 and audio_bytes[:4] != b"RIFF"
+        filename = "audio.webm" if is_webm else "audio.wav"
+        mime_type = "audio/webm" if is_webm else "audio/wav"
 
-        file_obj = io.BytesIO(audio_bytes)
-        files = {"file": ("audio.wav", file_obj, "audio/wav")}
-        data = {"model": "whisper-1"}
-        if language:
-            data["language"] = language
+        # 1. Try Groq Whisper (blazing fast, high accuracy, active key)
+        if grok_key:
+            try:
+                files = {"file": (filename, io.BytesIO(audio_bytes), mime_type)}
+                data = {"model": "whisper-large-v3-turbo"}
+                if language:
+                    data["language"] = language
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/audio/transcriptions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                files=files,
-                data=data,
-            )
-        resp.raise_for_status()
-        result = resp.json()
-        return result.get("text", ""), result.get("confidence", None)
+                async with httpx.AsyncClient(timeout=25.0) as client:
+                    resp = await client.post(
+                        "https://api.groq.com/openai/v1/audio/transcriptions",
+                        headers={"Authorization": f"Bearer {grok_key}"},
+                        files=files,
+                        data=data,
+                    )
+                if resp.is_success:
+                    result = resp.json()
+                    return result.get("text", ""), None
+                else:
+                    log.warning("speech_to_text.groq_failed", status=resp.status_code, body=resp.text[:200])
+            except Exception as exc:
+                log.warning("speech_to_text.groq_exc", error=str(exc))
+
+        # 2. Fallback to OpenAI Whisper
+        if openai_key:
+            try:
+                files = {"file": (filename, io.BytesIO(audio_bytes), mime_type)}
+                data = {"model": "whisper-1"}
+                if language:
+                    data["language"] = language
+
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(
+                        "https://api.openai.com/v1/audio/transcriptions",
+                        headers={"Authorization": f"Bearer {openai_key}"},
+                        files=files,
+                        data=data,
+                    )
+                if resp.is_success:
+                    result = resp.json()
+                    return result.get("text", ""), result.get("confidence", None)
+            except Exception as exc:
+                log.warning("speech_to_text.openai_exc", error=str(exc))
+
+        return self._mock_transcribe(), None
 
     async def _deepgram(self, audio_bytes: bytes, language: str | None) -> tuple[str, float | None]:
         """Transcribe via Deepgram API."""

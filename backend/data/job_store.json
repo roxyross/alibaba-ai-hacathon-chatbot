@@ -1,0 +1,57 @@
+{
+  "3aaa55bf-da60-4230-8cac-663f1603c4bd": {
+    "3485828d-13ab-41f0-8732-db4851784b2a": {
+      "name": "Morning Briefing",
+      "schedule": "0 8 * * 1-5",
+      "timezone": "UTC",
+      "action": {
+        "agent_slug": "research",
+        "skill_slug": null,
+        "inputs": {
+          "message": "test"
+        }
+      },
+      "confirm_on_fire": false,
+      "status": "active",
+      "created_at": "2026-09-07T19:12:15.004667+00:00",
+      "next_fire_at": "2026-09-08T19:12:15.004635+00:00",
+      "tag": null
+    },
+    "60a43fdd-0c7c-4bc1-a233-fc40441b4343": {
+      "name": "Morning Briefing",
+      "schedule": "0 8 * * 1-5",
+      "timezone": "UTC",
+      "action": {
+        "agent_slug": "research",
+        "skill_slug": null,
+        "inputs": {
+          "message": "Morning briefing"
+        }
+      },
+      "confirm_on_fire": false,
+      "status": "active",
+      "created_at": "2026-09-07T19:12:49.408355+00:00",
+      "next_fire_at": "2026-09-08T19:12:49.408320+00:00",
+      "tag": null
+    }
+  },
+  "954cd197-3e45-47ec-bced-c881355c53eb": {
+    "588ad423-42ef-41ce-9428-bc3ab0c1706d": {
+      "name": "Panel Verified Job",
+      "schedule": "0 9 * * *",
+      "timezone": "UTC",
+      "action": {
+        "agent_slug": "automation",
+        "skill_slug": null,
+        "inputs": {
+          "message": "Daily briefing"
+        }
+      },
+      "confirm_on_fire": false,
+      "status": "active",
+      "created_at": "2026-09-07T19:27:17.320232+00:00",
+      "next_fire_at": "2026-09-08T19:27:17.320123+00:00",
+      "tag": null
+    }
+  }
+}

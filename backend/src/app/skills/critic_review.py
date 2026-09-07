@@ -90,7 +90,7 @@ class CriticReviewSkill(SkillExecutor[CriticReviewRequest, CriticReviewResponse]
                 stream=False,
             )
             response: AIResponse = await self._router.route(request)
-            return response.choices[0].message.content
+            return getattr(response, "content", None) or (response.choices[0].message.content if hasattr(response, "choices") else str(response))
         except Exception as exc:
             log.warning("critic_review.internal_gateway_fallback", error=str(exc))
 
@@ -110,7 +110,7 @@ class CriticReviewSkill(SkillExecutor[CriticReviewRequest, CriticReviewResponse]
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            return data.get("content") or data.get("response") or (data.get("choices", [{}])[0].get("message", {}).get("content", ""))
 
 
 def _build_system_prompt(content_type: str, depth: str, criteria: list[str]) -> str:

@@ -16,8 +16,7 @@ class EmailDraftSkill(SkillExecutor[EmailDraftRequest, EmailDraftResponse]):
     slug = "email_draft"
 
     async def execute(self, input_data: EmailDraftRequest) -> EmailDraftResponse:
-        policy = EmailPolicy(max_line_length=0, encodeutf8=False)
-        msg = EmailMessage(policy=policy)
+        msg = EmailMessage()
 
         msg["To"] = input_data.to
         msg["Subject"] = input_data.subject

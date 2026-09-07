@@ -230,12 +230,14 @@ export interface DocumentUploadProps {
   runtimeUrl?: string;
   /** Called after a successful upload */
   onUploadDone?: (result: { document_id: string; document_name: string }) => void;
+  onBack?: () => void;
 }
 
 export function DocumentUpload({
   accessToken,
   runtimeUrl,
   onUploadDone,
+  onBack,
 }: DocumentUploadProps) {
   const { upload, listDocuments, deleteDocument, uploading, error, uploadProgress, clearError } =
     useDocumentUpload({ runtimeUrl, accessToken });
@@ -384,6 +386,13 @@ export function DocumentUpload({
 
   return (
     <div className="document-upload">
+      {onBack && (
+        <div style={{ marginBottom: '1rem' }}>
+          <button type="button" className="view-back-btn" onClick={onBack}>
+            ← Back to Chat
+          </button>
+        </div>
+      )}
       {/* Preview modal */}
       {previewModal && (
         <MediaPreview preview={previewModal} onClose={() => setPreviewModal(null)} />

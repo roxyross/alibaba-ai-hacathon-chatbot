@@ -49,8 +49,9 @@ export function useChat(options: UseChatOptions = {}) {
   const abortRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, overrideSessionId?: string) => {
       const useStreaming = options.streaming;
+      const targetSessionId = overrideSessionId || options.sessionId;
 
       setState((prev) => ({
         ...prev,
@@ -84,7 +85,9 @@ export function useChat(options: UseChatOptions = {}) {
             headers,
             body: JSON.stringify({
               message: content,
-              ...(options.sessionId ? { session_id: options.sessionId } : {}),
+              ...(targetSessionId ? { session_id: targetSessionId } : {}),
+              ...(options.provider ? { provider: options.provider } : {}),
+              ...(options.model ? { model: options.model } : {}),
             }),
             signal: abortRef.current.signal,
           });
@@ -183,27 +186,41 @@ export function useChat(options: UseChatOptions = {}) {
             headers,
             body: JSON.stringify({
               message: content,
-              ...(options.sessionId ? { session_id: options.sessionId } : {}),
+              ...(targetSessionId ? { session_id: targetSessionId } : {}),
+              ...(options.provider ? { provider: options.provider } : {}),
+              ...(options.model ? { model: options.model } : {}),
             }),
             signal: abortRef.current.signal,
           });
 
           if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            const errText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errText || response.statusText}`);
           }
 
           const data = await response.json();
 
           if (data.status === 'error' || data.error) {
+            const errorMsg = data.detail || data.error || 'Unknown error';
             setState((prev) => ({
               ...prev,
               isStreaming: false,
-              error: data.detail || data.error || 'Unknown error',
+              error: errorMsg,
+              messages: [
+                ...prev.messages,
+                { role: 'assistant', content: `Error: ${errorMsg}` },
+              ],
             }));
             return;
           }
 
-          const assistantContent = data.response ?? '';
+          let assistantContent = data.response || data.content || '';
+          if (!assistantContent && data.next_actions && data.next_actions.length > 0) {
+            assistantContent = data.next_actions.join('\n\n');
+          }
+          if (!assistantContent) {
+            assistantContent = "Hello! I received your message. How can I assist you today?";
+          }
 
           setState((prev) => ({
             ...prev,
@@ -222,10 +239,15 @@ export function useChat(options: UseChatOptions = {}) {
         }
       } catch (err) {
         if ((err as Error).name === 'AbortError') return;
+        const msg = (err as Error).message || 'Failed to communicate with assistant';
         setState((prev) => ({
           ...prev,
           isStreaming: false,
-          error: (err as Error).message,
+          error: msg,
+          messages: [
+            ...prev.messages,
+            { role: 'assistant', content: `Unable to get response: ${msg}` },
+          ],
         }));
       }
     },
@@ -245,6 +267,19 @@ export function useChat(options: UseChatOptions = {}) {
     setState((prev) => ({ ...prev, isStreaming: false }));
   }, []);
 
-  return { ...state, sendMessage, abort };
+  const clearMessages = useCallback(() => {
+    abortRef.current?.abort();
+    setState({
+      messages: [],
+      attribution: null,
+      isStreaming: false,
+      error: null,
+      needsClarification: false,
+      nextActions: [],
+      criticReview: null,
+    });
+  }, []);
+
+  return { ...state, sendMessage, abort, clearMessages };
 }
 

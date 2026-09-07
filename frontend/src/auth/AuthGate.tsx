@@ -55,6 +55,7 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
     'request',
   );
   const [manualToken, setManualToken] = useState('');
+  const [oauthErrorMessage, setOauthErrorMessage] = useState<string | null>(null);
 
   // Handle deep links from both auth flows on initial render:
   //   - Magic link: /auth/callback?token=...
@@ -68,40 +69,38 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
     const oauthError = hashParams.get('error');
 
     if (oauthError) {
-      // Surface the OAuth error inline and strip the hash so reloads
-      // don't re-trigger.
-      // eslint-disable-next-line no-console
+      // Surface the OAuth error inline and redirect cleanly to /
       console.error('OAuth error:', oauthError);
-      window.history.replaceState({}, '', url.pathname + url.search);
+      setOauthErrorMessage(`OAuth failed: ${oauthError.replace(/_/g, ' ')}`);
+      window.history.replaceState({}, '', '/');
       return;
     }
 
     if (oauthToken) {
       setPhase('verifying');
+      setOauthErrorMessage(null);
       completeOAuth(oauthToken)
         .then(() => {
-          window.history.replaceState({}, '', url.pathname + url.search);
+          window.history.replaceState({}, '', '/');
         })
         .catch((err) => {
           setPhase('request');
-          // eslint-disable-next-line no-console
-          console.error('oauth completeOAuth failed', err);
+          setOauthErrorMessage((err as Error).message || 'OAuth sign-in failed');
+          window.history.replaceState({}, '', '/');
         });
       return;
     }
 
     if (!token) return;
     setPhase('verifying');
+    setOauthErrorMessage(null);
     verify(token)
       .then(() => {
-        // Strip the query string so reloads don't re-verify a spent token.
-        url.searchParams.delete('token');
-        window.history.replaceState({}, '', url.pathname + url.search);
+        window.history.replaceState({}, '', '/');
       })
       .catch((err) => {
         setPhase('pending');
         setManualToken(token);
-        // eslint-disable-next-line no-console
         console.error('verify failed', err);
       });
   }, [verify, completeOAuth]);
@@ -117,6 +116,9 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
   }
 
   if (user && accessToken) {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/auth')) {
+      window.history.replaceState({}, '', '/');
+    }
     return <>{children}</>;
   }
 
@@ -197,7 +199,9 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
               <span>Continue with GitHub</span>
             </button>
 
-            {error && <p className="auth-gate__error">{error}</p>}
+            {(oauthErrorMessage || error) && (
+              <p className="auth-gate__error">{oauthErrorMessage || error}</p>
+            )}
           </>
         )}
 

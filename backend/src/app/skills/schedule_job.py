@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone as dt_timezone
 from pathlib import Path
 from typing import Any
 
@@ -117,7 +117,7 @@ class JobStore:
             return "", f"Job action uses a sensitive skill ('{action.skill_slug}'). Set confirm_on_fire: true to allow."
 
         job_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
+        now = datetime.now(dt_timezone.utc)
         job = {
             "name": name,
             "schedule": schedule,
@@ -205,7 +205,7 @@ class JobStore:
         if re.match(r"^\d{4}-\d{2}-\d{2}", schedule):
             try:
                 dt = datetime.fromisoformat(schedule.replace("Z", "+00:00"))
-                return dt.astimezone(timezone.utc) if dt.tzinfo is None else dt
+                return dt.astimezone(dt_timezone.utc) if dt.tzinfo is None else dt
             except Exception:
                 return None
         # Cron: 5 fields
@@ -218,7 +218,7 @@ class JobStore:
             # The runtime's scheduler will validate at fire time
             # Return a placeholder far future so create succeeds
             from datetime import timedelta
-            return datetime.now(timezone.utc) + timedelta(days=1)
+            return datetime.now(dt_timezone.utc) + timedelta(days=1)
         return None
 
 

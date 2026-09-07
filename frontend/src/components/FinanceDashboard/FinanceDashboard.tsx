@@ -6,7 +6,12 @@ import { useFinance } from '../../hooks/useFinance';
 import type { Budget, SpendingAlert, Transaction } from '../../hooks/useFinance';
 import './FinanceDashboard.css';
 
-const API_BASE = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '/api/v1';
+const rawApiBase =
+  (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
+  '/api/v1';
+const API_BASE = rawApiBase.endsWith('/api/v1')
+  ? rawApiBase
+  : `${rawApiBase.replace(/\/+$/, '')}/api/v1`;
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -593,9 +598,10 @@ const MonthSpendingCard: React.FC<MonthSpendingCardProps> = ({
 
 interface FinanceDashboardProps {
   accessToken?: string | null;
+  onBack?: () => void;
 }
 
-export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ accessToken }) => {
+export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ accessToken, onBack }) => {
   const {
     summary,
     transactions,
@@ -616,6 +622,11 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ accessToken 
   if (error) {
     return (
       <div className="finance">
+        {onBack && (
+          <button type="button" className="view-back-btn" onClick={onBack} style={{ marginBottom: '1rem' }}>
+            ← Back to Chat
+          </button>
+        )}
         <div className="finance-card" style={{ borderColor: 'var(--color-error)' }}>
           <p className="finance-card__title" style={{ color: 'var(--color-error)' }}>
             Error
@@ -638,9 +649,16 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ accessToken 
   return (
     <div className="finance">
       <div className="finance__header">
-        <h2 className="finance__title">
-          💰 <span>Finance</span>
-        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {onBack && (
+            <button type="button" className="view-back-btn" onClick={onBack} title="Back to Chat">
+              ← Back to Chat
+            </button>
+          )}
+          <h2 className="finance__title">
+            💰 <span>Finance</span>
+          </h2>
+        </div>
         <button
           onClick={() => void fetchSummary()}
           title="Refresh"

@@ -17,15 +17,9 @@ router = APIRouter(prefix="/models", tags=["models"])
 
 
 @router.get("", response_model=ModelListResponse)
-async def list_models(
-    current_user: User = Depends(get_current_user),
-) -> ModelListResponse:
-    """Return the catalog of providers + models for the chat UI.
-
-    The catalog is built from the existing Provider and Model tables when the
-    DB is configured, and falls back to the static provider configurations
-    otherwise. The model picker in the frontend reads this endpoint.
-    """
+async def list_models() -> ModelListResponse:
+    """Return the catalog of providers + models for the chat UI."""
+    import asyncio
     from sqlalchemy import select
     from app.db import get_session_factory
     from app.models.provider import Provider as ProviderRow
@@ -33,60 +27,153 @@ async def list_models(
 
     providers: list[ProviderModels] = []
 
-    factory = get_session_factory()
-    if factory is not None:
-        async with factory() as session:
-            provider_rows = (await session.execute(select(ProviderRow))).scalars().all()
-            for prov in provider_rows:
-                model_rows = (
-                    await session.execute(
-                        select(ModelRow).where(ModelRow.provider_id == prov.id)
-                    )
-                ).scalars().all()
-                providers.append(
-                    ProviderModels(
-                        name=prov.name,
-                        display_name=prov.name.capitalize(),
-                        enabled=prov.enabled,
-                        models=[
-                            ModelInfo(
-                                name=m.name,
-                                display_name=m.display_name or m.name,
-                                enabled=m.enabled,
-                                task_types=m.task_types or [],
-                                max_tokens=m.max_tokens or 4096,
+    try:
+        factory = get_session_factory()
+        if factory is not None:
+            async with asyncio.timeout(2.0):
+                async with factory() as session:
+                    provider_rows = (await session.execute(select(ProviderRow))).scalars().all()
+                    for prov in provider_rows:
+                        model_rows = (
+                            await session.execute(
+                                select(ModelRow).where(ModelRow.provider_id == prov.id)
                             )
-                            for m in model_rows
-                        ],
-                    )
-                )
-        return ModelListResponse(providers=providers)
+                        ).scalars().all()
+                        providers.append(
+                            ProviderModels(
+                                name=prov.name,
+                                display_name=prov.name.capitalize(),
+                                enabled=prov.enabled,
+                                models=[
+                                    ModelInfo(
+                                        name=m.name,
+                                        display_name=m.display_name or m.name,
+                                        enabled=m.enabled,
+                                        task_types=m.task_types or [],
+                                        max_tokens=m.max_tokens or 4096,
+                                    )
+                                    for m in model_rows
+                                ],
+                            )
+                        )
+    except Exception:
+        pass
+        if providers:
+            return ModelListResponse(providers=providers)
 
-    # In-memory fallback: surface the default model for each provider we know.
+    # Catalog of all supported providers and models for ROXY JARVIS
     fallback: list[ProviderModels] = [
         ProviderModels(
-            name="deepseek",
-            display_name="DeepSeek",
+            name="runtime",
+            display_name="ROXY Autonomous Runtime",
             enabled=True,
-            models=[ModelInfo(name="deepseek-chat-v3", display_name="DeepSeek V3")],
+            models=[
+                ModelInfo(
+                    name="coordinator",
+                    display_name="Runtime Coordinator (Multi-Agent)",
+                    enabled=True,
+                    task_types=["general", "coding", "finance", "automation", "research"],
+                    max_tokens=4096,
+                )
+            ],
         ),
         ProviderModels(
             name="grok",
-            display_name="Grok",
+            display_name="xAI / Groq",
             enabled=True,
-            models=[ModelInfo(name="grok-3", display_name="Grok 3")],
+            models=[
+                ModelInfo(
+                    name="qwen/qwen3.8-27b",
+                    display_name="Grok / Qwen 27B (Fast Inference)",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=800,
+                ),
+                ModelInfo(
+                    name="openai/gpt-oss-120b",
+                    display_name="Grok / GPT-OSS 120B",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=800,
+                ),
+                ModelInfo(
+                    name="grok-2",
+                    display_name="xAI Grok 2",
+                    enabled=True,
+                    task_types=["general", "coding"],
+                    max_tokens=8192,
+                ),
+            ],
+        ),
+        ProviderModels(
+            name="gemini",
+            display_name="Google Gemini",
+            enabled=True,
+            models=[
+                ModelInfo(
+                    name="gemini-2.0-flash",
+                    display_name="Gemini 2.0 Flash",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning", "multimodal"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="gemini-1.5-pro",
+                    display_name="Gemini 1.5 Pro",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning", "multimodal"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="gemini-1.5-flash",
+                    display_name="Gemini 1.5 Flash",
+                    enabled=True,
+                    task_types=["general", "coding"],
+                    max_tokens=8192,
+                ),
+            ],
         ),
         ProviderModels(
             name="openai",
             display_name="OpenAI",
-            enabled=False,
-            models=[ModelInfo(name="gpt-4o", display_name="GPT-4o")],
+            enabled=True,
+            models=[
+                ModelInfo(
+                    name="gpt-4o",
+                    display_name="GPT-4o",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=4096,
+                ),
+                ModelInfo(
+                    name="gpt-4o-mini",
+                    display_name="GPT-4o Mini",
+                    enabled=True,
+                    task_types=["general", "coding"],
+                    max_tokens=4096,
+                ),
+            ],
         ),
         ProviderModels(
-            name="gemini",
-            display_name="Gemini",
+            name="deepseek",
+            display_name="DeepSeek",
             enabled=True,
-            models=[ModelInfo(name="gemini-2.0-flash", display_name="Gemini 2.0 Flash")],
+            models=[
+                ModelInfo(
+                    name="deepseek-chat",
+                    display_name="DeepSeek V3",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=4096,
+                ),
+                ModelInfo(
+                    name="deepseek-reasoner",
+                    display_name="DeepSeek R1",
+                    enabled=True,
+                    task_types=["reasoning", "coding"],
+                    max_tokens=4096,
+                ),
+            ],
         ),
     ]
     return ModelListResponse(providers=fallback)

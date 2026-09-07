@@ -42,7 +42,7 @@ steps:
       - '--image'
       - 'gcr.io/$PROJECT_ID/roxy-ai-backend:$COMMIT_SHA'
       - '--region'
-      - 'us-central1'
+      - '${_REGION}'
       - '--platform'
       - 'managed'
       - '--memory'
@@ -57,8 +57,10 @@ steps:
       - '80'
       - '--timeout'
       - '300'
+      - '--port'
+      - '8080'
       - '--set-env-vars'
-      - 'PORT=8080,PYTHONPATH=/app'
+      - 'PYTHONPATH=/app'
       - '--allow-unauthenticated'
 
 # Store images in Container Registry

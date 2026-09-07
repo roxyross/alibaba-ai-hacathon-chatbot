@@ -38,11 +38,10 @@ PROVIDER_BASE_URLS: dict[str, str] = {
 }
 
 # Routing priority: lower number = higher priority.
-# Active providers: Gemini (primary) → Grok (fallback).
-# DeepSeek and OpenAI remain registered but are disabled via feature flags.
+# Grok (primary, active key) → Gemini (fallback / rate-limited) → DeepSeek → OpenAI.
 DEFAULT_ROUTING_PRIORITY: dict[str, int] = {
-    "gemini": 1,
-    "grok": 2,
+    "grok": 1,
+    "gemini": 2,
     "deepseek": 3,
     "openai": 4,
 }
@@ -113,14 +112,16 @@ def _default_models(provider: str) -> tuple[ModelConfig, ...]:
             ModelConfig(name="deepseek-reasoner", display_name="DeepSeek R1", task_types=("reasoning",), cost_per_1k_input=0.001, cost_per_1k_output=0.006, max_tokens=64000),
         ),
         "grok": (
-            ModelConfig(name="grok-3", display_name="Grok 3", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.005, cost_per_1k_output=0.015, max_tokens=131072),
-            ModelConfig(name="grok-2", display_name="Grok 2", task_types=("general",), cost_per_1k_input=0.002, cost_per_1k_output=0.01, max_tokens=131072),
+            ModelConfig(name="qwen/qwen3.8-27b", display_name="Grok / Qwen 27B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
+            ModelConfig(name="openai/gpt-oss-120b", display_name="Grok / GPT-OSS 120B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
+            ModelConfig(name="grok-2", display_name="Grok 2", task_types=("general", "coding"), cost_per_1k_input=0.002, cost_per_1k_output=0.01, max_tokens=131072),
         ),
         "openai": (
             ModelConfig(name="gpt-4o", display_name="GPT-4o", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0025, cost_per_1k_output=0.01, max_tokens=128000),
             ModelConfig(name="gpt-4o-mini", display_name="GPT-4o Mini", task_types=("general", "coding"), cost_per_1k_input=0.00015, cost_per_1k_output=0.0006, max_tokens=128000),
         ),
         "gemini": (
+            ModelConfig(name="gemini-3.6-flash", display_name="Gemini 3.6 Flash", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
             ModelConfig(name="gemini-2.0-flash", display_name="Gemini 2.0 Flash", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
             ModelConfig(name="gemini-1.5-pro", display_name="Gemini 1.5 Pro", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.00125, cost_per_1k_output=0.005, max_tokens=2000000),
         ),

@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # -----------------------------------------------------------------------------
@@ -84,6 +84,7 @@ class AIResponse(BaseModel):
 
     user_id: str | None = None
     content: str
+    response: str | None = None
     provider: str
     model: str
     agent_id: str
@@ -92,6 +93,12 @@ class AIResponse(BaseModel):
     cost_usd: float = 0.0
     latency_ms: int = 0
     request_id: UUID
+
+    @model_validator(mode="after")
+    def populate_response(self) -> "AIResponse":
+        if not self.response and self.content:
+            self.response = self.content
+        return self
 
 
 class StreamingChunk(BaseModel):

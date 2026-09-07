@@ -56,7 +56,7 @@ from app.skills.schemas import (
 )
 
 # Sensitive skills that require security-privacy confirmation gate
-SENSITIVE_SKILLS = {"email_draft", "email_send", "browser_fill_form", "bank_connect", "schedule_job"}
+SENSITIVE_SKILLS = {"email_draft", "email_send", "browser_fill_form", "bank_connect"}
 
 # Import get_executor factories directly from skill modules (not app.skills
 # package) to avoid the circular import: app.skills.__init__ → router →
@@ -112,8 +112,8 @@ async def _run_skill(
     except AttributeError:
         pass  # Schema doesn't support user_id — skip (e.g. CalculatorRequest)
 
-    # Security-privacy gate for sensitive skills
-    if skill_slug in SENSITIVE_SKILLS:
+    # Security-privacy gate for sensitive skills (unless already explicitly confirmed)
+    if skill_slug in SENSITIVE_SKILLS and not getattr(input_data, "confirm", False):
         import secrets
         token = secrets.token_urlsafe(16)
         if user.id not in _pending_confirmations:

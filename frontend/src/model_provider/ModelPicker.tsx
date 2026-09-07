@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useModels } from './useModels';
+import { useModels, type ProviderModels, type ModelInfo } from './useModels';
 import './ModelPicker.css';
 
 export interface ModelSelection {
@@ -12,12 +12,130 @@ interface ModelPickerProps {
   onChange: (next: ModelSelection) => void;
 }
 
+const DEFAULT_PROVIDERS: ProviderModels[] = [
+  {
+    name: 'runtime',
+    display_name: 'ROXY Autonomous Runtime',
+    enabled: true,
+    models: [
+      {
+        name: 'coordinator',
+        display_name: 'Runtime Coordinator (Multi-Agent)',
+        enabled: true,
+        task_types: ['general'],
+        max_tokens: 4096,
+      },
+    ],
+  },
+  {
+    name: 'grok',
+    display_name: 'xAI / Groq',
+    enabled: true,
+    models: [
+      {
+        name: 'qwen/qwen3.8-27b',
+        display_name: 'Grok / Qwen 27B (Fast)',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 800,
+      },
+      {
+        name: 'openai/gpt-oss-120b',
+        display_name: 'Grok / GPT-OSS 120B',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 800,
+      },
+      {
+        name: 'grok-2',
+        display_name: 'xAI Grok 2',
+        enabled: true,
+        task_types: ['general'],
+        max_tokens: 8192,
+      },
+    ],
+  },
+  {
+    name: 'gemini',
+    display_name: 'Google Gemini',
+    enabled: true,
+    models: [
+      {
+        name: 'gemini-2.0-flash',
+        display_name: 'Gemini 2.0 Flash',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'gemini-1.5-pro',
+        display_name: 'Gemini 1.5 Pro',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'gemini-1.5-flash',
+        display_name: 'Gemini 1.5 Flash',
+        enabled: true,
+        task_types: ['general'],
+        max_tokens: 8192,
+      },
+    ],
+  },
+  {
+    name: 'openai',
+    display_name: 'OpenAI',
+    enabled: true,
+    models: [
+      {
+        name: 'gpt-4o',
+        display_name: 'GPT-4o',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 4096,
+      },
+      {
+        name: 'gpt-4o-mini',
+        display_name: 'GPT-4o Mini',
+        enabled: true,
+        task_types: ['general'],
+        max_tokens: 4096,
+      },
+    ],
+  },
+  {
+    name: 'deepseek',
+    display_name: 'DeepSeek',
+    enabled: true,
+    models: [
+      {
+        name: 'deepseek-chat',
+        display_name: 'DeepSeek V3',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 4096,
+      },
+      {
+        name: 'deepseek-reasoner',
+        display_name: 'DeepSeek R1',
+        enabled: true,
+        task_types: ['reasoning'],
+        max_tokens: 4096,
+      },
+    ],
+  },
+];
+
 export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => {
-  const { providers, loading, error } = useModels();
+  const { providers } = useModels();
 
   const grouped = useMemo(() => {
-    return providers.filter((p) => p.enabled);
+    const list = providers.length > 0 ? providers : DEFAULT_PROVIDERS;
+    return list.filter((p) => p.enabled);
   }, [providers]);
+
+  const currentValue = value ? `${value.provider}/${value.model}` : 'runtime/coordinator';
 
   return (
     <div className="model-picker">
@@ -27,29 +145,18 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
       <select
         id="model-picker-select"
         className="model-picker__select"
-        value={value ? `${value.provider}/${value.model}` : ''}
+        value={currentValue}
         onChange={(e) => {
           const [provider, ...rest] = e.target.value.split('/');
           if (!provider) return;
           onChange({ provider, model: rest.join('/') });
         }}
-        disabled={loading || !!error}
       >
-        <option value="" disabled>
-          {loading
-            ? 'Loading models…'
-            : error
-              ? 'Failed to load models'
-              : 'Select a model'}
-        </option>
-        <optgroup label="Runtime">
-          <option value="runtime/">Runtime Coordinator</option>
-        </optgroup>
         {grouped.map((p) => (
           <optgroup key={p.name} label={p.display_name || p.name}>
             {p.models
-              .filter((m) => m.enabled)
-              .map((m) => (
+              .filter((m: ModelInfo) => m.enabled)
+              .map((m: ModelInfo) => (
                 <option
                   key={`${p.name}/${m.name}`}
                   value={`${p.name}/${m.name}`}
@@ -60,7 +167,6 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
           </optgroup>
         ))}
       </select>
-      {error && <p className="model-picker__error">{error}</p>}
     </div>
   );
 };

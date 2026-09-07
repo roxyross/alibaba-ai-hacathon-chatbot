@@ -32,11 +32,13 @@ class GrokAdapter(AIProviderAdapter):
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
+            api_key = self._config.api_key or ""
+            base_url = "https://api.groq.com/openai/v1" if api_key.startswith("gsk_") else self._config.base_url
             self._client = httpx.AsyncClient(
-                base_url=self._config.base_url,
+                base_url=base_url,
                 timeout=httpx.Timeout(self.TIMEOUT_SECONDS, connect=5.0),
                 headers={
-                    "Authorization": f"Bearer {self._config.api_key}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
             )
@@ -116,11 +118,24 @@ class GrokAdapter(AIProviderAdapter):
             raise ProviderUnavailableError(self.provider_name, str(exc)) from exc
 
     def _build_payload(self, request: AIRequest, stream: bool) -> dict[str, Any]:
+        api_key = self._config.api_key or ""
+        is_groq = api_key.startswith("gsk_")
+        default_model = "qwen/qwen3.8-27b" if is_groq else "grok-3"
+        model = request.model
+        if is_groq and (not model or "grok" in model):
+            model = default_model
+        elif not model:
+            model = default_model
+
+        # Groq on-demand free tier has a 1000 output tokens per minute (OTPM) limit.
+        # Clamping max_tokens to 800 prevents HTTP 429 "Request too large for model on output tokens per minute".
+        max_tok = min(request.max_tokens or 800, 800) if is_groq else (request.max_tokens or 4096)
+
         return {
-            "model": request.model or "grok-3",
+            "model": model,
             "messages": [{"role": m.role.value, "content": m.content} for m in request.messages],
             "temperature": request.temperature,
-            "max_tokens": request.max_tokens or 4096,
+            "max_tokens": max_tok,
             "stream": stream,
         }
 

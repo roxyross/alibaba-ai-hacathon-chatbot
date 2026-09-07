@@ -4,9 +4,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './VoiceSession.css';
 
-const API_BASE =
+const rawApiBase =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
   '/api/v1';
+const API_BASE = rawApiBase.endsWith('/api/v1')
+  ? rawApiBase
+  : `${rawApiBase.replace(/\/+$/, '')}/api/v1`;
 
 type VoiceMode = 'ptt'; // push-to-talk; 'handsfree' can be added later
 
@@ -57,8 +60,9 @@ async function audioToBase64(blob: Blob): Promise<string> {
   });
 }
 
-export const VoiceSession: React.FC<{ accessToken?: string | null }> = ({
+export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () => void }> = ({
   accessToken,
+  onBack,
 }) => {
   const [mode, setMode] = useState<VoiceMode>('ptt');
   const [isRecording, setIsRecording] = useState(false);
@@ -272,7 +276,14 @@ export const VoiceSession: React.FC<{ accessToken?: string | null }> = ({
     >
       {/* Header */}
       <div className="vs__header">
-        <h2 className="vs__title">🎙️ <span>Voice</span></h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {onBack && (
+            <button type="button" className="view-back-btn" onClick={onBack} title="Back to Chat">
+              ← Back to Chat
+            </button>
+          )}
+          <h2 className="vs__title">🎙️ <span>Voice</span></h2>
+        </div>
         {transcripts.length > 0 && (
           <button
             className="vs__clear"

@@ -2,16 +2,22 @@ import React, { useState } from 'react';
 import { useSessions, ChatSession } from './useSessions';
 import './SessionSidebar.css';
 
+export type AppView = 'chat' | 'finance' | 'jobs' | 'email' | 'voice' | 'documents';
+
 interface SessionSidebarProps {
   activeSessionId: string | null;
+  activeView?: AppView;
   onSelect: (session: ChatSession) => void;
   onNewChat: () => void;
+  onViewChange?: (view: AppView) => void;
 }
 
 export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   activeSessionId,
+  activeView = 'chat',
   onSelect,
   onNewChat,
+  onViewChange,
 }) => {
   const { sessions, loading, error, rename, remove } = useSessions();
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -23,11 +29,70 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         <button
           type="button"
           className="session-sidebar__new"
-          onClick={onNewChat}
+          onClick={() => {
+            onNewChat();
+            if (onViewChange) onViewChange('chat');
+          }}
         >
           + New chat
         </button>
+
+        {/* View navigation buttons moved under New Chat */}
+        {onViewChange && (
+          <nav className="session-sidebar__nav" aria-label="Modules">
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'chat' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('chat')}
+            >
+              <span className="session-sidebar__nav-icon">💬</span>
+              <span className="session-sidebar__nav-label">Chat</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'voice' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('voice')}
+            >
+              <span className="session-sidebar__nav-icon">🎙️</span>
+              <span className="session-sidebar__nav-label">Voice Mode</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'finance' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('finance')}
+            >
+              <span className="session-sidebar__nav-icon">💰</span>
+              <span className="session-sidebar__nav-label">Finances</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'jobs' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('jobs')}
+            >
+              <span className="session-sidebar__nav-icon">⏰</span>
+              <span className="session-sidebar__nav-label">Scheduled Jobs</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'email' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('email')}
+            >
+              <span className="session-sidebar__nav-icon">📧</span>
+              <span className="session-sidebar__nav-label">Email Send</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'documents' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('documents')}
+            >
+              <span className="session-sidebar__nav-icon">📄</span>
+              <span className="session-sidebar__nav-label">Documents</span>
+            </button>
+          </nav>
+        )}
       </div>
+
+      <div className="session-sidebar__section-title">Recent Chats</div>
 
       {loading && (
         <p className="session-sidebar__status">Loading…</p>

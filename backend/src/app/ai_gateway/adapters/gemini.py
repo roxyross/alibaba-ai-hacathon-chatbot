@@ -6,9 +6,11 @@ https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import httpx
 
@@ -24,9 +26,25 @@ class GeminiAdapter(AIProviderAdapter):
     """Gemini provider adapter using Google's Gemini REST API."""
 
     NAME = "gemini"
-    TIMEOUT_SECONDS = 10.0
-    # Default model; can be made configurable
-    DEFAULT_MODEL = "gemini-2.0-flash"
+    TIMEOUT_SECONDS = 30.0
+    DEFAULT_MODEL = "gemini-3.6-flash"
+
+    def _resolve_model(self, model: str | None) -> str:
+        if not model:
+            return self.DEFAULT_MODEL
+        # Strip provider prefix if present (e.g. "gemini/gemini-2.0-flash")
+        if "/" in model:
+            model = model.split("/", 1)[-1]
+        # Google directs new users on this API key to gemini-3.6-flash
+        if model in (
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-2.5-flash",
+            "gemini-1.5-pro",
+            "gemini-3.6-flash",
+        ):
+            return self.DEFAULT_MODEL
+        return model
 
     def __init__(self) -> None:
         super().__init__(self.NAME)
@@ -34,8 +52,6 @@ class GeminiAdapter(AIProviderAdapter):
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            # Gemini API key goes in the query param, not the header
-            api_key = self._config.api_key or ""
             self._client = httpx.AsyncClient(
                 base_url=f"{self._config.base_url}/models",
                 timeout=httpx.Timeout(self.TIMEOUT_SECONDS, connect=5.0),
@@ -53,7 +69,7 @@ class GeminiAdapter(AIProviderAdapter):
 
     async def _complete(self, request: AIRequest) -> AIResponse:
         client = await self._get_client()
-        model = request.model or self.DEFAULT_MODEL
+        model = self._resolve_model(request.model)
         api_key = self._config.api_key or ""
         payload = self._build_payload(request)
         start = time.monotonic()
@@ -67,11 +83,11 @@ class GeminiAdapter(AIProviderAdapter):
         if not response.is_success:
             raise ProviderUnavailableError(
                 self.provider_name,
-                f"HTTP {response.status_code}: {response.text[:200]}",
+                f"HTTP {response.status_code}: {response.text[:250]}",
             )
 
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        return self._parse_response(response.json(), request, elapsed_ms)
+        return self._parse_response(response.json(), request, model, elapsed_ms)
 
     async def _circuit_protected_stream(
         self, request: AIRequest
@@ -81,24 +97,33 @@ class GeminiAdapter(AIProviderAdapter):
 
     async def _stream(self, request: AIRequest) -> AsyncGenerator[AIResponse, None]:
         client = await self._get_client()
-        model = request.model or self.DEFAULT_MODEL
+        model = self._resolve_model(request.model)
         api_key = self._config.api_key or ""
         payload = self._build_payload(request)
         start = time.monotonic()
 
-        url = f"/{model}:streamGenerateContent?key={api_key}"
+        # Google Gemini streaming requires alt=sse
+        url = f"/{model}:streamGenerateContent?alt=sse&key={api_key}"
         try:
             async with client.stream("POST", url, json=payload) as response:
                 if not response.is_success:
+                    err_bytes = await response.aread()
                     raise ProviderUnavailableError(
                         self.provider_name,
-                        f"HTTP {response.status_code}: {await response.aread()}",
+                        f"HTTP {response.status_code}: {err_bytes.decode('utf-8', errors='replace')[:250]}",
                     )
 
                 async for line in response.aiter_lines():
                     if not line:
                         continue
-                    chunk = self._parse_stream_chunk(line)
+                    line_str = line.strip()
+                    if not line_str.startswith("data: "):
+                        continue
+                    data_str = line_str.removeprefix("data: ").strip()
+                    if not data_str or data_str == "[DONE]":
+                        break
+
+                    chunk = self._parse_stream_chunk(data_str, model)
                     if chunk.delta:
                         yield AIResponse(
                             user_id=request.user_id,
@@ -110,20 +135,33 @@ class GeminiAdapter(AIProviderAdapter):
                             output_tokens=0,
                             cost_usd=0.0,
                             latency_ms=int((time.monotonic() - start) * 1000),
-                            request_id=request.request_id or uuid.uuid4(),
+                            request_id=getattr(request, "request_id", None) or uuid.uuid4(),
                         )
                     if chunk.done:
-                        return
+                        break
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
             raise ProviderUnavailableError(self.provider_name, str(exc)) from exc
 
     def _build_payload(self, request: AIRequest) -> dict[str, Any]:
         """Build Gemini API request payload."""
-        contents = []
+        contents: list[dict[str, Any]] = []
+        system_parts: list[dict[str, str]] = []
+
         for msg in request.messages:
-            role = "user" if msg.role.value in ("user", "model") else "model"
-            contents.append({"role": role, "parts": [{"text": msg.content}]})
-        return {
+            role_val = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
+            if role_val == "system":
+                system_parts.append({"text": msg.content})
+            else:
+                role = "user" if role_val == "user" else "model"
+                contents.append({"role": role, "parts": [{"text": msg.content}]})
+
+        # Gemini requires at least one user content and cannot begin with 'model'
+        if not contents:
+            contents = [{"role": "user", "parts": [{"text": "Hello"}]}]
+        elif contents[0]["role"] == "model":
+            contents.insert(0, {"role": "user", "parts": [{"text": "Please continue."}]})
+
+        payload: dict[str, Any] = {
             "contents": contents,
             "generationConfig": {
                 "temperature": request.temperature,
@@ -131,7 +169,14 @@ class GeminiAdapter(AIProviderAdapter):
             },
         }
 
-    def _parse_response(self, data: dict[str, Any], request: AIRequest, elapsed_ms: int) -> AIResponse:
+        if system_parts:
+            payload["systemInstruction"] = {"parts": system_parts}
+
+        return payload
+
+    def _parse_response(
+        self, data: dict[str, Any], request: AIRequest, model: str, elapsed_ms: int
+    ) -> AIResponse:
         """Parse Gemini generateContent response."""
         try:
             text = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -142,7 +187,7 @@ class GeminiAdapter(AIProviderAdapter):
             user_id=request.user_id,
             content=text,
             provider="gemini",
-            model=self.DEFAULT_MODEL,
+            model=model,
             agent_id=request.agent_id or "unknown",
             input_tokens=usage.get("promptTokenCount", 0),
             output_tokens=usage.get("candidatesTokenCount", 0),
@@ -151,19 +196,24 @@ class GeminiAdapter(AIProviderAdapter):
             request_id=getattr(request, "request_id", None) or uuid.uuid4(),
         )
 
-    def _parse_stream_chunk(self, data: str) -> StreamingChunk:
-        """Parse a Gemini streaming SSE line into StreamingChunk."""
-        import json
+    def _parse_stream_chunk(self, data: str, model: str) -> StreamingChunk:
+        """Parse a Gemini streaming SSE JSON payload into StreamingChunk."""
         try:
             obj = json.loads(data)
         except json.JSONDecodeError:
-            return StreamingChunk(delta="", provider="gemini", model="", done=True)
+            return StreamingChunk(delta="", provider="gemini", model=model, done=False)
 
-        try:
-            delta = obj["candidates"][0]["content"]["parts"][0]["text"]
-            done = False
-        except (KeyError, IndexError):
-            delta = ""
-            done = True
+        candidates = obj.get("candidates", [])
+        if not candidates:
+            return StreamingChunk(delta="", provider="gemini", model=model, done=False)
 
-        return StreamingChunk(delta=delta, provider="gemini", model=self.DEFAULT_MODEL, done=done)
+        candidate = candidates[0]
+        delta = ""
+        parts = candidate.get("content", {}).get("parts", [])
+        if parts and isinstance(parts, list):
+            delta = parts[0].get("text", "")
+
+        finish_reason = candidate.get("finishReason")
+        done = finish_reason in ("STOP", "MAX_TOKENS", "SAFETY")
+
+        return StreamingChunk(delta=delta, provider="gemini", model=model, done=done)

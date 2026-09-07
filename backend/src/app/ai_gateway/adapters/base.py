@@ -129,7 +129,7 @@ class AIProviderAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def _circuit_protected_stream(
+    def _circuit_protected_stream(
         self, request: AIRequest
     ) -> AsyncGenerator[AIResponse, None]:
         """Internal streaming implementation — runs inside the circuit breaker."""

@@ -112,6 +112,142 @@ function CriticReviewBadge({ review }: { review: CriticReviewData | Record<strin
   );
 }
 
+function CodeBlock({ lang, code }: { lang: string; code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="chat-message__code-block">
+      <div className="chat-message__code-header">
+        <span className="chat-message__code-lang">{lang || 'code'}</span>
+        <button
+          type="button"
+          className="chat-message__code-copy"
+          onClick={handleCopy}
+          aria-label="Copy code"
+        >
+          {copied ? '✓ Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre className="chat-message__code-pre">
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+function FormattedContent({ content }: { content: string }) {
+  if (!content) return null;
+
+  const tokens: React.ReactNode[] = [];
+  const codeBlockRegex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  const processText = (text: string, keyPrefix: string): React.ReactNode[] => {
+    const imgRegex = /!\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g;
+    const parts: React.ReactNode[] = [];
+    let imgLastIndex = 0;
+    let imgMatch: RegExpExecArray | null;
+
+    while ((imgMatch = imgRegex.exec(text)) !== null) {
+      if (imgMatch.index > imgLastIndex) {
+        const textBefore = text.substring(imgLastIndex, imgMatch.index);
+        parts.push(renderTextWithFormatting(textBefore, `${keyPrefix}-t-${imgLastIndex}`));
+      }
+      const alt = imgMatch[1] || 'Generated image';
+      const url = imgMatch[2];
+      parts.push(
+        <div key={`${keyPrefix}-img-${imgMatch.index}`} className="chat-message__image-container">
+          <img src={url} alt={alt} className="chat-message__image" loading="lazy" />
+          {alt && alt !== 'Generated image' && (
+            <div className="chat-message__image-caption">{alt}</div>
+          )}
+        </div>
+      );
+      imgLastIndex = imgMatch.index + imgMatch[0].length;
+    }
+
+    if (imgLastIndex < text.length) {
+      parts.push(renderTextWithFormatting(text.substring(imgLastIndex), `${keyPrefix}-t-${imgLastIndex}`));
+    }
+
+    return parts;
+  };
+
+  const renderTextWithFormatting = (text: string, key: string): React.ReactNode => {
+    const lines = text.split('\n');
+    return (
+      <span key={key}>
+        {lines.map((line, lIdx) => {
+          const isBullet = line.trim().startsWith('- ') || line.trim().startsWith('* ');
+          const lineContent = isBullet ? line.trim().substring(2) : line;
+
+          const formattedParts: React.ReactNode[] = [];
+          const inlineRegex = /(\*\*.*?\*\*|`.*?`)/g;
+          let inlineLast = 0;
+          let inlineMatch: RegExpExecArray | null;
+
+          while ((inlineMatch = inlineRegex.exec(lineContent)) !== null) {
+            if (inlineMatch.index > inlineLast) {
+              formattedParts.push(lineContent.substring(inlineLast, inlineMatch.index));
+            }
+            const matchedToken = inlineMatch[0];
+            if (matchedToken.startsWith('**') && matchedToken.endsWith('**')) {
+              formattedParts.push(<strong key={inlineMatch.index}>{matchedToken.slice(2, -2)}</strong>);
+            } else if (matchedToken.startsWith('`') && matchedToken.endsWith('`')) {
+              formattedParts.push(<code key={inlineMatch.index} className="chat-message__inline-code">{matchedToken.slice(1, -1)}</code>);
+            }
+            inlineLast = inlineMatch.index + matchedToken.length;
+          }
+          if (inlineLast < lineContent.length) {
+            formattedParts.push(lineContent.substring(inlineLast));
+          }
+
+          return (
+            <React.Fragment key={lIdx}>
+              {isBullet ? (
+                <div className="chat-message__bullet-item">
+                  <span className="chat-message__bullet-dot">•</span>
+                  <span>{formattedParts}</span>
+                </div>
+              ) : (
+                <span>{formattedParts}</span>
+              )}
+              {lIdx < lines.length - 1 && !isBullet && <br />}
+            </React.Fragment>
+          );
+        })}
+      </span>
+    );
+  };
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      const textBefore = content.substring(lastIndex, match.index);
+      tokens.push(...processText(textBefore, `pre-${lastIndex}`));
+    }
+    const lang = match[1] || 'code';
+    const code = match[2];
+    tokens.push(
+      <CodeBlock key={`code-${match.index}`} lang={lang} code={code} />
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < content.length) {
+    tokens.push(...processText(content.substring(lastIndex), `post-${lastIndex}`));
+  }
+
+  return <div className="chat-message__formatted">{tokens}</div>;
+}
+
 export const ChatMessage: React.FC<ChatMessageProps> = ({
   role,
   content,
@@ -129,8 +265,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       aria-role={role === 'user' ? 'presentation' : 'article'}
     >
       <div className="chat-message__bubble">
-        <p className="chat-message__text">{content || (isStreaming ? '…' : '')}</p>
-        {isStreaming && (
+        {content ? (
+          <FormattedContent content={content} />
+        ) : isStreaming ? (
+          <span className="chat-message__cursor" aria-hidden="true" />
+        ) : null}
+        {isStreaming && content && (
           <span className="chat-message__cursor" aria-hidden="true" />
         )}
       </div>

@@ -3,12 +3,16 @@
 import React, { useState } from 'react';
 import './EmailSendPanel.css';
 
-const API_BASE =
+const rawApiBase =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
   '/api/v1';
+const API_BASE = rawApiBase.endsWith('/api/v1')
+  ? rawApiBase
+  : `${rawApiBase.replace(/\/+$/, '')}/api/v1`;
 
 interface EmailSendPanelProps {
   accessToken?: string | null;
+  onBack?: () => void;
   onConfirmRequired?: (token: string, skill: string, action: string) => void;
 }
 
@@ -48,6 +52,7 @@ async function sendEmail(
 
 export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
   accessToken,
+  onBack,
   onConfirmRequired,
 }) => {
   const [to, setTo] = useState('');
@@ -85,7 +90,7 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           body: body.trim(),
           cc: cc.split(',').map((s) => s.trim()).filter(Boolean),
           bcc: bcc.split(',').map((s) => s.trim()).filter(Boolean),
-          confirm: false, // First try without confirm to get confirmation token
+          confirm: true,
         },
         accessToken ?? null
       );
@@ -117,7 +122,14 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
   return (
     <div className="esp">
       <div className="esp__header">
-        <h2 className="esp__title">📧 <span>Send Email</span></h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {onBack && (
+            <button type="button" className="view-back-btn" onClick={onBack} title="Back to Chat">
+              ← Back to Chat
+            </button>
+          )}
+          <h2 className="esp__title">📧 <span>Send Email</span></h2>
+        </div>
       </div>
 
       <div className="esp__body">

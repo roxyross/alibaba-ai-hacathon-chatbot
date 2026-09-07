@@ -3,9 +3,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-const API_BASE =
+const rawApiBase =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
   '/api/v1';
+const API_BASE = rawApiBase.endsWith('/api/v1')
+  ? rawApiBase
+  : `${rawApiBase.replace(/\/+$/, '')}/api/v1`;
 
 export interface AccountSummary {
   connection_id: string;
