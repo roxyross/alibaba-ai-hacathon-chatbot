@@ -1,6 +1,6 @@
 ---
 name: browser_fill_form
-description: Fill and submit a form in a real browser. **Sensitive**: requires explicit user confirmation before submission, especially for payment, deletion, message-send, or account-setting changes.
+description: "Fill and submit a form in a real browser. **Sensitive**: requires explicit user confirmation before submission, especially for payment, deletion, message-send, or account-setting changes."
 sensitive: true
 requires_confirmation: true
 ---

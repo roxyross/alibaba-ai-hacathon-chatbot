@@ -47,30 +47,30 @@
 
 ## Scenario Coverage
 
-- [ ] CHK024 — Is the scenario "user query matches no specialist" (the §8 Q1 fallback) explicitly covered as a flow, not just a behavior? [Coverage, Spec §3.1]
-- [ ] CHK025 — Is the scenario "user's first message in a new session" covered (no prior context, no memory entries) — is the cold-start experience specified? [Coverage, Gap]
-- [ ] CHK026 — Is the scenario "specialist crashes mid-response" covered? Spec §3.2 covers timeout but not crash. [Coverage, Gap]
-- [ ] CHK027 — Is the scenario "user revokes a connected account (Google, calendar, etc.)" covered — what happens to skills that depend on it? [Coverage, Gap]
-- [ ] CHK028 — Is the scenario "scheduled job fails to fire" covered — what is the user's notification? [Coverage, Gap]
-- [ ] CHK029 — Is the scenario "two requests arrive concurrently" covered — is the runtime's session state safe under concurrency? [Coverage, Gap]
-- [ ] CHK030 — Is the scenario "memory curator's run overlaps with the next run" covered? [Coverage, Gap]
-- [ ] CHK031 — Is the scenario "user in voice mode invokes a sensitive skill" covered? The voice agent and the security gate need a defined handoff. [Coverage, Spec §2.5 + §3.3]
+- [x] CHK024 — Is the scenario "user query matches no specialist" (the §8 Q1 fallback) explicitly covered as a flow, not just a behavior? [Coverage, Spec §3.1] → spec §3.1 + §8 Q1
+- [x] CHK025 — Is the scenario "user's first message in a new session" covered (no prior context, no memory entries) — is the cold-start experience specified? [Coverage, Gap] → spec §10.1
+- [x] CHK026 — Is the scenario "specialist crashes mid-response" covered? Spec §3.2 covers timeout but not crash. [Coverage, Gap] → spec §10.2
+- [x] CHK027 — Is the scenario "user revokes a connected account (Google, calendar, etc.)" covered — what happens to skills that depend on it? [Coverage, Gap] → spec §10.3
+- [x] CHK028 — Is the scenario "scheduled job fails to fire" covered — what is the user's notification? [Coverage, Gap] → spec §10.4
+- [x] CHK029 — Is the scenario "two requests arrive concurrently" covered — is the runtime's session state safe under concurrency? [Coverage, Gap] → spec §10.5
+- [x] CHK030 — Is the scenario "memory curator's run overlaps with the next run" covered? [Coverage, Gap] → spec §10.6
+- [x] CHK031 — Is the scenario "user in voice mode invokes a sensitive skill" covered? The voice agent and the security gate need a defined handoff. [Coverage, Spec §2.5 + §3.3] → spec §10.7 (voice + sensitive skill handoff defined in voice.md §"Confirm before sensitive actions" + spec §3.3)
 
 ## Edge Case Coverage
 
-- [ ] CHK032 — Is the edge case "user spams the same query" covered? Is there rate limiting? [Edge Case, Gap]
-- [ ] CHK033 — Is the edge case "an agent's `.md` file is malformed" covered? The loader should fail loud, but the user-facing message needs specification. [Edge Case, Gap]
-- [ ] CHK034 — Is the edge case "a skill's `SKILL.md` references an agent slug that doesn't exist" covered? [Edge Case, Gap]
-- [ ] CHK035 — Is the edge case "the gateway `/api/v1/ai/chat` is down" covered — what's the runtime's user-facing error? [Edge Case, Gap]
-- [ ] CHK036 — Is the edge case "user has no `confirm_on_fire` preference set for a scheduled job" covered? [Edge Case, Gap]
+- [x] CHK032 — Is the edge case "user spams the same query" covered? Is there rate limiting? [Edge Case, Gap] → spec §10.7
+- [x] CHK033 — Is the edge case "an agent's `.md` file is malformed" covered? The loader should fail loud, but the user-facing message needs specification. [Edge Case, Gap] → spec §10.8
+- [x] CHK034 — Is the edge case "a skill's `SKILL.md` references an agent slug that doesn't exist" covered? [Edge Case, Gap] → spec §10.9
+- [x] CHK035 — Is the edge case "the gateway `/api/v1/ai/chat` is down" covered — what's the runtime's user-facing error? [Edge Case, Gap] → spec §10.10
+- [x] CHK036 — Is the edge case "user has no `confirm_on_fire` preference set for a scheduled job" covered? [Edge Case, Gap] → spec §10.11
 
 ## Non-Functional Requirements
 
 - [ ] CHK037 — Are the plan's performance budgets (p95 first-token < 1.5s, handoff < 200ms) reflected in the spec's acceptance criteria or only in the plan? [NFR, Spec vs Plan §"Performance Goals"]
 - [ ] CHK038 — Are observability requirements (structlog schema, trace_id propagation, /health/live, /health/ready) explicit in the spec or only in the plan? [NFR, Plan §"Cross-Cutting Concerns"]
 - [ ] CHK039 — Are accessibility requirements for the runtime (not the existing UI) specified — e.g. agent attribution, confirmation readability? [NFR, Spec §6]
-- [ ] CHK040 — Is data retention specified for `memory_entries`, `audit_log`, and `scheduled_jobs`? Constitution §4 (privacy-first) implies a retention policy; the spec doesn't state one. [NFR, Gap]
-- [ ] CHK041 — Is the "agents and skills are loaded from `.md` files at startup" requirement explicitly tied to a hot-reload behavior or only to cold-start? The spec says "at startup" — what if an operator edits a `.md` after startup? [NFR, Spec §3.10]
+- [x] CHK040 — Is data retention specified for `memory_entries`, `audit_log`, and `scheduled_jobs`? Constitution §4 (privacy-first) implies a retention policy; the spec doesn't state one. [NFR, Gap] → spec §10.12
+- [x] CHK041 — Is the "agents and skills are loaded from `.md` files at startup" requirement explicitly tied to a hot-reload behavior or only to cold-start? The spec says "at startup" — what if an operator edits a `.md` after startup? [NFR, Spec §3.10] → spec §10.13
 
 ## Dependencies & Assumptions
 

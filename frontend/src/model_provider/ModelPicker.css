@@ -36,3 +36,20 @@
   color: var(--color-error);
   font-size: 0.75rem;
 }
+
+/* ─── Mobile (≤ 768px) ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .model-picker {
+    padding: 0.2rem 0.4rem 0.2rem 0.6rem;
+  }
+
+  .model-picker__label {
+    display: none; /* hide label, keep only the select */
+  }
+
+  .model-picker__select {
+    font-size: 0.8rem;
+    min-width: 7rem;
+    padding: 0.2rem 0.3rem;
+  }
+}

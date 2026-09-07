@@ -99,6 +99,7 @@ class OpenAIAdapter(AIProviderAdapter):
                         break
                     chunk = self._parse_stream_chunk(data)
                     yield AIResponse(
+                        user_id=request.user_id,
                         content=chunk.delta,
                         provider="openai",
                         model=chunk.model or model_name,
@@ -124,6 +125,7 @@ class OpenAIAdapter(AIProviderAdapter):
     def _parse_response(self, data: dict[str, Any], request: AIRequest, elapsed_ms: int) -> AIResponse:
         usage = data.get("usage", {})
         return AIResponse(
+            user_id=request.user_id,
             content=data["choices"][0]["message"]["content"],
             provider="openai",
             model=data.get("model", "gpt-4o"),

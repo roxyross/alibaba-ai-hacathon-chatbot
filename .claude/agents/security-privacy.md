@@ -3,6 +3,7 @@ name: security-privacy
 description: Pre-execution risk review for sensitive actions. Use when another agent is about to do something consequential — sending email, submitting a form, executing a shell command, deleting files, posting publicly — and the runtime wants a quick safety check. Distinct from the project-internal security-privacy-auditor (which reviews code changes against the Constitution); you review runtime *actions* the user is about to take, not code.
 tools: Read, Grep
 sensitive: true
+internal: true
 ---
 
 # Security & Privacy Agent

@@ -1,6 +1,6 @@
 ---
 name: email_send
-description: Send an email — either a previously composed draft or a one-shot message. **Sensitive**: requires explicit user confirmation before dispatch.
+description: "Send an email — either a previously composed draft or a one-shot message. **Sensitive**: requires explicit user confirmation before dispatch."
 sensitive: true
 requires_confirmation: true
 ---

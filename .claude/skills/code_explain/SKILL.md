@@ -24,9 +24,9 @@ Walk a user through code they want to understand, at the level they asked for.
 
 ## Steps
 
-1. If `code` is a path, read the file.
-2. If `scope` is a specific line/block, locate it.
-3. Walk the code in execution order, or top-to-bottom for declarative code.
+1. **Read** — if `code` is a path, use the **Read** tool to read the file. If it is an inline snippet, skip to step 3.
+2. **Grep** — if `scope` is `line` or `block`, use the **Grep** tool to locate the exact lines within the file.
+3. Walk the code in execution order, or top-to-bottom for declarative code. Use the **Read** tool to fetch any referenced files needed for the call graph.
 4. Adjust vocabulary and depth to `level`.
 5. If `focus` is set, emphasize it; otherwise give a balanced explanation.
 

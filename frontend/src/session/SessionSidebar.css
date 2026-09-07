@@ -142,3 +142,27 @@
 .session-sidebar__status--error {
   color: var(--color-error);
 }
+
+/* ─── Mobile (≤ 768px) ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .session-sidebar {
+    width: 15rem; /* narrower drawer on small screens */
+  }
+
+  .session-sidebar__header {
+    padding: 0.6rem 0.5rem;
+  }
+
+  .session-sidebar__new {
+    font-size: 0.875rem;
+    padding: 0.4rem 0.6rem;
+  }
+
+  .session-sidebar__title {
+    font-size: 0.8125rem;
+  }
+
+  .session-sidebar__meta {
+    font-size: 0.65rem;
+  }
+}

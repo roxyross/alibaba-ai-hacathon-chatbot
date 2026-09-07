@@ -23,6 +23,12 @@ dependencies = [
     # Auth (magic-link + JWT)
     "pyjwt>=2.9.0",
     "aiosmtplib>=3.0.1",
+    "icalendar>=5.0.0",
+    "slowapi>=0.1.9",
+    # Browser automation (optional — auto-installs chromium)
+    "playwright>=1.40.0",
+    # Scheduler for scheduled job firing
+    "apscheduler>=3.10.4",
 ]
 
 [project.optional-dependencies]

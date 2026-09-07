@@ -94,6 +94,7 @@ class DeepSeekAdapter(AIProviderAdapter):
         """Parse DeepSeek OpenAI-compatible response into AIResponse."""
         usage = data.get("usage", {})
         return AIResponse(
+            user_id=request.user_id,
             content=data["choices"][0]["message"]["content"],
             provider="deepseek",
             model=data.get("model", "deepseek-chat-v3"),
@@ -143,6 +144,7 @@ class DeepSeekAdapter(AIProviderAdapter):
                     chunk = self._parse_stream_chunk(data)
                     accumulated += chunk.delta
                     yield AIResponse(
+                        user_id=request.user_id,
                         content=chunk.delta,
                         provider="deepseek",
                         model=chunk.model or model_name,

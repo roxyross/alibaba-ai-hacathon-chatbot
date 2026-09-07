@@ -30,7 +30,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
         value={value ? `${value.provider}/${value.model}` : ''}
         onChange={(e) => {
           const [provider, ...rest] = e.target.value.split('/');
-          if (!provider || rest.length === 0) return;
+          if (!provider) return;
           onChange({ provider, model: rest.join('/') });
         }}
         disabled={loading || !!error}
@@ -42,6 +42,9 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
               ? 'Failed to load models'
               : 'Select a model'}
         </option>
+        <optgroup label="Runtime">
+          <option value="runtime/">Runtime Coordinator</option>
+        </optgroup>
         {grouped.map((p) => (
           <optgroup key={p.name} label={p.display_name || p.name}>
             {p.models

@@ -82,6 +82,7 @@ class AIResponse(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
+    user_id: str | None = None
     content: str
     provider: str
     model: str

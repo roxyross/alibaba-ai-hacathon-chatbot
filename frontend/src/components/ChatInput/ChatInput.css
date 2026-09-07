@@ -98,3 +98,29 @@
   font-size: 0.6875rem;
   color: var(--color-muted, #6c7086);
 }
+
+/* ─── Mobile (≤ 768px) ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .chat-input {
+    max-width: 100%;
+    padding: 0.6rem 0.5rem;
+  }
+
+  .chat-input__row {
+    padding: 0.3rem 0.4rem;
+  }
+
+  .chat-input__textarea {
+    font-size: 1rem; /* prevents iOS zoom on focus */
+    line-height: 1.4;
+  }
+
+  .chat-input__send {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  .chat-input__hint {
+    font-size: 0.625rem;
+  }
+}

@@ -92,7 +92,11 @@ async def update_session(
     return resp
 
 
-@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={204: {"description": "Session deleted"}},
+)
 async def delete_session(
     session_id: str,
     current_user: User = Depends(get_current_user),

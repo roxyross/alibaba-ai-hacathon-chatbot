@@ -7,7 +7,7 @@ Attribution is included in every response (streaming and non-streaming).
 from __future__ import annotations
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request as StarletteRequest, status
 from fastapi.responses import StreamingResponse
 import pybreaker
 
@@ -26,6 +26,7 @@ from app.ai_gateway.models.schemas import (
     StreamingChunk,
 )
 from app.ai_gateway.services.router import AIRouter
+from app.api.v1.rate_limit import rate_limit as _check_rate_limit
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 
@@ -42,27 +43,33 @@ _router = AIRouter()
 
 @router.post("/chat", response_model=AIResponse)
 async def chat(
-    request: AIRequest,
+    body: AIRequest,
     current_user: User = Depends(get_current_user),
+    http_request: StarletteRequest = None,
 ) -> AIResponse:
     """Non-streaming chat completion.
 
     Routes through AIRouter for failover and attribution.
     Raises 503 if all providers fail.
+    Spec §10.7: per-user rate limit of 60 msg/min (429 + Retry-After on excess).
     """
+    # Per-user rate limit (spec §10.7)
+    if http_request is not None:
+        _check_rate_limit(http_request, user_id=str(current_user.id))
+
     # Stamp the authenticated user onto the request for persistence.
-    request.user_id = current_user.id
+    body.user_id = current_user.id
     log.info(
         "ai.chat.request",
-        request_id=str(request.request_id),
-        provider_override=request.provider,
-        task_type=request.task_type,
-        stream=request.stream,
+        request_id=str(body.request_id),
+        provider_override=body.provider,
+        task_type=body.task_type,
+        stream=body.stream,
         user_id=current_user.id,
     )
 
     try:
-        return await _router.route(request)
+        return await _router.route(body)
     except ProviderUnavailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -88,26 +95,32 @@ async def chat(
 
 @router.post("/chat/stream")
 async def chat_stream(
-    request: AIRequest,
+    body: AIRequest,
     current_user: User = Depends(get_current_user),
+    http_request: StarletteRequest = None,
 ):
     """Streaming chat completion over SSE.
 
     First comment line: attribution header (provider, model)
     Then data events for each streaming chunk.
     Final chunk includes done=true and attribution metadata.
+    Spec §10.7: per-user rate limit of 60 msg/min (429 + Retry-After on excess).
     """
-    if not request.stream:
+    if not body.stream:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="stream=true is required for this endpoint",
         )
-    request.user_id = current_user.id
+    # Per-user rate limit (spec §10.7)
+    if http_request is not None:
+        _check_rate_limit(http_request, user_id=str(current_user.id))
+
+    body.user_id = current_user.id
 
     log.info(
         "ai.chat.stream.request",
-        request_id=str(request.request_id),
-        provider_override=request.provider,
+        request_id=str(body.request_id),
+        provider_override=body.provider,
         user_id=current_user.id,
     )
 
@@ -117,7 +130,7 @@ async def chat_stream(
         chunks_yielded = False
 
         try:
-            async for chunk in _router.route_stream(request):
+            async for chunk in _router.route_stream(body):
                 chunks_yielded = True
                 # Extract attribution from first chunk
                 if provider_name == "unknown":

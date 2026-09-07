@@ -68,3 +68,12 @@ frontend/node_modules/
 
 # Runtime future: when runtime/ arrives, ignore its venv too
 runtime/.venv/
+
+# Separate runtime package (runs on :8001, different FastAPI app)
+runtime/
+
+# Test artifacts and stray files
+chat_result.json
+fronte
+data/memory_store.json
+data/job_store.json

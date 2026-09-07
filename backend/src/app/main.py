@@ -19,11 +19,15 @@ elif Path(".env").exists():
 # module-level `structlog.get_logger()` call anywhere under `app.*`.
 
 from app.api.v1.ai import router as ai_router
+from app.api.v1.bank import router as bank_router
+from app.api.v1.runtime import router as runtime_router
+from app.api.v1.finance import router as finance_router
 from app.auth.router import router as auth_router
 from app.chat_history.router import router as chat_history_router
 from app.model_provider.router import router as model_provider_router
 from app.providers.router import router as providers_router
 from app.session.router import router as session_router
+from app.skills.router import router as skills_router
 
 app = FastAPI(
     title="ROXY JARVIS AI Gateway",
@@ -49,6 +53,24 @@ app.include_router(providers_router, prefix="/api/v1")
 app.include_router(session_router, prefix="/api/v1")
 app.include_router(chat_history_router, prefix="/api/v1")
 app.include_router(ai_router, prefix="/api/v1")
+app.include_router(skills_router, prefix="/api/v1")
+app.include_router(bank_router, prefix="/api/v1")
+app.include_router(runtime_router, prefix="/api/v1")
+app.include_router(finance_router, prefix="/api/v1")
+
+
+@app.on_event("startup")
+async def on_startup():
+    """Start the APScheduler job runner when the backend starts."""
+    from app.job_scheduler import start_scheduler
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """Stop the APScheduler job runner when the backend stops."""
+    from app.job_scheduler import stop_scheduler
+    stop_scheduler()
 
 
 @app.get("/health")

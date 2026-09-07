@@ -27,12 +27,12 @@ Help the user find and fix a bug. Reproduce, form a hypothesis, propose a minima
 
 ## Steps
 
-1. Reproduce: if possible, run the code with the user's input and confirm the failure.
-2. Read the error literally: most bugs are in the first stack frame or the most recent log line.
+1. **Bash** — reproduce: run the code with the user's input and confirm the failure.
+2. Read the error literally: most bugs are in the first stack frame or the most recent log line. Use **Read** to fetch referenced files for call-stack tracing.
 3. Form a hypothesis *before* editing. State it.
 4. Identify the minimal change that would fix it without refactoring unrelated code.
-5. If the code is runnable, apply the fix and re-run to verify.
-6. Return the hypothesis, fix, and verification.
+5. **Edit** — apply the minimal fix.
+6. **Bash** — re-run to verify the fix resolves the failure.
 
 ## Failure modes
 

@@ -26,11 +26,11 @@ Produce new source code that matches the user's stated requirements and the surr
 
 ## Steps
 
-1. Read `context_files` to learn the project's style and conventions.
+1. **Read** `context_files` using the **Read** tool to learn the project's style and conventions.
 2. Draft the code, matching conventions.
-3. Run any linters/type-checkers the project uses, if available locally.
-4. If the code is runnable, run it in a sandbox to verify behavior.
-5. Return the code + explanation + any warnings.
+3. **Bash** — run linters/type-checkers the project uses (e.g. `npx tsc --noEmit`, `pytest --lint`, `ruff check`).
+4. **Bash** — if the code is runnable, verify behavior in a sandbox (e.g. `node test.js`, `python -m pytest`).
+5. **Write** — if `output_path` is provided, write the final file using the **Write** tool; otherwise return the code as a string.
 
 ## Failure modes
 

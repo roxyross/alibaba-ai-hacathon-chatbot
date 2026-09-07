@@ -19,7 +19,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   isStreaming = false,
 }) => {
   const attributionLabel = attribution
-    ? `Response from ${attribution.provider} using model ${attribution.model}`
+    ? `Response from ${attribution.agentSlug} agent`
     : undefined;
 
   return (
@@ -41,9 +41,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
         >
           {attribution ? (
             <>
-              <span className="chat-message__provider">{attribution.provider}</span>
-              <span className="chat-message__sep" aria-hidden="true"> · </span>
-              <span className="chat-message__model">{attribution.model}</span>
+              <span className="chat-message__provider">{attribution.agentSlug}</span>
             </>
           ) : (
             <span className="chat-message__provider-unknown">routing…</span>

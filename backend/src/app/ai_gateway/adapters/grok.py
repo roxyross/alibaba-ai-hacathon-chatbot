@@ -101,6 +101,7 @@ class GrokAdapter(AIProviderAdapter):
                     chunk = self._parse_stream_chunk(data)
                     accumulated += chunk.delta
                     yield AIResponse(
+                        user_id=request.user_id,
                         content=chunk.delta,
                         provider="grok",
                         model=chunk.model or model_name,
@@ -126,6 +127,7 @@ class GrokAdapter(AIProviderAdapter):
     def _parse_response(self, data: dict[str, Any], request: AIRequest, elapsed_ms: int) -> AIResponse:
         usage = data.get("usage", {})
         return AIResponse(
+            user_id=request.user_id,
             content=data["choices"][0]["message"]["content"],
             provider="grok",
             model=data.get("model", "grok-3"),

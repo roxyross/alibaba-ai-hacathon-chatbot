@@ -101,6 +101,7 @@ class GeminiAdapter(AIProviderAdapter):
                     chunk = self._parse_stream_chunk(line)
                     if chunk.delta:
                         yield AIResponse(
+                            user_id=request.user_id,
                             content=chunk.delta,
                             provider="gemini",
                             model=model,
@@ -138,6 +139,7 @@ class GeminiAdapter(AIProviderAdapter):
             text = ""
         usage = data.get("usageMetadata", {})
         return AIResponse(
+            user_id=request.user_id,
             content=text,
             provider="gemini",
             model=self.DEFAULT_MODEL,

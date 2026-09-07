@@ -1,0 +1,321 @@
+openapi: 3.1.0
+info:
+  title: ROXY JARVIS Runtime
+  description: |
+    Multi-agent runtime: loads .claude/agents/*.md and .claude/skills/*/SKILL.md
+    at startup, classifies user queries, and dispatches them to specialist agents.
+
+    PR 2 (current): Coordinator + Research Agent + web_search stub.
+    Auth: Bearer JWT (magic-link token from backend).
+  version: 0.1.0
+  contact:
+    name: ROXY JARVIS Team
+
+servers:
+  - url: http://localhost:8001
+    description: Local development
+
+paths:
+  # -------------------------------------------------------------------------
+  # POST /api/v1/runtime/chat
+  # -------------------------------------------------------------------------
+  /api/v1/runtime/chat:
+    post:
+      operationId: postChat
+      summary: Send a chat message to the runtime
+      description: |
+        The runtime's main entry point. The Coordinator classifies the message,
+        routes to the appropriate specialist agent, and returns the agent's reply
+        labelled with the agent name.
+
+        Per spec §3.1: if classification is uncertain, returns
+        needs_clarification=true and suggests a disambiguation prompt.
+      tags: [runtime]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                  minLength: 1
+                  maxLength: 8000
+                  description: The user's message.
+                  example: search the web for latest AI research news
+                session_id:
+                  type: string
+                  nullable: true
+                  description: Optional session ID for multi-turn conversations.
+                  example: "sess_abc123"
+      responses:
+        "200":
+          description: A response from the Coordinator.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # -------------------------------------------------------------------------
+  # GET /api/v1/runtime/agents
+  # -------------------------------------------------------------------------
+  /api/v1/runtime/agents:
+    get:
+      operationId: listAgents
+      summary: List all loaded agents
+      description: Returns the full list of agents loaded from .claude/agents/*.md at startup.
+      tags: [runtime]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Agent list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AgentEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # -------------------------------------------------------------------------
+  # GET /api/v1/runtime/skills
+  # -------------------------------------------------------------------------
+  /api/v1/runtime/skills:
+    get:
+      operationId: listSkills
+      summary: List all loaded skills
+      description: Returns the full list of skills loaded from .claude/skills/*/SKILL.md at startup.
+      tags: [runtime]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Skill list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skills:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SkillEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # -------------------------------------------------------------------------
+  # Health
+  # -------------------------------------------------------------------------
+  /health/live:
+    get:
+      operationId: healthLive
+      summary: Liveness probe
+      description: Returns 200 if the process is up. No auth required.
+      tags: [health]
+      responses:
+        "200":
+          description: Process is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  service:
+                    type: string
+                    example: runtime
+
+  /health/ready:
+    get:
+      operationId: healthReady
+      summary: Readiness probe
+      description: |
+        Returns 200 if the process is up AND registries are populated AND the
+        backend gateway is reachable. Returns "degraded" if the gateway is down
+        but registries are loaded.
+      tags: [health]
+      responses:
+        "200":
+          description: Readiness status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthReady"
+
+# -----------------------------------------------------------------------------
+# Components
+# -----------------------------------------------------------------------------
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Magic-link JWT from the backend auth system.
+
+  schemas:
+    ChatResponse:
+      type: object
+      required: [needs_clarification, status]
+      properties:
+        needs_clarification:
+          type: boolean
+          description: |
+            True when the Coordinator cannot confidently classify the query.
+            The client should display the clarification prompt to the user.
+          example: false
+        agent_slug:
+          type: string
+          nullable: true
+          description: The agent that handled the request. Null when needs_clarification=true.
+          example: research
+        response:
+          type: string
+          nullable: true
+          description: The agent's reply text.
+          example: "According to my research, the capital of France is Paris."
+        citations:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: URLs cited by the agent. Empty in PR 2 (stub).
+          example: []
+        status:
+          type: string
+          enum: [ok, timeout, error, uncertain, agent_disabled]
+          description: |
+            - ok: agent returned successfully
+            - timeout: specialist exceeded 30s budget
+            - error: specialist crashed
+            - uncertain: classification could not determine an agent
+            - agent_disabled: specialist auto-disabled after repeated errors
+          example: ok
+        next_actions:
+          type: array
+          items:
+            type: string
+          description: Suggested follow-up actions shown to the user.
+          example: []
+
+    AgentEntry:
+      type: object
+      required: [slug, description, routable]
+      properties:
+        slug:
+          type: string
+          description: Agent identifier.
+          example: research
+        description:
+          type: string
+          description: One-line description from the agent's .md frontmatter.
+          example: Web search and multi-source synthesis with citations.
+        routable:
+          type: boolean
+          description: True if the Coordinator may route user queries here.
+        sensitive:
+          type: boolean
+          description: True if the agent performs sensitive actions.
+        internal:
+          type: boolean
+          description: True if this is an internal agent (not user-routable).
+
+    SkillEntry:
+      type: object
+      required: [slug, description, registered]
+      properties:
+        slug:
+          type: string
+          description: Skill identifier.
+          example: web_search
+        description:
+          type: string
+          description: One-line description from the SKILL.md frontmatter.
+        sensitive:
+          type: boolean
+          description: True if this skill requires user confirmation before invocation.
+        internal:
+          type: boolean
+          description: True if this is an internal skill (not callable by user agents).
+        registered:
+          type: boolean
+          description: True if a Python implementation is registered (false = stub).
+
+    HealthReady:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+          description: "ok = all systems go; degraded = gateway unreachable"
+          example: degraded
+        service:
+          type: string
+          example: runtime
+        agents_loaded:
+          type: integer
+          description: Number of agents loaded from .claude/agents/*.md.
+          example: 20
+        skills_loaded:
+          type: integer
+          description: Number of skills loaded from .claude/skills/*/SKILL.md.
+          example: 32
+        gateway_reachable:
+          type: boolean
+          description: Whether the backend AI gateway responded to /health/live.
+          example: false
+        gateway_error:
+          type: string
+          nullable: true
+          description: Error message if gateway_reachable is false.
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid Bearer token.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: string
+                example: token expired
+
+    UnprocessableEntity:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: array
+                items:
+                  type: object
+
+    InternalServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: string
