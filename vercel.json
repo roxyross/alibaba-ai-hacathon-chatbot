@@ -1,7 +1,4 @@
 {
-  "rootDirectory": "frontend",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "installCommand": "npm install",
-  "framework": "vite"
+  "name": "roxy-personal-ai-frontend",
+  "rootDirectory": "frontend"
 }
