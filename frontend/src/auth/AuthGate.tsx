@@ -204,6 +204,44 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
               <span>Continue with GitHub</span>
             </button>
 
+            <div className="auth-gate__divider" role="separator" style={{ margin: '1rem 0 0.75rem 0' }}>
+              <span>or instant access</span>
+            </div>
+
+            <button
+              type="button"
+              className="auth-gate__submit"
+              style={{
+                background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
+                border: 'none',
+                color: '#ffffff',
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                padding: '0.75rem 1rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                cursor: 'pointer',
+                borderRadius: '8px',
+                boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)',
+                transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+              }}
+              onClick={async () => {
+                try {
+                  const res = await requestLink('demo@roxy.ai');
+                  if (res?.dev_token) {
+                    await verify(res.dev_token);
+                  }
+                } catch (err) {
+                  console.error('Instant access failed:', err);
+                }
+              }}
+              title="Sign in instantly without Google or GitHub"
+            >
+              <span>⚡ Enter Instantly (Demo Access)</span>
+            </button>
+
             {(oauthErrorMessage || error) && (
               <p className="auth-gate__error">{oauthErrorMessage || error}</p>
             )}
