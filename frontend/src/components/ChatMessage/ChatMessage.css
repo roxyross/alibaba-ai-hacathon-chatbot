@@ -45,6 +45,20 @@
   font-size: 0.9375rem;
 }
 
+.chat-message__link {
+  color: var(--color-accent, #89b4fa);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 500;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  word-break: break-word;
+}
+
+.chat-message__link:hover {
+  opacity: 0.85;
+  color: var(--color-accent-hover, #b4befe);
+}
+
 /* Streaming cursor */
 .chat-message__cursor {
   display: inline-block;

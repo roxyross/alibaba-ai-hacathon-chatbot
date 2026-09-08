@@ -190,7 +190,7 @@ function FormattedContent({ content }: { content: string }) {
           const lineContent = isBullet ? line.trim().substring(2) : line;
 
           const formattedParts: React.ReactNode[] = [];
-          const inlineRegex = /(\*\*.*?\*\*|`.*?`)/g;
+          const inlineRegex = /(\*\*.*?\*\*|`.*?`|\[.*?\]\(https?:\/\/[^\s)]+\))/g;
           let inlineLast = 0;
           let inlineMatch: RegExpExecArray | null;
 
@@ -203,6 +203,23 @@ function FormattedContent({ content }: { content: string }) {
               formattedParts.push(<strong key={inlineMatch.index}>{matchedToken.slice(2, -2)}</strong>);
             } else if (matchedToken.startsWith('`') && matchedToken.endsWith('`')) {
               formattedParts.push(<code key={inlineMatch.index} className="chat-message__inline-code">{matchedToken.slice(1, -1)}</code>);
+            } else if (matchedToken.startsWith('[') && matchedToken.includes('](')) {
+              const linkMatch = /^\[(.*?)\]\((https?:\/\/[^\s)]+)\)$/.exec(matchedToken);
+              if (linkMatch) {
+                formattedParts.push(
+                  <a
+                    key={inlineMatch.index}
+                    href={linkMatch[2]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="chat-message__link"
+                  >
+                    {linkMatch[1]}
+                  </a>
+                );
+              } else {
+                formattedParts.push(matchedToken);
+              }
             }
             inlineLast = inlineMatch.index + matchedToken.length;
           }

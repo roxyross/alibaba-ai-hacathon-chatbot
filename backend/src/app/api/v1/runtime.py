@@ -12,6 +12,7 @@ Agent definitions live in .claude/agents/<slug>.md and are loaded at startup.
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.parse
 from pathlib import Path
@@ -299,6 +300,138 @@ async def fetch_live_search(query: str, num: int = 4) -> str | None:
         return None
 
 
+_MAPS_PATTERNS = [
+    re.compile(r"^(?:find\s+places\s+near|places\s+near|maps?\s+for|show\s+map\s+of|map\s+of|view\s+on\s+map)\s*:\s*", re.I),
+    re.compile(r"\b(?:find\s+places\s+near|places\s+near|restaurants?\s+near|cafes?\s+near|coffee\s+shops?\s+near|hotels?\s+near|food\s+near|attractions?\s+near|spots?\s+near|bars?\s+near)\b", re.I),
+    re.compile(r"\b(?:show\s+(?:me\s+)?(?:the\s+)?map\s+(?:of|for)|open\s+(?:the\s+)?map\s+(?:of|for)|map\s+of)\b", re.I),
+    re.compile(r"\b(?:google\s+maps?|openstreetmap|navigate\s+to|directions\s+to)\b", re.I),
+]
+
+
+def check_maps_intent(message: str) -> tuple[bool, str]:
+    """Check if message is asking for maps, navigation, or places nearby."""
+    msg = message.strip()
+    for p in _MAPS_PATTERNS:
+        if p.search(msg):
+            extracted = re.sub(
+                r"^(?:find\s+places\s+near|places\s+near|maps?\s+for|show\s+map\s+of|map\s+of|view\s+on\s+map)\s*:\s*",
+                "",
+                msg,
+                flags=re.I,
+            ).strip()
+            return True, extracted or msg
+    return False, ""
+
+
+async def fetch_live_maps(query: str) -> str | None:
+    """Fetch live map coordinates, navigation links, map preview, and nearby recommendations."""
+    clean_target = query.strip() or "Tokyo"
+    headers = {
+        "User-Agent": "ROXY-Agent/1.0",
+        "Accept": "application/json",
+    }
+
+    lat: float | None = None
+    lon: float | None = None
+    place_name = clean_target
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            # 1. Try Nominatim for landmarks, points of interest, and addresses
+            nom_url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(clean_target)}&format=json&limit=1"
+            try:
+                nom_res = await client.get(nom_url, headers=headers)
+                if nom_res.status_code == 200:
+                    nom_data = nom_res.json()
+                    if nom_data:
+                        lat = float(nom_data[0]["lat"])
+                        lon = float(nom_data[0]["lon"])
+                        place_name = nom_data[0].get("display_name", clean_target)
+            except Exception:
+                pass
+
+            # 2. If not found by Nominatim, try Open-Meteo geocoding
+            if lat is None or lon is None:
+                geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(clean_target)}&count=1"
+                try:
+                    geo_res = await client.get(geo_url, headers=headers)
+                    if geo_res.status_code == 200:
+                        geo_data = geo_res.json()
+                        results = geo_data.get("results", [])
+                        if results:
+                            loc = results[0]
+                            lat = float(loc["latitude"])
+                            lon = float(loc["longitude"])
+                            p_name = loc.get("name", clean_target)
+                            country = loc.get("country", "")
+                            admin = loc.get("admin1", "")
+                            place_name = f"{p_name}, {admin}, {country}".replace(", ,", ",").strip(", ")
+                except Exception:
+                    pass
+
+            # 3. Retrieve top places & reviews via Tavily
+            tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
+            places_summary = ""
+            places_list: list[str] = []
+
+            if tavily_key:
+                try:
+                    payload = {
+                        "api_key": tavily_key,
+                        "query": f"top popular places, attractions, restaurants near {clean_target} with address",
+                        "max_results": 4,
+                        "search_depth": "basic",
+                        "include_answer": True,
+                    }
+                    tr = await client.post("https://api.tavily.com/search", json=payload)
+                    if tr.status_code == 200:
+                        tdata = tr.json()
+                        if tdata.get("answer"):
+                            places_summary = tdata["answer"]
+                        for item in tdata.get("results", []):
+                            title = item.get("title", "")
+                            url = item.get("url", "#")
+                            content = item.get("content", "")
+                            if title and content:
+                                places_list.append(f"- [**{title}**]({url})\n  {content[:160]}...")
+                except Exception as t_exc:
+                    log.warning("tavily.maps.failed", error=str(t_exc))
+
+            encoded_q = urllib.parse.quote(clean_target)
+            gmaps_search_url = f"https://www.google.com/maps/search/?api=1&query={encoded_q}"
+
+            lines = [f"### 📍 Maps & Places Guide: **{place_name}**\n"]
+
+            if lat is not None and lon is not None:
+                gmaps_dir_url = f"https://www.google.com/maps/dir/?api=1&destination={lat},{lon}"
+                osm_url = f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=15/{lat}/{lon}"
+                static_map_url = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom=14&size=650x300&maptype=mapnik"
+
+                lines.append(f"**Coordinates:** `{lat:.5f}, {lon:.5f}`\n")
+                lines.append(f"![Map of {clean_target}]({static_map_url})\n")
+                lines.append("#### 🗺️ Quick Navigation & Maps:\n")
+                lines.append(f"- [📍 **Open in Google Maps**]({gmaps_search_url})")
+                lines.append(f"- [🧭 **Turn-by-Turn Directions**]({gmaps_dir_url})")
+                lines.append(f"- [🌐 **View on OpenStreetMap**]({osm_url})\n")
+            else:
+                lines.append("#### 🗺️ Quick Navigation & Maps:\n")
+                lines.append(f"- [📍 **Open in Google Maps**]({gmaps_search_url})\n")
+
+            if places_summary:
+                lines.append(f"#### 🌟 Highlights & Overview:\n{places_summary}\n")
+
+            if places_list:
+                lines.append("#### 🏛️ Top Spots & Attractions Nearby:\n")
+                lines.extend(places_list)
+                lines.append("")
+
+            lines.append("*Live mapping & geographical telemetry provided by OpenStreetMap, Google Maps & ROXY Maps Engine.*")
+            return "\n".join(lines)
+    except Exception as exc:
+        log.warning("fetch_live_maps.failed", query=query, error=str(exc))
+        return None
+
+
 def classify_intent(message: str) -> str:
     """Classify user message into an agent slug using keyword matching.
 
@@ -308,6 +441,10 @@ def classify_intent(message: str) -> str:
 
     if check_image_intent(msg)[0]:
         return "image_generator"
+
+    is_maps, _ = check_maps_intent(msg)
+    if is_maps:
+        return "research"
 
     is_search, _, is_weather, _ = check_search_or_weather_intent(msg)
     if is_search or is_weather:
@@ -421,9 +558,12 @@ async def _call_ai_for_agent(
         except Exception:
             pass
 
+    is_maps, maps_q = check_maps_intent(user_message)
     is_search, search_q, is_weather, city = check_search_or_weather_intent(user_message)
     live_context: str | None = None
-    if is_weather:
+    if is_maps:
+        live_context = await fetch_live_maps(maps_q)
+    elif is_weather:
         live_context = await fetch_live_weather(city)
         if not live_context:
             live_context = await fetch_live_search(f"current weather in {city or 'today'}")
@@ -464,7 +604,9 @@ async def _call_ai_for_agent(
     except Exception as exc:
         log.warning("router.route.failed_fallback", error=str(exc))
         if live_context:
-            return live_context, "weather_search", "realtime-feed"
+            prov = "maps_service" if is_maps else ("weather_service" if is_weather else "web_search")
+            mod = "openstreetmap" if is_maps else ("open-meteo" if is_weather else "tavily")
+            return live_context, prov, mod
         lower = user_message.lower()
         if "python" in lower or "variable" in lower or "code" in lower:
             fallback_code = (
@@ -661,9 +803,12 @@ async def runtime_chat_stream(
                         history_messages.append(Message(role=role, content=r.content))
                 except Exception:
                     pass
+            is_maps, maps_q = check_maps_intent(body.message)
             is_search, search_q, is_weather, city = check_search_or_weather_intent(body.message)
             live_context: str | None = None
-            if is_weather:
+            if is_maps:
+                live_context = await fetch_live_maps(maps_q)
+            elif is_weather:
                 live_context = await fetch_live_weather(city)
                 if not live_context:
                     live_context = await fetch_live_search(f"current weather in {city or 'today'}")
@@ -748,7 +893,8 @@ async def runtime_chat_stream(
             import json as _json
             log.error("runtime.chat.stream.error", agent=agent_slug, error=str(exc))
             if live_context and not chunks_yielded:
-                yield f"data: {_json.dumps({'delta': live_context, 'done': True, 'agent_slug': 'research', 'provider': 'weather_search', 'model': 'realtime'})}\n\n".encode()
+                prov_lbl = "maps_service" if is_maps else ("weather_service" if is_weather else "weather_search")
+                yield f"data: {_json.dumps({'delta': live_context, 'done': True, 'agent_slug': 'research', 'provider': prov_lbl, 'model': 'realtime'})}\n\n".encode()
                 yield f"event: attribution\ndata: {_json.dumps({'done': True, 'provider': 'weather_search', 'model': 'realtime', 'agent_slug': 'research'})}\n\n".encode()
                 return
             error_data = _json.dumps({
