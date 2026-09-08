@@ -13,6 +13,7 @@ from app.models.bank_connection import BankConnection
 from app.models.budget import Budget
 from app.models.model import Model
 from app.models.provider import Provider
+from app.models.scheduled_job import ScheduledJob
 from app.models.spending_alert import SpendingAlert
 from app.models.token_usage import TokenUsageLog
 from app.models.user_preference import UserPreference
@@ -26,6 +27,7 @@ __all__ = [
     "MagicLinkToken",
     "Model",
     "Provider",
+    "ScheduledJob",
     "SpendingAlert",
     "TokenUsageLog",
     "User",

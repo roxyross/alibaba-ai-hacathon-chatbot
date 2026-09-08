@@ -23,6 +23,9 @@ from app.skills.schemas import (
     ScheduleJobRequest,
     ScheduleJobResponse,
 )
+from sqlalchemy import delete, select, update
+from app.db import get_session_factory
+from app.models.scheduled_job import ScheduledJob
 
 
 log = structlog.get_logger()
@@ -467,9 +470,14 @@ class JobStore:
         raw = os.environ.get("JOB_STORE_PATH", "").strip()
         if raw:
             p = Path(raw)
+        elif os.environ.get("VERCEL"):
+            p = Path("/tmp") / "job_store.json"
         else:
             p = Path(__file__).resolve().parents[3] / "data" / "job_store.json"
-        p.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
         return p
 
     def _load(self) -> None:
@@ -558,14 +566,6 @@ class JobStore:
             if tag and job.get("tag") != tag:
                 continue
             entries.append(self._job_to_entry(job_id, job))
-        # If user partition has no jobs, display all available jobs (e.g. from demo session)
-        if not entries:
-            for uid, user_jobs in self._jobs.items():
-                if uid != user_id:
-                    for job_id, job in user_jobs.items():
-                        if tag and job.get("tag") != tag:
-                            continue
-                        entries.append(self._job_to_entry(job_id, job))
         return sorted(entries, key=lambda e: e.created_at, reverse=True)
 
     def cancel(self, user_id: str, job_id: str) -> tuple[bool, str | None]:
@@ -750,6 +750,7 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
         user_id = input_data.user_id or "anonymous"
         store = get_job_store()
         op = input_data.op
+        session_factory = get_session_factory()
 
         if op == ScheduleJobOp.CREATE:
             if not input_data.name or not input_data.schedule or not input_data.timezone or not input_data.action:
@@ -767,10 +768,39 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
             )
             if err:
                 return ScheduleJobResponse(op="create", success=False, error=err)
-            # Wire into APScheduler using resolved schedule and normalized timezone
+
             job_record = store._jobs.get(user_id, {}).get(job_id)
             effective_schedule = str(job_record.get("schedule")) if job_record and job_record.get("schedule") else str(input_data.schedule)
             effective_tz = str(job_record.get("timezone")) if job_record and job_record.get("timezone") else input_data.timezone
+
+            # Persist to PostgreSQL if database is configured
+            if session_factory:
+                try:
+                    async with session_factory() as session:
+                        now = datetime.now(dt_timezone.utc)
+                        next_fire = (
+                            datetime.fromisoformat(job_record["next_fire_at"])
+                            if job_record and job_record.get("next_fire_at")
+                            else None
+                        )
+                        new_db_job = ScheduledJob(
+                            id=job_id,
+                            user_id=user_id,
+                            name=input_data.name,
+                            schedule=effective_schedule,
+                            timezone=effective_tz,
+                            action=input_data.action.model_dump(),
+                            confirm_on_fire=input_data.confirm_on_fire or False,
+                            status="active",
+                            created_at=now,
+                            next_fire_at=next_fire,
+                            tag=input_data.tag,
+                        )
+                        session.add(new_db_job)
+                        await session.commit()
+                except Exception as exc:
+                    log.warning("schedule_job.db_create_failed", error=str(exc))
+
             _reschedule_if_running(
                 job_id=job_id,
                 user_id=user_id,
@@ -782,31 +812,112 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
             return ScheduleJobResponse(op="create", success=True, job_id=job_id)
 
         elif op == ScheduleJobOp.LIST:
+            # Query from PostgreSQL if available
+            if session_factory:
+                try:
+                    async with session_factory() as session:
+                        stmt = select(ScheduledJob).where(ScheduledJob.user_id == user_id)
+                        if input_data.tag:
+                            stmt = stmt.where(ScheduledJob.tag == input_data.tag)
+                        stmt = stmt.order_by(ScheduledJob.created_at.desc())
+                        res = await session.execute(stmt)
+                        rows = res.scalars().all()
+                        jobs = [
+                            JobEntry(
+                                job_id=r.id,
+                                name=r.name,
+                                schedule=r.schedule,
+                                timezone=r.timezone,
+                                action=JobAction(**r.action),
+                                confirm_on_fire=r.confirm_on_fire,
+                                status=r.status,
+                                created_at=r.created_at,
+                                next_fire_at=r.next_fire_at,
+                                tag=r.tag,
+                            )
+                            for r in rows
+                        ]
+                        return ScheduleJobResponse(op="list", success=True, jobs=jobs)
+                except Exception as exc:
+                    log.warning("schedule_job.db_list_failed", error=str(exc))
+
             jobs = store.list(user_id=user_id, tag=input_data.tag)
             return ScheduleJobResponse(op="list", success=True, jobs=jobs)
 
         elif op == ScheduleJobOp.CANCEL:
             if not input_data.job_id:
                 return ScheduleJobResponse(op="cancel", success=False, error="job_id is required")
+
+            db_deleted = False
+            if session_factory:
+                try:
+                    async with session_factory() as session:
+                        stmt = delete(ScheduledJob).where(ScheduledJob.id == input_data.job_id)
+                        res = await session.execute(stmt)
+                        await session.commit()
+                        if res.rowcount and res.rowcount > 0:
+                            db_deleted = True
+                except Exception as exc:
+                    log.warning("schedule_job.db_cancel_failed", error=str(exc))
+
             ok, err = store.cancel(user_id=user_id, job_id=input_data.job_id)
-            if ok:
+            if ok or db_deleted:
                 _cancel_if_running(input_data.job_id)
-            return ScheduleJobResponse(op="cancel", success=ok, error=err, job_id=input_data.job_id)
+                return ScheduleJobResponse(op="cancel", success=True, job_id=input_data.job_id)
+            return ScheduleJobResponse(op="cancel", success=False, error=err or "Job not found", job_id=input_data.job_id)
 
         elif op == ScheduleJobOp.PAUSE:
             if not input_data.job_id:
                 return ScheduleJobResponse(op="pause", success=False, error="job_id is required")
+
+            db_paused = False
+            if session_factory:
+                try:
+                    async with session_factory() as session:
+                        stmt = (
+                            update(ScheduledJob)
+                            .where(ScheduledJob.id == input_data.job_id)
+                            .values(status="paused")
+                        )
+                        res = await session.execute(stmt)
+                        await session.commit()
+                        if res.rowcount and res.rowcount > 0:
+                            db_paused = True
+                except Exception as exc:
+                    log.warning("schedule_job.db_pause_failed", error=str(exc))
+
             ok, err = store.pause(user_id=user_id, job_id=input_data.job_id)
-            if ok:
+            if ok or db_paused:
                 _cancel_if_running(input_data.job_id)
-            return ScheduleJobResponse(op="pause", success=ok, error=err, job_id=input_data.job_id)
+                return ScheduleJobResponse(op="pause", success=True, job_id=input_data.job_id)
+            return ScheduleJobResponse(op="pause", success=False, error=err or "Job not found", job_id=input_data.job_id)
 
         elif op == ScheduleJobOp.RESUME:
             if not input_data.job_id:
                 return ScheduleJobResponse(op="resume", success=False, error="job_id is required")
+
+            db_resumed = False
+            db_job = None
+            if session_factory:
+                try:
+                    async with session_factory() as session:
+                        stmt = (
+                            update(ScheduledJob)
+                            .where(ScheduledJob.id == input_data.job_id)
+                            .values(status="active")
+                        )
+                        res = await session.execute(stmt)
+                        await session.commit()
+                        if res.rowcount and res.rowcount > 0:
+                            db_resumed = True
+                            q = select(ScheduledJob).where(ScheduledJob.id == input_data.job_id)
+                            res_job = await session.execute(q)
+                            db_job = res_job.scalar_one_or_none()
+                except Exception as exc:
+                    log.warning("schedule_job.db_resume_failed", error=str(exc))
+
             ok, err = store.resume(user_id=user_id, job_id=input_data.job_id)
-            # Re-register with APScheduler if resume was successful
-            if ok:
+            if ok or db_resumed:
                 job = None
                 for uid, user_jobs in store._jobs.items():
                     if input_data.job_id in user_jobs:
@@ -821,11 +932,53 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
                         action=JobAction(**job["action"]),
                         confirm_on_fire=job.get("confirm_on_fire", False),
                     )
-            return ScheduleJobResponse(op="resume", success=ok, error=err, job_id=input_data.job_id)
+                elif db_job:
+                    _reschedule_if_running(
+                        job_id=db_job.id,
+                        user_id=user_id,
+                        schedule=str(db_job.schedule),
+                        timezone=db_job.timezone,
+                        action=JobAction(**db_job.action),
+                        confirm_on_fire=db_job.confirm_on_fire,
+                    )
+                return ScheduleJobResponse(op="resume", success=True, job_id=input_data.job_id)
+            return ScheduleJobResponse(op="resume", success=False, error=err or "Job not found", job_id=input_data.job_id)
 
         elif op == ScheduleJobOp.UPDATE:
             if not input_data.job_id:
                 return ScheduleJobResponse(op="update", success=False, error="job_id is required")
+
+            db_updated = False
+            if session_factory:
+                try:
+                    async with session_factory() as session:
+                        values_to_update: dict[str, Any] = {}
+                        if input_data.name is not None:
+                            values_to_update["name"] = input_data.name
+                        if input_data.schedule is not None:
+                            values_to_update["schedule"] = input_data.schedule
+                        if input_data.timezone is not None:
+                            values_to_update["timezone"] = normalize_timezone(input_data.timezone)
+                        if input_data.action is not None:
+                            values_to_update["action"] = input_data.action.model_dump()
+                        if input_data.confirm_on_fire is not None:
+                            values_to_update["confirm_on_fire"] = input_data.confirm_on_fire
+                        if input_data.tag is not None:
+                            values_to_update["tag"] = input_data.tag
+
+                        if values_to_update:
+                            stmt = (
+                                update(ScheduledJob)
+                                .where(ScheduledJob.id == input_data.job_id)
+                                .values(**values_to_update)
+                            )
+                            res = await session.execute(stmt)
+                            await session.commit()
+                            if res.rowcount and res.rowcount > 0:
+                                db_updated = True
+                except Exception as exc:
+                    log.warning("schedule_job.db_update_failed", error=str(exc))
+
             ok, err = store.update(
                 user_id=user_id,
                 job_id=input_data.job_id,
@@ -836,15 +989,18 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
                 confirm_on_fire=input_data.confirm_on_fire,
                 tag=input_data.tag,
             )
-            if ok and input_data.action:
-                _reschedule_if_running(
-                    job_id=input_data.job_id,
-                    user_id=user_id,
-                    schedule=input_data.schedule or "",
-                    timezone=input_data.timezone,
-                    action=input_data.action,
-                    confirm_on_fire=input_data.confirm_on_fire or False,
-                )
+            if ok or db_updated:
+                if input_data.action and input_data.schedule:
+                    _reschedule_if_running(
+                        job_id=input_data.job_id,
+                        user_id=user_id,
+                        schedule=input_data.schedule or "",
+                        timezone=input_data.timezone,
+                        action=input_data.action,
+                        confirm_on_fire=input_data.confirm_on_fire or False,
+                    )
+                return ScheduleJobResponse(op="update", success=True, job_id=input_data.job_id)
+            return ScheduleJobResponse(op="update", success=False, error=err or "Job not found", job_id=input_data.job_id)
         elif op == ScheduleJobOp.TIMEZONES:
             return ScheduleJobResponse(
                 op="timezones",
