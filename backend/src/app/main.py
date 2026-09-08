@@ -50,11 +50,16 @@ app.add_middleware(
         "http://localhost:8000",
         "http://127.0.0.1:8000",
     ],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|https://.*\.vercel\.app)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/api/v1/health")
+@app.get("/health")
+async def health_check() -> dict[str, str]:
+    return {"status": "ok", "service": "roxy-ai-gateway"}
 
 # Register all routes under /api/v1
 app.include_router(auth_router, prefix="/api/v1")
@@ -94,8 +99,12 @@ async def on_startup() -> None:
         import structlog
         structlog.get_logger().warning("db.init_tables_failed", error=str(exc))
 
-    from app.job_scheduler import start_scheduler
-    start_scheduler()
+    try:
+        from app.job_scheduler import start_scheduler
+        start_scheduler()
+    except Exception as exc:
+        import structlog
+        structlog.get_logger().warning("job_scheduler.startup_failed", error=str(exc))
 
 
 @app.on_event("shutdown")
