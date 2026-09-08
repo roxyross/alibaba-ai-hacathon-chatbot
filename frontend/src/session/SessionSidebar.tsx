@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSessions, ChatSession } from './useSessions';
 import './SessionSidebar.css';
 
-export type AppView = 'chat' | 'finance' | 'jobs' | 'email' | 'voice' | 'documents';
+export type AppView = 'chat' | 'finance' | 'jobs' | 'email' | 'voice' | 'documents' | 'calculator' | 'calendar';
 
 interface SessionSidebarProps {
   activeSessionId: string | null;
@@ -100,6 +100,22 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             >
               <span className="session-sidebar__nav-icon">🎙️</span>
               <span className="session-sidebar__nav-label">Voice Mode</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'calculator' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('calculator')}
+            >
+              <span className="session-sidebar__nav-icon">🧮</span>
+              <span className="session-sidebar__nav-label">Calculator</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'calendar' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('calendar')}
+            >
+              <span className="session-sidebar__nav-icon">📅</span>
+              <span className="session-sidebar__nav-label">Calendar</span>
             </button>
             <button
               type="button"

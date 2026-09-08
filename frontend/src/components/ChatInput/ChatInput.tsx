@@ -18,7 +18,7 @@ interface ChatInputProps {
   /** Custom placeholder override */
   placeholder?: string;
   /** Navigation callback to switch modules directly from tools menu */
-  onNavigateView?: (view: 'finance' | 'jobs' | 'email') => void;
+  onNavigateView?: (view: 'finance' | 'jobs' | 'email' | 'calculator' | 'calendar') => void;
 }
 
 // File extension to icon resolver
@@ -343,7 +343,71 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
           </button>
 
-          {/* 3. Write or edit code */}
+          {/* 3. Calculator */}
+          <button
+            type="button"
+            className="chat-input__flyout-item"
+            role="menuitem"
+            onClick={() => {
+              setShowToolsMenu(false);
+              if (onNavigateView) {
+                onNavigateView('calculator');
+              } else {
+                setValue('Calculate: ');
+                textareaRef.current?.focus();
+              }
+            }}
+          >
+            <div className="chat-input__flyout-icon chat-input__flyout-icon--purple">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2" />
+                <line x1="8" y1="6" x2="16" y2="6" />
+                <line x1="16" y1="14" x2="16" y2="18" />
+                <path d="M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M8 18h.01M12 18h.01" />
+              </svg>
+            </div>
+            <div className="chat-input__flyout-text">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span className="chat-input__flyout-title">Calculator</span>
+                <span className="chat-input__flyout-badge">Tool</span>
+              </div>
+              <span className="chat-input__flyout-subtitle">Solve math &amp; expressions with Python AST engine</span>
+            </div>
+          </button>
+
+          {/* 4. Calendar & Agenda */}
+          <button
+            type="button"
+            className="chat-input__flyout-item"
+            role="menuitem"
+            onClick={() => {
+              setShowToolsMenu(false);
+              if (onNavigateView) {
+                onNavigateView('calendar');
+              } else {
+                setValue('Check my calendar schedule for today and upcoming events.');
+                textareaRef.current?.focus();
+              }
+            }}
+          >
+            <div className="chat-input__flyout-icon chat-input__flyout-icon--green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+            </div>
+            <div className="chat-input__flyout-text">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span className="chat-input__flyout-title">Calendar &amp; Schedule</span>
+                <span className="chat-input__flyout-badge">Events</span>
+              </div>
+              <span className="chat-input__flyout-subtitle">View agenda, monthly grid &amp; schedule events</span>
+            </div>
+          </button>
+
+          {/* 5. Write or edit code */}
           <button
             type="button"
             className="chat-input__flyout-item"
@@ -354,7 +418,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               textareaRef.current?.focus();
             }}
           >
-            <div className="chat-input__flyout-icon chat-input__flyout-icon--purple">
+            <div className="chat-input__flyout-icon chat-input__flyout-icon--cyan">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="16 18 22 12 16 6" />
                 <polyline points="8 6 2 12 8 18" />
@@ -366,7 +430,30 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
           </button>
 
-          {/* 4. Search the web */}
+          {/* 6. Flashcards generator */}
+          <button
+            type="button"
+            className="chat-input__flyout-item"
+            role="menuitem"
+            onClick={() => {
+              setShowToolsMenu(false);
+              setValue('Generate 5 study flashcards with questions and answers about: ');
+              textareaRef.current?.focus();
+            }}
+          >
+            <div className="chat-input__flyout-icon chat-input__flyout-icon--yellow">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+              </svg>
+            </div>
+            <div className="chat-input__flyout-text">
+              <span className="chat-input__flyout-title">Flashcards Generator</span>
+              <span className="chat-input__flyout-subtitle">Create study Q&amp;A cards from any topic</span>
+            </div>
+          </button>
+
+          {/* 7. Search the web */}
           <button
             type="button"
             className="chat-input__flyout-item"

@@ -6,7 +6,8 @@
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   height: 100%;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .session-sidebar__header {

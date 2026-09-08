@@ -312,6 +312,14 @@
   .chat-input__shortcut-hint {
     display: none;
   }
+
+  .chat-input__flyout {
+    width: calc(100vw - 1.5rem);
+    max-width: 100vw;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    max-height: 24rem;
+  }
 }
 
 /* ==========================================================================

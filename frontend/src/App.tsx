@@ -15,6 +15,8 @@ import { ScheduledJobsPanel } from './components/ScheduledJobsPanel/ScheduledJob
 import { EmailSendPanel } from './components/EmailSendPanel/EmailSendPanel';
 import { VoiceSession } from './components/VoiceSession/VoiceSession';
 import { DocumentUpload } from './components/DocumentUpload';
+import { Calculator } from './components/Calculator/Calculator';
+import { CalendarView } from './components/Calendar/CalendarView';
 import './App.css';
 import './components/DocumentUpload/DocumentUpload.css';
 
@@ -262,6 +264,21 @@ export function ChatScreen() {
             onUploadDone={(_result) => {
               // After upload, user can ask about the document
               setActiveView('chat');
+            }}
+          />
+        ) : activeView === 'calculator' ? (
+          <Calculator
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onSendToChat={(text) => handleSend(text)}
+          />
+        ) : activeView === 'calendar' ? (
+          <CalendarView
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onScheduleWithAI={(prompt) => {
+              setActiveView('chat');
+              handleSend(prompt);
             }}
           />
         ) : (

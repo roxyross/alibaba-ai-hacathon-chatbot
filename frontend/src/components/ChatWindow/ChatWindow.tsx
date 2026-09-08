@@ -15,7 +15,7 @@ interface ChatWindowProps extends ChatState {
   onAttachmentClick?: () => void;
   disabledNoModel?: boolean;
   mode?: 'chat' | 'task';
-  onNavigateView?: (view: 'finance' | 'jobs' | 'email') => void;
+  onNavigateView?: (view: 'finance' | 'jobs' | 'email' | 'calculator' | 'calendar') => void;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
