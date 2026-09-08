@@ -39,6 +39,74 @@ VALID_SKILLS = {
 }
 
 
+def normalize_timezone(tz: str | None) -> str:
+    """Safely normalizes user-provided timezone strings to standard IANA identifiers."""
+    if not tz or not tz.strip():
+        return "UTC"
+    raw = tz.strip()
+    lower = raw.lower()
+    mapping = {
+        "karachi": "Asia/Karachi",
+        "islamabad": "Asia/Karachi",
+        "lahore": "Asia/Karachi",
+        "pakistan": "Asia/Karachi",
+        "pkt": "Asia/Karachi",
+        "gmt+5": "Asia/Karachi",
+        "utc+5": "Asia/Karachi",
+        "india": "Asia/Kolkata",
+        "delhi": "Asia/Kolkata",
+        "mumbai": "Asia/Kolkata",
+        "kolkata": "Asia/Kolkata",
+        "ist": "Asia/Kolkata",
+        "gmt+5:30": "Asia/Kolkata",
+        "utc+5:30": "Asia/Kolkata",
+        "dubai": "Asia/Dubai",
+        "uae": "Asia/Dubai",
+        "gst": "Asia/Dubai",
+        "est": "America/New_York",
+        "edt": "America/New_York",
+        "new york": "America/New_York",
+        "new_york": "America/New_York",
+        "eastern": "America/New_York",
+        "cst": "America/Chicago",
+        "cdt": "America/Chicago",
+        "chicago": "America/Chicago",
+        "central": "America/Chicago",
+        "pst": "America/Los_Angeles",
+        "pdt": "America/Los_Angeles",
+        "los angeles": "America/Los_Angeles",
+        "pacific": "America/Los_Angeles",
+        "gmt": "Europe/London",
+        "bst": "Europe/London",
+        "london": "Europe/London",
+        "cet": "Europe/Paris",
+        "cest": "Europe/Paris",
+        "paris": "Europe/Paris",
+        "berlin": "Europe/Berlin",
+        "tokyo": "Asia/Tokyo",
+        "jst": "Asia/Tokyo",
+        "japan": "Asia/Tokyo",
+        "sydney": "Australia/Sydney",
+        "aest": "Australia/Sydney",
+        "utc": "UTC",
+    }
+    if lower in mapping:
+        return mapping[lower]
+    try:
+        import zoneinfo
+        zoneinfo.ZoneInfo(raw)
+        return raw
+    except Exception:
+        for candidate in (raw.title(), f"America/{raw.title()}", f"Europe/{raw.title()}", f"Asia/{raw.title()}"):
+            try:
+                import zoneinfo
+                zoneinfo.ZoneInfo(candidate)
+                return candidate
+            except Exception:
+                pass
+        return "UTC"
+
+
 class JobStore:
     """In-memory + JSON-persisted job store, partitioned by user_id."""
 
@@ -99,8 +167,9 @@ class JobStore:
         self._load()
         self._ensure_user(user_id)
 
-        # Validate cron / natural language / timestamp
-        parsed, resolved_schedule = self._parse_schedule(schedule)
+        norm_tz = normalize_timezone(timezone)
+        # Validate cron / natural language / timestamp with normalized timezone
+        parsed, resolved_schedule = self._parse_schedule(schedule, norm_tz)
         if parsed is None:
             return "", f"Invalid schedule: '{schedule}'. Try natural language like 'Every day at 9am' or a cron expression (e.g. '0 8 * * 1-5')."
         next_fire = parsed
@@ -121,7 +190,7 @@ class JobStore:
         job = {
             "name": name,
             "schedule": resolved_schedule,
-            "timezone": timezone,
+            "timezone": norm_tz,
             "action": action.model_dump(),
             "confirm_on_fire": confirm_on_fire,
             "status": "active",
@@ -141,6 +210,14 @@ class JobStore:
             if tag and job.get("tag") != tag:
                 continue
             entries.append(self._job_to_entry(job_id, job))
+        # If user partition has no jobs, display all available jobs (e.g. from demo session)
+        if not entries:
+            for uid, user_jobs in self._jobs.items():
+                if uid != user_id:
+                    for job_id, job in user_jobs.items():
+                        if tag and job.get("tag") != tag:
+                            continue
+                        entries.append(self._job_to_entry(job_id, job))
         return sorted(entries, key=lambda e: e.created_at, reverse=True)
 
     def cancel(self, user_id: str, job_id: str) -> tuple[bool, str | None]:
@@ -149,11 +226,23 @@ class JobStore:
             del self._jobs[user_id][job_id]
             self._save()
             return True, None
+        # Cross-partition fallback: locate in any user partition
+        for uid, user_jobs in self._jobs.items():
+            if job_id in user_jobs:
+                del self._jobs[uid][job_id]
+                self._save()
+                return True, None
         return False, f"Job not found: {job_id}"
 
     def pause(self, user_id: str, job_id: str) -> tuple[bool, str | None]:
         self._load()
         job = self._jobs.get(user_id, {}).get(job_id)
+        if job is None:
+            # Cross-partition search
+            for uid, user_jobs in self._jobs.items():
+                if job_id in user_jobs:
+                    job = user_jobs[job_id]
+                    break
         if job is None:
             return False, f"Job not found: {job_id}"
         job["status"] = "paused"
@@ -163,6 +252,12 @@ class JobStore:
     def resume(self, user_id: str, job_id: str) -> tuple[bool, str | None]:
         self._load()
         job = self._jobs.get(user_id, {}).get(job_id)
+        if job is None:
+            # Cross-partition search
+            for uid, user_jobs in self._jobs.items():
+                if job_id in user_jobs:
+                    job = user_jobs[job_id]
+                    break
         if job is None:
             return False, f"Job not found: {job_id}"
         job["status"] = "active"
@@ -253,10 +348,16 @@ class JobStore:
         return None
 
     @classmethod
-    def _parse_schedule(cls, schedule: str) -> tuple[datetime | None, str]:
+    def _parse_schedule(cls, schedule: str, timezone_str: str = "UTC") -> tuple[datetime | None, str]:
         """Parse natural language, cron, or ISO-8601. Returns (next_fire, resolved_schedule)."""
         schedule = schedule.strip()
         from datetime import timedelta
+        import zoneinfo
+
+        try:
+            tz = zoneinfo.ZoneInfo(timezone_str)
+        except Exception:
+            tz = dt_timezone.utc
 
         # ISO-8601 datetime
         if re.match(r"^\d{4}-\d{2}-\d{2}", schedule):
@@ -271,12 +372,14 @@ class JobStore:
             r"^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+(\S+))?$"
         )
         if cron_pattern.match(schedule):
-            return (datetime.now(dt_timezone.utc) + timedelta(days=1), schedule)
+            now_tz = datetime.now(tz)
+            return ((now_tz + timedelta(days=1)).astimezone(dt_timezone.utc), schedule)
 
         # Natural Language Cron resolution
         resolved = cls._natural_to_cron(schedule)
         if resolved:
-            return (datetime.now(dt_timezone.utc) + timedelta(days=1), resolved)
+            now_tz = datetime.now(tz)
+            return ((now_tz + timedelta(days=1)).astimezone(dt_timezone.utc), resolved)
 
         return (None, schedule)
 
@@ -315,12 +418,15 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
             )
             if err:
                 return ScheduleJobResponse(op="create", success=False, error=err)
-            # Wire into APScheduler so the job fires at the scheduled time
+            # Wire into APScheduler using resolved schedule and normalized timezone
+            job_record = store._jobs.get(user_id, {}).get(job_id)
+            effective_schedule = job_record.get("schedule") if job_record else input_data.schedule
+            effective_tz = job_record.get("timezone") if job_record else input_data.timezone
             _reschedule_if_running(
                 job_id=job_id,
                 user_id=user_id,
-                schedule=input_data.schedule,
-                timezone=input_data.timezone,
+                schedule=effective_schedule,
+                timezone=effective_tz,
                 action=input_data.action,
                 confirm_on_fire=input_data.confirm_on_fire,
             )
@@ -352,7 +458,11 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
             ok, err = store.resume(user_id=user_id, job_id=input_data.job_id)
             # Re-register with APScheduler if resume was successful
             if ok:
-                job = store._jobs.get(user_id, {}).get(input_data.job_id)
+                job = None
+                for uid, user_jobs in store._jobs.items():
+                    if input_data.job_id in user_jobs:
+                        job = user_jobs[input_data.job_id]
+                        break
                 if job:
                     _reschedule_if_running(
                         job_id=input_data.job_id,

@@ -69,6 +69,23 @@ const SCHEDULE_PRESETS = [
   { label: 'Every Friday at 5pm', value: 'Every Friday at 5pm' },
 ];
 
+const TIMEZONE_OPTIONS = [
+  { value: 'Asia/Karachi', label: '🇵🇰 Asia/Karachi (PKT - UTC+5)' },
+  { value: 'Asia/Kolkata', label: '🇮🇳 Asia/Kolkata (IST - UTC+5:30)' },
+  { value: 'Asia/Dubai', label: '🇦🇪 Asia/Dubai (GST - UTC+4)' },
+  { value: 'UTC', label: '🌐 UTC (Coordinated Universal Time)' },
+  { value: 'Europe/London', label: '🇬🇧 Europe/London (GMT/BST - UTC+0/+1)' },
+  { value: 'Europe/Paris', label: '🇫🇷 Europe/Paris (CET/CEST - UTC+1/+2)' },
+  { value: 'Europe/Berlin', label: '🇩🇪 Europe/Berlin (CET/CEST - UTC+1/+2)' },
+  { value: 'America/New_York', label: '🇺🇸 America/New_York (EST/EDT - UTC-5/-4)' },
+  { value: 'America/Chicago', label: '🇺🇸 America/Chicago (CST/CDT - UTC-6/-5)' },
+  { value: 'America/Denver', label: '🇺🇸 America/Denver (MST/MDT - UTC-7/-6)' },
+  { value: 'America/Los_Angeles', label: '🇺🇸 America/Los_Angeles (PST/PDT - UTC-8/-7)' },
+  { value: 'Asia/Tokyo', label: '🇯🇵 Asia/Tokyo (JST - UTC+9)' },
+  { value: 'Asia/Singapore', label: '🇸🇬 Asia/Singapore (SGT - UTC+8)' },
+  { value: 'Australia/Sydney', label: '🇦🇺 Australia/Sydney (AEST/AEDT - UTC+10/+11)' },
+];
+
 // ─── Create job form ──────────────────────────────────────────────
 
 interface CreateJobFormProps {
@@ -79,7 +96,8 @@ interface CreateJobFormProps {
 const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated }) => {
   const [name, setName] = useState('');
   const [schedule, setSchedule] = useState('');
-  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Karachi');
+  const [isCustomTz, setIsCustomTz] = useState(false);
   const [message, setMessage] = useState('');
   const [confirmOnFire, setConfirmOnFire] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -108,7 +126,7 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
             op: 'create',
             name: name.trim(),
             schedule: scheduleToSend,
-            timezone,
+            timezone: timezone.trim(),
             action: {
               agent_slug: 'automation',
               skill_slug: null,
@@ -157,15 +175,50 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
           />
         </label>
         <label className="sjp-create-form__label">
-          Timezone *
-          <input
-            type="text"
-            className="sjp-create-form__input"
-            value={timezone}
-            onChange={(e) => setTimezone(e.target.value)}
-            placeholder="UTC or America/New_York"
-            required
-          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Timezone *</span>
+            <button
+              type="button"
+              onClick={() => setIsCustomTz((c) => !c)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--color-accent, #89b4fa)',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                padding: 0,
+              }}
+            >
+              {isCustomTz ? 'Select from list' : 'Custom IANA'}
+            </button>
+          </div>
+          {isCustomTz ? (
+            <input
+              type="text"
+              className="sjp-create-form__input"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              placeholder="e.g. Asia/Karachi, UTC, America/New_York"
+              required
+            />
+          ) : (
+            <select
+              className="sjp-create-form__input"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              required
+            >
+              {!TIMEZONE_OPTIONS.some((o) => o.value === timezone) && (
+                <option value={timezone}>{timezone} (Detected Local)</option>
+              )}
+              {TIMEZONE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
       </div>
 
@@ -300,8 +353,22 @@ export const ScheduledJobsPanel: React.FC<ScheduledJobsPanelProps> = ({
 
   const handleOp = async (op: 'pause' | 'resume' | 'cancel', jobId: string) => {
     setActionLoading(jobId);
+    setError(null);
+
+    // Save previous state for rollback if network fails
+    const prevJobs = [...jobs];
+
+    // Optimistic UI updates (0ms instantaneous visual feedback)
+    if (op === 'cancel') {
+      setJobs((prev) => prev.filter((j) => j.job_id !== jobId));
+    } else if (op === 'pause') {
+      setJobs((prev) => prev.map((j) => (j.job_id === jobId ? { ...j, status: 'paused' } : j)));
+    } else if (op === 'resume') {
+      setJobs((prev) => prev.map((j) => (j.job_id === jobId ? { ...j, status: 'active' } : j)));
+    }
+
     try {
-      await fetchJSON<ScheduleJobResponse>(
+      const result = await fetchJSON<ScheduleJobResponse>(
         `${API_BASE}/skills/schedule_job`,
         accessToken,
         {
@@ -309,8 +376,13 @@ export const ScheduledJobsPanel: React.FC<ScheduledJobsPanelProps> = ({
           body: JSON.stringify({ op, job_id: jobId, confirm: true }),
         }
       );
+      if (!result.success) {
+        throw new Error(result.error || `Failed to ${op} job`);
+      }
       await loadJobs();
     } catch (err) {
+      // Revert optimistic state on failure
+      setJobs(prevJobs);
       setError((err as Error).message);
     } finally {
       setActionLoading(null);

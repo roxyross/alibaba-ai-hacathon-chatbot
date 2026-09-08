@@ -45,17 +45,29 @@ def _get_api_base() -> str:
 
 def _build_cron_trigger(schedule: str, timezone: str | None = None):
     """Parse a 5-field cron expression and return a CronTrigger."""
+    from app.skills.schedule_job import normalize_timezone
     parts = schedule.strip().split()
     if len(parts) < 5:
         return None
-    return CronTrigger(
-        minute=parts[0],
-        hour=parts[1],
-        day=parts[2],
-        month=parts[3],
-        day_of_week=parts[4],
-        timezone=timezone or "UTC",
-    )
+    tz_str = normalize_timezone(timezone)
+    try:
+        return CronTrigger(
+            minute=parts[0],
+            hour=parts[1],
+            day=parts[2],
+            month=parts[3],
+            day_of_week=parts[4],
+            timezone=tz_str,
+        )
+    except Exception:
+        return CronTrigger(
+            minute=parts[0],
+            hour=parts[1],
+            day=parts[2],
+            month=parts[3],
+            day_of_week=parts[4],
+            timezone="UTC",
+        )
 
 
 def _build_date_trigger(schedule: str):
@@ -168,11 +180,20 @@ def _schedule_job_in_apscheduler(
     from app.skills.schedule_job import JobAction
 
     # Determine trigger type
-    if schedule.strip().startswith(("2", "20", "19", "18", "17", "16", "15", "14", "13", "12", "11", "10", "0")):
-        # Looks like an ISO datetime
-        trigger = _build_date_trigger(schedule)
+    clean = schedule.strip()
+    import re
+    parts = clean.split()
+    if len(parts) >= 5 and all(not p.startswith("20") or len(p) <= 4 for p in parts):
+        trigger = _build_cron_trigger(clean, timezone)
+    elif re.match(r"^\d{4}-\d{2}-\d{2}", clean):
+        trigger = _build_date_trigger(clean)
     else:
-        trigger = _build_cron_trigger(schedule, timezone)
+        from app.skills.schedule_job import JobStore
+        natural_cron = JobStore._natural_to_cron(clean)
+        if natural_cron:
+            trigger = _build_cron_trigger(natural_cron, timezone)
+        else:
+            trigger = _build_cron_trigger(clean, timezone)
 
     if trigger is None:
         log.warning("job_scheduler.could_not_schedule", job_id=job_id, schedule=schedule)
@@ -191,7 +212,7 @@ def _schedule_job_in_apscheduler(
         job_id=job_id,
         agent=agent_slug,
         skill=skill_slug,
-        next_run=job.next_run_time,
+        next_run=getattr(job, "next_run_time", None),
     )
 
 
@@ -243,8 +264,8 @@ def start_scheduler() -> AsyncIOScheduler:
         return _scheduler
 
     scheduler = AsyncIOScheduler(timezone="UTC")
-    load_jobs_into_scheduler(scheduler)
     scheduler.start()
+    load_jobs_into_scheduler(scheduler)
     _scheduler = scheduler
     log.info("job_scheduler.started", active_jobs=len(scheduler.get_jobs()))
     return scheduler

@@ -32,10 +32,6 @@ async function sendEmail(
     cc: string[];
     bcc: string[];
     confirm: boolean;
-    smtp_host?: string;
-    smtp_port?: number;
-    smtp_user?: string;
-    smtp_pass?: string;
   },
   accessToken: string | null
 ): Promise<EmailSendResponse> {
@@ -74,14 +70,6 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
   const [sent, setSent] = useState<{ messageId: string; sentAt: string; to: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // SMTP Settings State
-  const [showSmtp, setShowSmtp] = useState(false);
-  const [smtpUser, setSmtpUser] = useState(() => localStorage.getItem('roxy_smtp_user') || '');
-  const [smtpPass, setSmtpPass] = useState(() => localStorage.getItem('roxy_smtp_pass') || '');
-  const [smtpHost, setSmtpHost] = useState(() => localStorage.getItem('roxy_smtp_host') || 'smtp.gmail.com');
-  const [smtpPort, setSmtpPort] = useState(() => localStorage.getItem('roxy_smtp_port') || '587');
-  const [showPass, setShowPass] = useState(false);
-
   const reset = () => {
     setTo('');
     setSubject('');
@@ -92,13 +80,6 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
     setSent(null);
   };
 
-  const saveSmtpSettings = (user: string, pass: string, host: string, port: string) => {
-    localStorage.setItem('roxy_smtp_user', user);
-    localStorage.setItem('roxy_smtp_pass', pass);
-    localStorage.setItem('roxy_smtp_host', host);
-    localStorage.setItem('roxy_smtp_port', port);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!to.trim() || !subject.trim() || !body.trim()) return;
@@ -106,11 +87,6 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
     setSubmitting(true);
     setError(null);
     setSent(null);
-
-    // Persist SMTP settings if entered
-    if (smtpUser || smtpPass) {
-      saveSmtpSettings(smtpUser, smtpPass, smtpHost, smtpPort);
-    }
 
     try {
       const payload: Parameters<typeof sendEmail>[0] = {
@@ -122,13 +98,6 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
         confirm: true,
       };
 
-      if (smtpUser.trim() && smtpPass.trim()) {
-        payload.smtp_user = smtpUser.trim();
-        payload.smtp_pass = smtpPass.trim();
-        payload.smtp_host = smtpHost.trim() || 'smtp.gmail.com';
-        payload.smtp_port = Number(smtpPort) || 587;
-      }
-
       const result = await sendEmail(payload, accessToken ?? null);
 
       if (result.success) {
@@ -139,9 +108,6 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
         });
       } else if (result.error) {
         setError(result.error);
-        if (result.error.toLowerCase().includes('smtp')) {
-          setShowSmtp(true);
-        }
       }
     } catch (err: unknown) {
       const error = err as { data?: { detail?: string }; message?: string };
@@ -156,16 +122,11 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
       } else {
         const msg = (err as Error).message ?? 'Failed to send email';
         setError(msg);
-        if (msg.toLowerCase().includes('smtp') || msg.toLowerCase().includes('password')) {
-          setShowSmtp(true);
-        }
       }
     } finally {
       setSubmitting(false);
     }
   };
-
-  const hasConfiguredSmtp = Boolean(smtpUser.trim() && smtpPass.trim());
 
   return (
     <div className="esp">
@@ -197,101 +158,6 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           </div>
         ) : (
           <form className="esp__form" onSubmit={handleSubmit}>
-            {/* SMTP Settings Accordion */}
-            <div className="esp__smtp-box">
-              <button
-                type="button"
-                className="esp__smtp-toggle"
-                onClick={() => setShowSmtp((prev) => !prev)}
-                aria-expanded={showSmtp}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <span>⚙️</span>
-                  <span style={{ fontWeight: 600 }}>SMTP / Mail Dispatch Configuration</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span className={`esp__smtp-badge ${hasConfiguredSmtp ? 'esp__smtp-badge--active' : ''}`}>
-                    {hasConfiguredSmtp ? '● Configured' : 'Optional / Setup'}
-                  </span>
-                  <span>{showSmtp ? '▲' : '▼'}</span>
-                </div>
-              </button>
-
-              {showSmtp && (
-                <div className="esp__smtp-content">
-                  <p className="esp__smtp-guide">
-                    💡 <strong>To ensure emails reach real inboxes:</strong> Enter your Gmail address and 16-character
-                    <strong> Google App Password</strong> (from Google Account &gt; Security &gt; 2-Step Verification &gt; App passwords).
-                    Credentials are saved safely in your browser.
-                  </p>
-
-                  <div className="esp__smtp-grid">
-                    <label className="esp__field">
-                      Email / SMTP Username
-                      <input
-                        type="email"
-                        className="esp__input"
-                        value={smtpUser}
-                        onChange={(e) => setSmtpUser(e.target.value)}
-                        placeholder="yourname@gmail.com"
-                      />
-                    </label>
-
-                    <label className="esp__field">
-                      SMTP App Password
-                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                        <input
-                          type={showPass ? 'text' : 'password'}
-                          className="esp__input"
-                          value={smtpPass}
-                          onChange={(e) => setSmtpPass(e.target.value)}
-                          placeholder="16-character app password"
-                          style={{ paddingRight: '2.5rem' }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPass((p) => !p)}
-                          style={{
-                            position: 'absolute',
-                            right: '0.5rem',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontSize: '0.85rem',
-                          }}
-                          title={showPass ? 'Hide password' : 'Show password'}
-                        >
-                          {showPass ? '🙈' : '👁️'}
-                        </button>
-                      </div>
-                    </label>
-
-                    <label className="esp__field">
-                      SMTP Server Host
-                      <input
-                        type="text"
-                        className="esp__input"
-                        value={smtpHost}
-                        onChange={(e) => setSmtpHost(e.target.value)}
-                        placeholder="smtp.gmail.com"
-                      />
-                    </label>
-
-                    <label className="esp__field">
-                      SMTP Port
-                      <input
-                        type="text"
-                        className="esp__input"
-                        value={smtpPort}
-                        onChange={(e) => setSmtpPort(e.target.value)}
-                        placeholder="587 (or 465)"
-                      />
-                    </label>
-                  </div>
-                </div>
-              )}
-            </div>
-
             <label className="esp__field">
               To *
               <input
@@ -353,7 +219,6 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
 
             {error && (
               <div className="esp__error" role="alert">
-                <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>⚠️ Delivery Note:</div>
                 {error}
               </div>
             )}
