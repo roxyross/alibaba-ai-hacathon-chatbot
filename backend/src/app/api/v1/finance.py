@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import CursorResult, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -438,11 +438,11 @@ async def update_budget(
     return BudgetResponse.from_orm(budget)
 
 
-@router.delete("/budgets/{budget_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/budgets/{budget_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_budget(
     budget_id: str,
     current_user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     """Delete a budget."""
     factory = _get_factory_or_503()
     async with factory() as sess:
@@ -459,6 +459,7 @@ async def delete_budget(
             raise HTTPException(status_code=404, detail="Budget not found")
         await sess.commit()
     log.info("finance.budget.deleted", user_id=str(current_user.id), budget_id=budget_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------
@@ -503,11 +504,11 @@ async def create_alert(
     return AlertResponse.from_orm(alert)
 
 
-@router.delete("/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_alert(
     alert_id: str,
     current_user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     """Delete a spending alert."""
     factory = _get_factory_or_503()
     async with factory() as sess:
@@ -524,3 +525,4 @@ async def delete_alert(
             raise HTTPException(status_code=404, detail="Alert not found")
         await sess.commit()
     log.info("finance.alert.deleted", user_id=str(current_user.id), alert_id=alert_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

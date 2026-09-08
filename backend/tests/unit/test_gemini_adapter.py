@@ -54,7 +54,7 @@ class TestGeminiAdapter:
             result = await adapter.chatCompletion(base_request)
 
         assert result.provider == "gemini"
-        assert result.model == "gemini-2.0-flash"
+        assert result.model == adapter.DEFAULT_MODEL
         assert "Hello from Gemini!" in result.content
 
     async def test_timeout_raises_provider_unavailable(self, adapter, base_request):

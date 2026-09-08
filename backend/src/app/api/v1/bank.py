@@ -17,7 +17,7 @@ from uuid import uuid4
 import structlog
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select, update
 
@@ -365,15 +365,16 @@ async def list_bank_accounts(
 @router.delete(
     "/connect",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     responses={204: {"description": "Bank connection removed"}},
 )
 async def remove_bank_connection(
     current_user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     """Remove all bank connections for the authenticated user (revoke tokens)."""
     factory = get_session_factory()
     if factory is None:
-        return
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     async with factory() as sess:
         await sess.execute(
@@ -387,3 +388,4 @@ async def remove_bank_connection(
         await sess.commit()
 
     log.info("bank.disconnect", user_id=str(current_user.id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
