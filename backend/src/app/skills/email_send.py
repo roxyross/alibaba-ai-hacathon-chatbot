@@ -12,20 +12,19 @@ Supports two modes:
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import os
 import smtplib
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import EmailMessage
-from email.policy import EmailPolicy
 
 import httpx
 import structlog
 
 from app.skills.base import SkillExecutor
 from app.skills.schemas import EmailSendRequest, EmailSendResponse
-
 
 log = structlog.get_logger()
 
@@ -73,8 +72,8 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
 
     def _has_gmail_oauth(self) -> bool:
         return bool(
-            os.environ.get("GMAIL_CLIENT_ID")
-            and os.environ.get("GMAIL_CLIENT_SECRET")
+            (os.environ.get("GMAIL_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID"))
+            and (os.environ.get("GMAIL_CLIENT_SECRET") or os.environ.get("GOOGLE_CLIENT_SECRET"))
         )
 
     def _load_user_token(self, user_id: str) -> str | None:
@@ -85,11 +84,11 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
         if not os.path.exists(token_path):
             return None
         try:
-            with open(token_path, "r", encoding="utf-8") as f:
+            with open(token_path, encoding="utf-8") as f:
                 data = json.load(f)
             # Check expiry
             expires_at = data.get("expires_at", 0)
-            if datetime.now(timezone.utc).timestamp() >= expires_at - 60:
+            if datetime.now(UTC).timestamp() >= expires_at - 60:
                 # Token expired or about to expire — try refresh
                 return self._refresh_token(user_id, data.get("refresh_token"))
             return data.get("access_token")
@@ -99,46 +98,45 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
     def _refresh_token(self, user_id: str, refresh_token: str | None) -> str | None:
         if not refresh_token:
             return None
-        try:
-            client_id = os.environ["GMAIL_CLIENT_ID"]
-            client_secret = os.environ["GMAIL_CLIENT_SECRET"]
-        except KeyError:
+        client_id = os.environ.get("GMAIL_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID")
+        client_secret = os.environ.get("GMAIL_CLIENT_SECRET") or os.environ.get("GOOGLE_CLIENT_SECRET")
+        if not client_id or not client_secret:
             return None
 
         token_path = os.path.join(
             os.path.dirname(__file__), "..", "..", "..", "data", f"gmail_token_{user_id}.json"
         )
-        import httpx
-        resp = httpx.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-            },
-            timeout=15.0,
-        )
-        if resp.status_code != 200:
-            log.warning("email_send.token_refresh_failed", user_id=user_id)
-            return None
-        data = resp.json()
-        access_token = data.get("access_token")
-        # Persist refreshed token
         try:
-            with open(token_path, "w", encoding="utf-8") as f:
+            resp = httpx.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                timeout=15.0,
+            )
+            if resp.status_code != 200:
+                log.warning("email_send.token_refresh_failed", user_id=user_id, status=resp.status_code)
+                return None
+            data = resp.json()
+            access_token = data.get("access_token")
+            # Persist refreshed token
+            with contextlib.suppress(Exception), open(token_path, "w", encoding="utf-8") as f:
                 json.dump(
-                    {
-                        "access_token": access_token,
-                        "refresh_token": refresh_token,
-                        "expires_at": datetime.now(timezone.utc).timestamp()
-                        + data.get("expires_in", 3600),
-                    },
-                    f,
-                )
-        except Exception:
-            pass
-        return access_token
+                        {
+                            "access_token": access_token,
+                            "refresh_token": refresh_token,
+                            "expires_at": datetime.now(UTC).timestamp()
+                            + data.get("expires_in", 3600),
+                        },
+                        f,
+                    )
+            return access_token
+        except Exception as exc:
+            log.warning("email_send.refresh_exception", error=str(exc))
+            return None
 
     async def _send_via_gmail_api(
         self, input_data: EmailSendRequest, raw_bytes: bytes
@@ -178,10 +176,8 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                     os.path.dirname(__file__), "..", "..", "..", "data",
                     f"gmail_token_{user_id}.json",
                 )
-                try:
+                with contextlib.suppress(Exception):
                     os.remove(token_path)
-                except Exception:
-                    pass
                 return EmailSendResponse(
                     success=False,
                     delivery_status="not_sent",
@@ -202,7 +198,7 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                 success=True,
                 delivery_status="sent",
                 message_id=message_id,
-                sent_at=datetime.now(timezone.utc).isoformat(),
+                sent_at=datetime.now(UTC).isoformat(),
             )
 
         except httpx.TimeoutException:
@@ -278,7 +274,7 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                 success=True,
                 delivery_status="sent",
                 message_id=msg_id,
-                sent_at=datetime.now(timezone.utc).isoformat(),
+                sent_at=datetime.now(UTC).isoformat(),
             )
 
         except smtplib.SMTPAuthenticationError as exc:
@@ -356,7 +352,7 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                     success=True,
                     delivery_status="sent",
                     message_id=msg_id,
-                    sent_at=datetime.now(timezone.utc).isoformat(),
+                    sent_at=datetime.now(UTC).isoformat(),
                 )
             except Exception as mx_err:
                 log.info("email_send.direct_mx_fallback", to=recipient, mx=mx_host, error=str(mx_err))
@@ -367,7 +363,7 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             success=True,
             delivery_status="sent",
             message_id=msg_id,
-            sent_at=datetime.now(timezone.utc).isoformat(),
+            sent_at=datetime.now(UTC).isoformat(),
         )
 
 

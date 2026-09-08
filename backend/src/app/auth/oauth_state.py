@@ -72,7 +72,7 @@ def set_state(response: Response, value: str) -> None:
         httponly=True,
         secure=_is_production(),
         samesite="lax",
-        path="/api/v1/auth",  # only sent to auth routes
+        path="/",  # root path so all routes and redirects receive it
     )
 
 

@@ -250,71 +250,90 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
 
         {phase === 'pending' && (
           <div className="auth-gate__form">
-            <p className="auth-gate__info">
-              We sent a sign-in link to <strong>{email}</strong>. Check your
-              inbox.
-            </p>
-            {devToken ? (
+            <div
+              style={{
+                background: 'rgba(59, 130, 246, 0.08)',
+                border: '1px solid rgba(59, 130, 246, 0.25)',
+                borderRadius: '10px',
+                padding: '1.25rem',
+                marginBottom: '1.25rem',
+                textAlign: 'center',
+              }}
+            >
+              <span style={{ fontSize: '2rem', display: 'block', marginBottom: '0.5rem' }}>📬</span>
+              <p style={{ margin: '0 0 0.5rem 0', fontWeight: 600, color: '#f8fafc', fontSize: '1.05rem' }}>
+                Check your Email Inbox
+              </p>
+              <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                We sent a sign-in link and verification code to <strong style={{ color: '#60a5fa' }}>{email}</strong>.
+                Click the link in your email or enter the code below to complete sign-in.
+              </p>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!manualToken) return;
+                try {
+                  await verify(manualToken.trim());
+                } catch {
+                  /* error already in context */
+                }
+              }}
+              style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
+            >
+              <label htmlFor="token-input" style={{ fontSize: '0.85rem', color: '#cbd5e1', fontWeight: 500 }}>
+                Verification Code / Token from Email:
+              </label>
+              <input
+                id="token-input"
+                type="text"
+                placeholder="Paste the code received in your email"
+                value={manualToken}
+                onChange={(e) => setManualToken(e.target.value)}
+                className="auth-gate__input"
+                autoFocus
+              />
+              <button type="submit" className="auth-gate__submit" disabled={!manualToken.trim()}>
+                Verify & Sign In
+              </button>
+            </form>
+
+            {devToken && (
               <div
                 style={{
-                  margin: '1rem 0',
-                  padding: '1rem',
-                  background: 'rgba(59, 130, 246, 0.12)',
-                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  marginTop: '1rem',
+                  padding: '0.75rem 1rem',
+                  background: 'rgba(37, 99, 235, 0.1)',
+                  border: '1px dashed rgba(59, 130, 246, 0.4)',
                   borderRadius: '8px',
-                  textAlign: 'center',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.5rem',
                 }}
               >
-                <p
-                  style={{
-                    margin: '0 0 0.75rem 0',
-                    fontSize: '0.88rem',
-                    color: '#93c5fd',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  ⚡ <strong>Direct Access Token Ready:</strong> Since SMTP is unconfigured, you can sign in directly with 1 click:
-                </p>
+                <span style={{ fontSize: '0.82rem', color: '#93c5fd' }}>
+                  ⚡ Quick dev link ready:
+                </span>
                 <button
                   type="button"
-                  className="auth-gate__submit"
-                  style={{ background: '#2563eb', width: '100%', padding: '0.65rem' }}
+                  style={{
+                    background: '#2563eb',
+                    border: 'none',
+                    color: '#fff',
+                    borderRadius: '6px',
+                    padding: '0.35rem 0.75rem',
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                  }}
                   onClick={() => verify(devToken)}
                 >
-                  ⚡ Click to Sign In Instantly
+                  Auto-Fill
                 </button>
               </div>
-            ) : (
-              <p className="auth-gate__hint">
-                For local dev with no SMTP configured, the link is also printed
-                in the backend server log.
-              </p>
             )}
-            <details className="auth-gate__manual">
-              <summary>Have a token already? Paste it here</summary>
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!manualToken) return;
-                  try {
-                    await verify(manualToken);
-                  } catch {
-                    /* error already in context */
-                  }
-                }}
-              >
-                <input
-                  type="text"
-                  placeholder="Magic-link token"
-                  value={manualToken}
-                  onChange={(e) => setManualToken(e.target.value)}
-                  className="auth-gate__input"
-                />
-                <button type="submit" className="auth-gate__submit">
-                  Verify
-                </button>
-              </form>
-            </details>
             <button
               type="button"
               className="auth-gate__link"

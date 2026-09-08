@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
@@ -67,7 +68,7 @@ class MagicLinkService:
                 created_at=datetime.now(timezone.utc),
             )
             self._mem_tokens[token_value] = link
-            await send_magic_link(email, build_magic_link(token_value))
+            asyncio.create_task(send_magic_link(email, build_magic_link(token_value), token_value))
             return token_value
 
         async with factory() as session:
@@ -86,7 +87,7 @@ class MagicLinkService:
             session.add(link_row)
             await session.commit()
 
-        await send_magic_link(email, build_magic_link(token_value))
+        asyncio.create_task(send_magic_link(email, build_magic_link(token_value), token_value))
         return token_value
 
     async def verify(self, token_value: str) -> tuple[User, str, int] | None:
