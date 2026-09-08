@@ -91,7 +91,8 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             if datetime.now(UTC).timestamp() >= expires_at - 60:
                 # Token expired or about to expire — try refresh
                 return self._refresh_token(user_id, data.get("refresh_token"))
-            return data.get("access_token")
+            access_token = data.get("access_token")
+            return str(access_token) if isinstance(access_token, str) else None
         except Exception:
             return None
 
@@ -125,15 +126,15 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             # Persist refreshed token
             with contextlib.suppress(Exception), open(token_path, "w", encoding="utf-8") as f:
                 json.dump(
-                        {
-                            "access_token": access_token,
-                            "refresh_token": refresh_token,
-                            "expires_at": datetime.now(UTC).timestamp()
-                            + data.get("expires_in", 3600),
-                        },
-                        f,
-                    )
-            return access_token
+                    {
+                        "access_token": access_token,
+                        "refresh_token": refresh_token,
+                        "expires_at": datetime.now(UTC).timestamp()
+                        + data.get("expires_in", 3600),
+                    },
+                    f,
+                )
+            return str(access_token) if isinstance(access_token, str) else None
         except Exception as exc:
             log.warning("email_send.refresh_exception", error=str(exc))
             return None

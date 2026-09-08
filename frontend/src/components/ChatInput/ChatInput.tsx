@@ -36,6 +36,23 @@ function getFileIcon(filename: string): string {
   return '📎';
 }
 
+const API_BASE =
+  (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
+  '/api/v1';
+
+async function audioToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 // Check for Web Speech API
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -74,9 +91,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [value, setValue] = useState('');
   const [dictationState, setDictationState] = useState<DictationState>('idle');
-  const [voiceLang, setVoiceLang] = useState<string>(() => {
-    return localStorage.getItem('roxy_voice_lang') || 'auto';
-  });
   const [audioLevels, setAudioLevels] = useState<number[]>([12, 18, 14, 24, 16, 28, 20, 32, 18, 22, 16, 26, 14, 20, 15, 24]);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [thinkMode, setThinkMode] = useState(false);
@@ -97,6 +111,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const mimeTypeRef = useRef<string>('');
   const animFrameRef = useRef<number | null>(null);
 
   // Close flyout menu on click outside
@@ -117,46 +134,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showToolsMenu]);
 
-  // Web Audio analyser for dynamic waveform pulsation
-  const startAudioAnalyser = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        audioContextRef.current = ctx;
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 64;
-        analyserRef.current = analyser;
-        const source = ctx.createMediaStreamSource(stream);
-        source.connect(analyser);
 
-        const bufferLength = analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-
-        const updateWaveform = () => {
-          if (!analyserRef.current || dictationStateRef.current !== 'recording') return;
-          analyserRef.current.getByteFrequencyData(dataArray);
-          const levels: number[] = [];
-          const count = 18;
-          const step = Math.floor(bufferLength / count) || 1;
-          for (let i = 0; i < count; i++) {
-            const val = dataArray[i * step] || 0;
-            // Map 0-255 to bar height 6px to 38px
-            const h = Math.max(6, Math.min(38, Math.round((val / 255) * 38) + (i % 2 === 0 ? 4 : 2)));
-            levels.push(h);
-          }
-          setAudioLevels(levels);
-          animFrameRef.current = requestAnimationFrame(updateWaveform);
-        };
-        animFrameRef.current = requestAnimationFrame(updateWaveform);
-      }
-    } catch {
-      // Audio stream error — CSS fallback will animate
-    }
-  };
 
   const stopAudioAnalyser = () => {
     if (animFrameRef.current) {
@@ -211,61 +189,153 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, []);
 
-  const startDictation = () => {
-    if (disabled || isStreaming || disabledNoModel) return;
-
-    if (!SpeechRecognitionClass) {
-      onVoiceClick?.();
-      return;
+  const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
+    if (audioBlob.size < 250) {
+      return dictationTranscriptRef.current.trim();
     }
+    try {
+      const base64Audio = await audioToBase64(audioBlob);
+      const token =
+        localStorage.getItem('roxy.access_token') ||
+        localStorage.getItem('access_token');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(`${API_BASE}/skills/speech_to_text`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          audio_data: base64Audio,
+          model: 'whisper',
+          // Omitted language triggers automatic multi-language detection for Urdu, Hindi, English, etc.
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.text && data.text.trim()) {
+          return data.text.trim();
+        }
+      }
+    } catch {
+      // Backend STT network error — fallback to browser transcript
+    }
+    return dictationTranscriptRef.current.trim();
+  };
+
+  const startDictation = async () => {
+    if (disabled || isStreaming || disabledNoModel) return;
 
     baseValueRef.current = value;
     dictationTranscriptRef.current = '';
+    audioChunksRef.current = [];
     setDictationState('recording');
 
+    // 1. Start MediaRecorder & Audio Analyser
     try {
-      const recognition = new SpeechRecognitionClass();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      const activeLangObj = VOICE_LANGUAGES.find((l) => l.code === voiceLang);
-      recognition.lang = (activeLangObj && activeLangObj.speechLang) ? activeLangObj.speechLang : (navigator.language || 'en-US');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      recognition.onresult = (event: any) => {
-        let finalChunk = '';
-        let interimChunk = '';
-        for (let i = 0; i < event.results.length; i++) {
-          const res = event.results[i];
-          if (res.isFinal) {
-            finalChunk += res[0].transcript + ' ';
+      let mimeType = 'audio/webm;codecs=opus';
+      if (typeof MediaRecorder !== 'undefined') {
+        if (!MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          if (MediaRecorder.isTypeSupported('audio/webm')) {
+            mimeType = 'audio/webm';
+          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            mimeType = 'audio/mp4';
           } else {
-            interimChunk += res[0].transcript;
+            mimeType = '';
           }
         }
-        dictationTranscriptRef.current = (finalChunk + interimChunk).trim();
-      };
+      }
+      mimeTypeRef.current = mimeType;
 
-      recognition.onerror = () => {
-        if (dictationStateRef.current === 'recording') {
-          finishDictation();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
         }
       };
+      recorder.start(250);
+      mediaRecorderRef.current = recorder;
 
-      recognition.onend = () => {
-        if (dictationStateRef.current === 'recording') {
-          finishDictation();
-        }
-      };
+      // Dynamic waveform visualizer
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        audioContextRef.current = ctx;
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 64;
+        analyserRef.current = analyser;
+        const source = ctx.createMediaStreamSource(stream);
+        source.connect(analyser);
 
-      recognition.start();
-      recognitionRef.current = recognition;
-      startAudioAnalyser();
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const updateWaveform = () => {
+          if (!analyserRef.current || dictationStateRef.current !== 'recording') return;
+          analyserRef.current.getByteFrequencyData(dataArray);
+          const levels: number[] = [];
+          const count = 18;
+          const step = Math.floor(bufferLength / count) || 1;
+          for (let i = 0; i < count; i++) {
+            const val = dataArray[i * step] || 0;
+            const h = Math.max(6, Math.min(38, Math.round((val / 255) * 38) + (i % 2 === 0 ? 4 : 2)));
+            levels.push(h);
+          }
+          setAudioLevels(levels);
+          animFrameRef.current = requestAnimationFrame(updateWaveform);
+        };
+        animFrameRef.current = requestAnimationFrame(updateWaveform);
+      }
     } catch {
+      // Microphone access error
       setDictationState('idle');
+      return;
+    }
+
+    // 2. Parallel Browser SpeechRecognition for live interim preview
+    if (SpeechRecognitionClass) {
+      try {
+        const recognition = new SpeechRecognitionClass();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = navigator.language || '';
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        recognition.onresult = (event: any) => {
+          let finalChunk = '';
+          let interimChunk = '';
+          for (let i = 0; i < event.results.length; i++) {
+            const res = event.results[i];
+            if (res.isFinal) {
+              finalChunk += res[0].transcript + ' ';
+            } else {
+              interimChunk += res[0].transcript;
+            }
+          }
+          dictationTranscriptRef.current = (finalChunk + interimChunk).trim();
+        };
+
+        recognition.onerror = () => {
+          // ignore; Whisper is the primary STT
+        };
+
+        recognition.start();
+        recognitionRef.current = recognition;
+      } catch {
+        // ignore
+      }
     }
   };
 
-  const finishDictation = () => {
+  const finishDictation = async () => {
     if (dictationStateRef.current !== 'recording') return;
     setDictationState('transcribing');
     stopAudioAnalyser();
@@ -276,25 +346,48 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       // ignore
     }
 
-    // Smooth ChatGPT-like transcribing transition (550ms)
-    setTimeout(() => {
-      const speech = dictationTranscriptRef.current.trim();
-      if (speech) {
-        const base = baseValueRef.current.trim();
-        const combined = base ? `${base} ${speech}` : speech;
-        setValue(combined);
-      }
-      setDictationState('idle');
-      requestAnimationFrame(() => {
-        adjustHeight();
-        textareaRef.current?.focus();
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      await new Promise<void>((resolve) => {
+        recorder.onstop = () => resolve();
+        try {
+          recorder.stop();
+        } catch {
+          resolve();
+        }
       });
-    }, 550);
+    }
+
+    const finalBlob = new Blob(audioChunksRef.current, {
+      type: mimeTypeRef.current || 'audio/webm',
+    });
+
+    const speech = await transcribeAudio(finalBlob);
+
+    if (speech) {
+      const base = baseValueRef.current.trim();
+      const combined = base ? `${base} ${speech}` : speech;
+      setValue(combined);
+    }
+
+    setDictationState('idle');
+    requestAnimationFrame(() => {
+      adjustHeight();
+      textareaRef.current?.focus();
+    });
   };
 
   const cancelDictation = () => {
     setDictationState('idle');
     stopAudioAnalyser();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        // ignore
+      }
+    }
+    audioChunksRef.current = [];
     try {
       recognitionRef.current?.abort();
     } catch {
@@ -307,15 +400,34 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     });
   };
 
-  const sendWhileDictating = () => {
+  const sendWhileDictating = async () => {
+    if (dictationStateRef.current !== 'recording') return;
+    setDictationState('transcribing');
     stopAudioAnalyser();
+
     try {
       recognitionRef.current?.stop();
     } catch {
       // ignore
     }
 
-    const speech = dictationTranscriptRef.current.trim();
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      await new Promise<void>((resolve) => {
+        recorder.onstop = () => resolve();
+        try {
+          recorder.stop();
+        } catch {
+          resolve();
+        }
+      });
+    }
+
+    const finalBlob = new Blob(audioChunksRef.current, {
+      type: mimeTypeRef.current || 'audio/webm',
+    });
+
+    const speech = await transcribeAudio(finalBlob);
     const base = baseValueRef.current.trim();
     const combined = base ? (speech ? `${base} ${speech}` : base) : speech;
 
@@ -333,9 +445,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const toggleVoiceDictation = () => {
     if (dictationState === 'recording') {
-      finishDictation();
+      void finishDictation();
     } else if (dictationState === 'idle') {
-      startDictation();
+      void startDictation();
     }
   };
 
@@ -833,30 +945,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </svg>
           </button>
 
-          {/* Language Selector in Dictation Bar */}
-          <div className="chat-input__dictate-lang-picker">
-            <select
-              className="chat-input__dictate-lang-select"
-              value={voiceLang}
-              onChange={(e) => {
-                const nextLang = e.target.value;
-                setVoiceLang(nextLang);
-                localStorage.setItem('roxy_voice_lang', nextLang);
-                if (recognitionRef.current) {
-                  const active = VOICE_LANGUAGES.find((l) => l.code === nextLang);
-                  recognitionRef.current.lang = active?.speechLang || (navigator.language || 'en-US');
-                }
-              }}
-              title="Select speech recognition language"
-              aria-label="Speech recognition language"
-            >
-              {VOICE_LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.flag} {l.name}
-                </option>
-              ))}
-            </select>
-          </div>
+
 
           {/* Center Dynamic Audio Waveform */}
           <div className="chat-input__dictate-waveform" aria-label="Recording audio">
@@ -982,25 +1071,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </svg>
             </button>
 
-            {/* Voice Language Selector Pill */}
-            <select
-              className="chat-input__lang-pill"
-              value={voiceLang}
-              onChange={(e) => {
-                const nextLang = e.target.value;
-                setVoiceLang(nextLang);
-                localStorage.setItem('roxy_voice_lang', nextLang);
-              }}
-              title="Select speech language (English, Urdu, etc.)"
-              aria-label="Speech recognition language"
-              disabled={disabled || isStreaming || disabledNoModel}
-            >
-              {VOICE_LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.flag} {l.code === 'auto' ? 'AUTO' : l.code.toUpperCase()}
-                </option>
-              ))}
-            </select>
+
 
             {/* If there is content: show Send (↑) button. If empty and onVoiceClick provided: show interactive Voice button */}
             {hasContent || isStreaming || !onVoiceClick ? (
