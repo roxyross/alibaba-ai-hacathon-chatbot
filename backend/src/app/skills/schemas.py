@@ -137,6 +137,12 @@ class EmailSendRequest(BaseModel):
         description="Must be True to dispatch. Runtime must have obtained user confirmation first.",
     )
     user_id: str | None = Field(default=None, description="Stamped by the router from the authenticated user.")
+    # Optional direct SMTP credentials for real email dispatch
+    smtp_host: str | None = Field(default=None, description="SMTP server host (e.g. smtp.gmail.com)")
+    smtp_port: int | None = Field(default=None, description="SMTP server port (e.g. 587 or 465)")
+    smtp_user: str | None = Field(default=None, description="SMTP username / email address")
+    smtp_pass: str | None = Field(default=None, description="SMTP password / Gmail App Password")
+    smtp_from: str | None = Field(default=None, description="From email address")
 
     @field_validator("to", "cc", "bcc")
     @classmethod

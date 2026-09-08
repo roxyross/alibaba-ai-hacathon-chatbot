@@ -36,10 +36,10 @@ export function ChatScreen() {
   // Dual-mode workflow: 'chat' for general conversation/search, 'task' for coding tasks
   const [mode, setMode] = useState<'chat' | 'task'>('chat');
 
-  // Default to Runtime Coordinator so buttons and prompt cards immediately work without blocking
+  // Default to Google Gemini 2.0 Flash
   const [modelSelection, setModelSelection] = useState<ModelSelection | null>({
-    provider: 'runtime',
-    model: 'coordinator',
+    provider: 'gemini',
+    model: 'gemini-2.0-flash',
   });
   const [activeView, setActiveView] = useState<AppView>('chat');
 

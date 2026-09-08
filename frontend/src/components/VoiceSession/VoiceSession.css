@@ -389,9 +389,75 @@
   transform: translateY(1px);
 }
 
+/* Waveform */
+.vs__waveform {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 52px;
+  padding: 0 1rem;
+}
+
+.vs__waveform-bar {
+  width: 5px;
+  background: linear-gradient(180deg, #f38ba8 0%, #cba6f7 100%);
+  border-radius: 99px;
+  transition: height 0.08s ease;
+  box-shadow: 0 0 8px rgba(243, 139, 168, 0.5);
+}
+
+/* Live spoken caption banner */
+.vs__live-caption {
+  background: rgba(24, 24, 37, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(243, 139, 168, 0.3);
+  border-radius: 1rem;
+  padding: 0.85rem 1.25rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  animation: msg-in 0.2s ease-out;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 600px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.vs__live-caption-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.vs__live-caption-dot {
+  width: 8px;
+  height: 8px;
+  background: #f38ba8;
+  border-radius: 50%;
+  animation: vs-pulse 1s infinite;
+}
+
+.vs__live-caption-status {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #f38ba8;
+}
+
+.vs__live-caption-text {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #cdd6f4;
+  line-height: 1.4;
+  font-style: italic;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .vs {
     padding: 1rem;
   }
 }
+

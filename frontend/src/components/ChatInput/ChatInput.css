@@ -276,6 +276,168 @@
   to { transform: rotate(360deg); }
 }
 
+/* =========================================================================
+   ChatGPT-Style Dictation Bar & Waveform
+   ========================================================================= */
+
+.chat-input__capsule--dictating {
+  height: 3.35rem;
+  padding: 0 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: var(--color-surface, #212121);
+  border: 1.5px solid var(--color-border, #3b3b4f);
+  border-radius: 9999px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  animation: dictate-glow 2s infinite alternate;
+}
+
+@keyframes dictate-glow {
+  0% { border-color: var(--color-border, #3b3b4f); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); }
+  100% { border-color: rgba(137, 180, 250, 0.45); box-shadow: 0 8px 32px rgba(137, 180, 250, 0.15); }
+}
+
+/* ✕ Cancel Button on Left */
+.chat-input__dictate-cancel-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  border: 1px solid var(--color-border, #3b3b4f);
+  background: var(--color-input-bg, #181825);
+  color: var(--color-muted, #a6adc8);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.chat-input__dictate-cancel-btn:hover {
+  background: rgba(243, 139, 168, 0.15);
+  border-color: #f38ba8;
+  color: #f38ba8;
+  transform: scale(1.06);
+}
+
+.chat-input__dictate-cancel-btn svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+/* Center Dynamic Audio Waveform */
+.chat-input__dictate-waveform {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3.5px;
+  height: 2.4rem;
+  overflow: hidden;
+  padding: 0 0.5rem;
+}
+
+.chat-input__dictate-bar {
+  display: inline-block;
+  width: 3.5px;
+  min-height: 6px;
+  border-radius: 9999px;
+  background: #ffffff;
+  transition: height 0.08s ease-out;
+  opacity: 0.92;
+}
+
+/* Dictate Actions on Right */
+.chat-input__dictate-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Stop Button (■) — dark rounded square icon */
+.chat-input__dictate-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  border: 1px solid var(--color-border, #45475a);
+  background: #11111b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chat-input__dictate-stop-btn:hover {
+  background: #181825;
+  border-color: #ffffff;
+  transform: scale(1.06);
+}
+
+.chat-input__dictate-stop-icon {
+  display: block;
+  width: 0.75rem;
+  height: 0.75rem;
+  background: #ffffff;
+  border-radius: 2.5px;
+}
+
+/* Send Button (↑) — blue circle */
+.chat-input__dictate-send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-accent, #89b4fa);
+  color: #11111b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chat-input__dictate-send-btn:hover {
+  background: var(--color-accent-hover, #b4befe);
+  transform: scale(1.08);
+  box-shadow: 0 4px 14px rgba(137, 180, 250, 0.4);
+}
+
+.chat-input__dictate-send-btn svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+/* Transcribing Capsule */
+.chat-input__capsule--transcribing {
+  height: 3.35rem;
+  padding: 0 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface, #212121);
+  border: 1.5px solid var(--color-accent, #89b4fa);
+  border-radius: 9999px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+.chat-input__transcribing-box {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--color-text, #cdd6f4);
+}
+
+.chat-input__transcribing-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+}
+
 /* Hint footer */
 .chat-input__footer {
   margin-top: 0.4rem;

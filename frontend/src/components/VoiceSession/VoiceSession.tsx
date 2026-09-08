@@ -11,8 +11,6 @@ const API_BASE = rawApiBase.endsWith('/api/v1')
   ? rawApiBase
   : `${rawApiBase.replace(/\/+$/, '')}/api/v1`;
 
-type VoiceMode = 'ptt'; // push-to-talk; 'handsfree' can be added later
-
 interface TranscriptEntry {
   role: 'user' | 'assistant';
   text: string;
@@ -75,66 +73,158 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   accessToken,
   onBack,
 }) => {
-  const [mode, setMode] = useState<VoiceMode>('ptt');
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [micPermission, setMicPermission] = useState<boolean | null>(null);
+  const [liveCaption, setLiveCaption] = useState<string>('');
+  const [audioLevels, setAudioLevels] = useState<number[]>([15, 25, 35, 20, 12]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const speakingAudioRef = useRef<HTMLAudioElement | null>(null);
   const speechRecognitionRef = useRef<any>(null);
   const recognizedSpeechRef = useRef<string>('');
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const activeStreamRef = useRef<MediaStream | null>(null);
 
   // Request mic permission on mount
   useEffect(() => {
     navigator.mediaDevices
       .getUserMedia({ audio: true })
-      .then(() => setMicPermission(true))
+      .then((stream) => {
+        setMicPermission(true);
+        // Release immediate test stream
+        stream.getTracks().forEach((t) => t.stop());
+      })
       .catch(() => setMicPermission(false));
+
     return () => {
-      // Cleanup any ongoing playback or recognition
+      // Cleanup any ongoing playback, stream, animation or recognition
       speakingAudioRef.current?.pause();
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
+      }
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
       }
       try {
         speechRecognitionRef.current?.stop();
       } catch {
         // ignore
       }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(() => {});
+      }
+      if (activeStreamRef.current) {
+        activeStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
     };
+  }, []);
+
+  // Audio level visualizer loop
+  const startAudioVisualizer = (stream: MediaStream) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      audioContextRef.current = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 32;
+      analyserRef.current = analyser;
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateVisualizer = () => {
+        analyser.getByteFrequencyData(dataArray);
+        // Pick 5 frequency bands
+        const levels = [
+          Math.max(12, (dataArray[1] || 0) * 0.4),
+          Math.max(16, (dataArray[3] || 0) * 0.48),
+          Math.max(20, (dataArray[5] || 0) * 0.55),
+          Math.max(14, (dataArray[7] || 0) * 0.44),
+          Math.max(10, (dataArray[9] || 0) * 0.35),
+        ];
+        setAudioLevels(levels);
+        animFrameRef.current = requestAnimationFrame(updateVisualizer);
+      };
+      updateVisualizer();
+    } catch {
+      // ignore
+    }
+  };
+
+  const stopAudioVisualizer = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    setAudioLevels([15, 25, 35, 20, 12]);
+  };
+
+  const stopSpeaking = useCallback(() => {
+    speakingAudioRef.current?.pause();
+    if (speakingAudioRef.current) {
+      speakingAudioRef.current.currentTime = 0;
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
   }, []);
 
   // ─── Recording ──────────────────────────────────────────────────────
 
   const startRecording = useCallback(() => {
-    if (!micPermission) return;
+    if (isSpeaking) {
+      stopSpeaking();
+    }
     audioChunksRef.current = [];
     recognizedSpeechRef.current = '';
+    setLiveCaption('');
+    setError(null);
 
-    // Also start browser speech recognition in parallel if available
+    // 1. Browser Speech Recognition (Web Speech API)
     if (SpeechRecognitionClass) {
       try {
         const recognition = new SpeechRecognitionClass();
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = navigator.language || 'en-US';
+
         recognition.onresult = (e: any) => {
-          let text = '';
-          for (let i = e.resultIndex; i < e.results.length; i++) {
-            text += e.results[i][0].transcript;
+          let finalTranscript = '';
+          let interimTranscript = '';
+          for (let i = 0; i < e.results.length; i++) {
+            const res = e.results[i];
+            if (res && res[0]) {
+              if (res.isFinal) {
+                finalTranscript += res[0].transcript + ' ';
+              } else {
+                interimTranscript += res[0].transcript;
+              }
+            }
           }
-          if (text) {
-            recognizedSpeechRef.current = text.trim();
+          const combined = (finalTranscript + interimTranscript).trim();
+          if (combined) {
+            recognizedSpeechRef.current = combined;
+            setLiveCaption(combined);
           }
         };
+
         recognition.onerror = () => {
-          // ignore browser speech errors and rely on audio recording
+          // ignore web speech errors; fallback to audio recording
         };
+
         recognition.start();
         speechRecognitionRef.current = recognition;
       } catch {
@@ -142,29 +232,55 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       }
     }
 
-    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus',
+    // 2. MediaRecorder for backend STT
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        activeStreamRef.current = stream;
+        setMicPermission(true);
+
+        startAudioVisualizer(stream);
+
+        let mimeType = 'audio/webm;codecs=opus';
+        if (typeof MediaRecorder !== 'undefined') {
+          if (!MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+            if (MediaRecorder.isTypeSupported('audio/webm')) {
+              mimeType = 'audio/webm';
+            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+              mimeType = 'audio/mp4';
+            } else {
+              mimeType = '';
+            }
+          }
+        }
+
+        const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
+        const recorder = new MediaRecorder(stream, options);
+        mediaRecorderRef.current = recorder;
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+
+        recorder.onstop = async () => {
+          stopAudioVisualizer();
+          stream.getTracks().forEach((t) => t.stop());
+          const finalBlob = new Blob(audioChunksRef.current, {
+            type: mimeType || 'audio/webm',
+          });
+          await transcribeAndRespond(finalBlob);
+        };
+
+        recorder.start(250);
+        setIsRecording(true);
+      })
+      .catch((err) => {
+        setError(`Microphone access error: ${err.message}`);
+        setMicPermission(false);
       });
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        await transcribeAndRespond(blob);
-      };
-
-      recorder.start();
-      setIsRecording(true);
-      setError(null);
-    }).catch((err) => {
-      setError(`Microphone access denied: ${err.message}`);
-    });
-  }, [micPermission]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isSpeaking]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopRecording = useCallback(() => {
     if (speechRecognitionRef.current) {
@@ -174,37 +290,55 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         // ignore
       }
     }
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      setIsProcessing(true);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        // ignore
+      }
     }
-  }, [isRecording]);
+    setIsRecording(false);
+    setIsProcessing(true);
+  }, []);
+
+  const toggleRecording = useCallback(() => {
+    if (isSpeaking) {
+      stopSpeaking();
+      return;
+    }
+    if (isRecording) {
+      stopRecording();
+    } else if (!isProcessing) {
+      startRecording();
+    }
+  }, [isSpeaking, isRecording, isProcessing, stopSpeaking, startRecording, stopRecording]);
 
   // ─── Speech-to-text → Runtime → Text-to-speech ──────────────────────
 
   const transcribeAndRespond = async (audioBlob: Blob) => {
     try {
-      const base64Audio = await audioToBase64(audioBlob);
-
-      // 1. Transcribe (via backend Groq Whisper)
       let userText = '';
-      try {
-        const sttResp = await fetchJSON<SpeechToTextResponse>(
-          `${API_BASE}/skills/speech_to_text`,
-          accessToken,
-          {
-            method: 'POST',
-            body: JSON.stringify({
-              audio_data: base64Audio,
-              language: null,
-              model: 'whisper',
-            }),
-          },
-        );
-        userText = (sttResp.text || '').trim();
-      } catch {
-        // Backend STT fallback
+
+      // 1. If we have audio data, try backend Whisper STT
+      if (audioBlob.size > 200) {
+        try {
+          const base64Audio = await audioToBase64(audioBlob);
+          const sttResp = await fetchJSON<SpeechToTextResponse>(
+            `${API_BASE}/skills/speech_to_text`,
+            accessToken,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                audio_data: base64Audio,
+                language: null,
+                model: 'whisper',
+              }),
+            },
+          );
+          userText = (sttResp.text || '').trim();
+        } catch {
+          // Backend STT error; fall back to Web Speech recognition
+        }
       }
 
       // Filter out silence hallucinations or unconfigured mocks
@@ -228,24 +362,22 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         userText = '';
       }
 
-      // If backend STT returned empty, fall back to browser recognition
+      // If backend STT returned empty or failed, use recognized speech from Web Speech API
       if (!userText && recognizedSpeechRef.current) {
         userText = recognizedSpeechRef.current.trim();
       }
 
       if (!userText) {
-        setTranscripts((prev) => [
-          ...prev,
-          { role: 'user', text: '(No voice detected — please speak clearly into microphone)' },
-        ]);
+        setError('No voice detected. Please speak clearly and tap the mic again to retry.');
         setIsProcessing(false);
+        setLiveCaption('');
         return;
       }
 
+      setLiveCaption('');
       setTranscripts((prev) => [...prev, { role: 'user', text: userText }]);
 
-      // 2. Call the Runtime Coordinator to get a voice-friendly response
-      // Use streaming=false for voice to get full text response first
+      // 2. Call the AI Runtime Coordinator for voice response
       const chatResp = await fetchJSON<{
         response: string;
         agent_slug: string;
@@ -271,17 +403,6 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       setIsProcessing(false);
     }
   };
-
-  const stopSpeaking = useCallback(() => {
-    speakingAudioRef.current?.pause();
-    if (speakingAudioRef.current) {
-      speakingAudioRef.current.currentTime = 0;
-    }
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    setIsSpeaking(false);
-  }, []);
 
   const speakText = async (text: string) => {
     const playWithBrowserSpeech = (cleanText: string) => {
@@ -351,44 +472,19 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
     }
   };
 
-  const handleMicMouseDown = () => {
-    if (isSpeaking) {
-      stopSpeaking();
-      return;
-    }
-    if (!isRecording && !isProcessing) {
-      startRecording();
-    }
-  };
-
-  const handleMicMouseUp = () => {
-    if (isRecording) {
-      stopRecording();
-    }
-  };
-
-  // Keyboard support: spacebar to push-to-talk or stop speaking
+  // Keyboard support: spacebar to toggle recording or interrupt speaking
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.code === 'Space' && !e.repeat) {
-      if (isSpeaking) {
-        e.preventDefault();
-        stopSpeaking();
-        return;
-      }
-      if (!isRecording && !isProcessing) {
-        e.preventDefault();
-        startRecording();
-      }
-    }
-  };
-  const handleKeyUp = (e: React.KeyboardEvent) => {
-    if (e.code === 'Space' && isRecording) {
+    if (e.code === 'Space' && !e.repeat && (e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
       e.preventDefault();
-      stopRecording();
+      toggleRecording();
     }
   };
 
-  const clearTranscripts = () => setTranscripts([]);
+  const clearTranscripts = () => {
+    setTranscripts([]);
+    setError(null);
+    setLiveCaption('');
+  };
 
   // ─── Render ─────────────────────────────────────────────────────────
 
@@ -396,7 +492,6 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
     <div
       className="vs"
       onKeyDown={handleKeyDown}
-      onKeyUp={handleKeyUp}
       tabIndex={0}
       aria-label="Voice session"
     >
@@ -408,7 +503,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
               ← Back to Chat
             </button>
           )}
-          <h2 className="vs__title">🎙️ <span>Voice</span></h2>
+          <h2 className="vs__title">🎙️ <span>Voice Session</span></h2>
         </div>
         {transcripts.length > 0 && (
           <button
@@ -431,11 +526,11 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
 
       {/* Transcript list */}
       <div className="vs__transcripts" aria-label="Transcripts" aria-live="polite">
-        {transcripts.length === 0 && !isProcessing && (
+        {transcripts.length === 0 && !isProcessing && !isRecording && (
           <div className="vs__empty">
-            <p>👆 Hold the microphone button and speak</p>
+            <p>👆 Tap the microphone button and start speaking</p>
             <p className="vs__empty-hint">
-              or press and hold <kbd>Space</kbd>
+              or press <kbd>Space</kbd> to toggle listening
             </p>
           </div>
         )}
@@ -443,7 +538,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         {isProcessing && (
           <div className="vs__processing">
             <span className="vs__processing-dot" />
-            <span>Transcribing…</span>
+            <span>Transcribing and processing with AI…</span>
           </div>
         )}
 
@@ -460,10 +555,23 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         ))}
       </div>
 
+      {/* Live spoken preview while user is speaking */}
+      {isRecording && (
+        <div className="vs__live-caption" aria-live="polite">
+          <div className="vs__live-caption-header">
+            <span className="vs__live-caption-dot" />
+            <span className="vs__live-caption-status">Listening…</span>
+          </div>
+          <p className="vs__live-caption-text">
+            {liveCaption ? `“${liveCaption}”` : 'Speak now into your microphone…'}
+          </p>
+        </div>
+      )}
+
       {/* Error display */}
       {error && (
         <div className="vs__error" role="alert">
-          {error}
+          <span>{error}</span>
           <button
             className="vs__error-dismiss"
             onClick={() => setError(null)}
@@ -476,39 +584,43 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
 
       {/* Bottom controls */}
       <div className="vs__controls">
-        {/* Mode selector */}
-        <div className="vs__mode-group" role="group" aria-label="Voice mode">
-          <button
-            className={`vs__mode-btn${mode === 'ptt' ? ' vs__mode-btn--active' : ''}`}
-            onClick={() => setMode('ptt')}
-            type="button"
-          >
-            🎯 Push-to-talk
-          </button>
-        </div>
+        {/* Dynamic audio waveform visualizer when recording */}
+        {isRecording && (
+          <div className="vs__waveform" aria-label="Microphone volume">
+            {audioLevels.map((lvl, idx) => (
+              <span
+                key={idx}
+                className="vs__waveform-bar"
+                style={{ height: `${Math.min(48, Math.max(8, lvl))}px` }}
+              />
+            ))}
+          </div>
+        )}
 
-        {/* Mic button */}
+        {/* Mic toggle button */}
         <div className="vs__mic-wrap">
           <button
             className={`vs__mic${isRecording ? ' vs__mic--recording' : ''}${isProcessing ? ' vs__mic--busy' : ''}${isSpeaking ? ' vs__mic--speaking' : ''}${!micPermission ? ' vs__mic--disabled' : ''}`}
-            onMouseDown={handleMicMouseDown}
-            onMouseUp={handleMicMouseUp}
-            onMouseLeave={isRecording ? handleMicMouseUp : undefined}
-            onTouchStart={handleMicMouseDown}
-            onTouchEnd={handleMicMouseUp}
+            onClick={toggleRecording}
             disabled={!micPermission || isProcessing}
             aria-label={
               isSpeaking
-                ? 'Click to stop speaking'
+                ? 'Stop AI voice'
                 : isRecording
-                  ? 'Release to send'
-                  : 'Hold to record'
+                  ? 'Stop and send'
+                  : 'Tap to speak'
             }
-            title={isSpeaking ? 'Click to stop speaking' : undefined}
+            title={
+              isSpeaking
+                ? 'Stop AI speaking'
+                : isRecording
+                  ? 'Tap to stop & send'
+                  : 'Tap to speak'
+            }
             type="button"
           >
             {isRecording ? (
-              <span className="vs__mic-icon">⏹</span>
+              <span className="vs__mic-icon">■</span>
             ) : isProcessing ? (
               <span className="vs__mic-spinner" />
             ) : isSpeaking ? (
@@ -519,7 +631,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
           </button>
           {isRecording && (
             <span className="vs__recording-label" aria-live="polite">
-              Recording…
+              Recording… Tap to send
             </span>
           )}
           {isSpeaking && (
@@ -546,9 +658,11 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         <div className="vs__hint">
           {isSpeaking
             ? 'Speaking · Tap button or space to interrupt'
-            : micPermission
-              ? 'Hold to talk · Release to send'
-              : 'Mic access required'}
+            : isRecording
+              ? 'Listening · Tap again or hit Space to finish'
+              : micPermission
+                ? 'Tap mic to talk · Hit Space to toggle'
+                : 'Mic access required'}
         </div>
       </div>
     </div>

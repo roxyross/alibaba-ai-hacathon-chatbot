@@ -40,6 +40,8 @@ function getFileIcon(filename: string): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
+type DictationState = 'idle' | 'recording' | 'transcribing';
+
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
   disabled = false,
@@ -52,7 +54,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onNavigateView,
 }) => {
   const [value, setValue] = useState('');
-  const [isListening, setIsListening] = useState(false);
+  const [dictationState, setDictationState] = useState<DictationState>('idle');
+  const [audioLevels, setAudioLevels] = useState<number[]>([12, 18, 14, 24, 16, 28, 20, 32, 18, 22, 16, 26, 14, 20, 15, 24]);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [thinkMode, setThinkMode] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -64,6 +67,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const actionBtnRef = useRef<HTMLButtonElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
+  const dictationStateRef = useRef<DictationState>('idle');
+  dictationStateRef.current = dictationState;
+
+  const baseValueRef = useRef<string>('');
+  const dictationTranscriptRef = useRef<string>('');
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const animFrameRef = useRef<number | null>(null);
 
   // Close flyout menu on click outside
   useEffect(() => {
@@ -83,45 +95,90 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showToolsMenu]);
 
-  // Initialize Web Speech API if supported
-  useEffect(() => {
-    if (!SpeechRecognitionClass) return;
-
+  // Web Audio analyser for dynamic waveform pulsation
+  const startAudioAnalyser = async () => {
     try {
-      const recognition = new SpeechRecognitionClass();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      recognition.onresult = (event: any) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        if (transcript) {
-          setValue((prev) => {
-            const separator = prev && !prev.endsWith(' ') ? ' ' : '';
-            return prev + separator + transcript;
-          });
-          adjustHeight();
-        }
-      };
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        audioContextRef.current = ctx;
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 64;
+        analyserRef.current = analyser;
+        const source = ctx.createMediaStreamSource(stream);
+        source.connect(analyser);
 
-      recognition.onerror = () => {
-        setIsListening(false);
-      };
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
 
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
+        const updateWaveform = () => {
+          if (!analyserRef.current || dictationStateRef.current !== 'recording') return;
+          analyserRef.current.getByteFrequencyData(dataArray);
+          const levels: number[] = [];
+          const count = 18;
+          const step = Math.floor(bufferLength / count) || 1;
+          for (let i = 0; i < count; i++) {
+            const val = dataArray[i * step] || 0;
+            // Map 0-255 to bar height 6px to 38px
+            const h = Math.max(6, Math.min(38, Math.round((val / 255) * 38) + (i % 2 === 0 ? 4 : 2)));
+            levels.push(h);
+          }
+          setAudioLevels(levels);
+          animFrameRef.current = requestAnimationFrame(updateWaveform);
+        };
+        animFrameRef.current = requestAnimationFrame(updateWaveform);
+      }
     } catch {
-      // Speech recognition not available
+      // Audio stream error — CSS fallback will animate
     }
+  };
 
+  const stopAudioAnalyser = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      try {
+        audioContextRef.current.close();
+      } catch {
+        // ignore
+      }
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+  };
+
+  // Keyboard shortcut Ctrl+Shift+D for dictation, Esc for cancel
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        if (dictationState === 'recording') {
+          finishDictation();
+        } else if (dictationState === 'idle') {
+          startDictation();
+        }
+      } else if (e.key === 'Escape' && dictationState === 'recording') {
+        e.preventDefault();
+        cancelDictation();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [dictationState, value]);
+
+  // Cleanup dictation on unmount
+  useEffect(() => {
     return () => {
+      stopAudioAnalyser();
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
@@ -132,7 +189,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     };
   }, []);
 
-  const toggleVoiceDictation = () => {
+  const startDictation = () => {
     if (disabled || isStreaming || disabledNoModel) return;
 
     if (!SpeechRecognitionClass) {
@@ -140,20 +197,122 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
 
-    if (isListening) {
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        // ignore
+    baseValueRef.current = value;
+    dictationTranscriptRef.current = '';
+    setDictationState('recording');
+
+    try {
+      const recognition = new SpeechRecognitionClass();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || 'en-US';
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onresult = (event: any) => {
+        let finalChunk = '';
+        let interimChunk = '';
+        for (let i = 0; i < event.results.length; i++) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            finalChunk += res[0].transcript + ' ';
+          } else {
+            interimChunk += res[0].transcript;
+          }
+        }
+        dictationTranscriptRef.current = (finalChunk + interimChunk).trim();
+      };
+
+      recognition.onerror = () => {
+        if (dictationStateRef.current === 'recording') {
+          finishDictation();
+        }
+      };
+
+      recognition.onend = () => {
+        if (dictationStateRef.current === 'recording') {
+          finishDictation();
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+      startAudioAnalyser();
+    } catch {
+      setDictationState('idle');
+    }
+  };
+
+  const finishDictation = () => {
+    if (dictationStateRef.current !== 'recording') return;
+    setDictationState('transcribing');
+    stopAudioAnalyser();
+
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
+
+    // Smooth ChatGPT-like transcribing transition (550ms)
+    setTimeout(() => {
+      const speech = dictationTranscriptRef.current.trim();
+      if (speech) {
+        const base = baseValueRef.current.trim();
+        const combined = base ? `${base} ${speech}` : speech;
+        setValue(combined);
       }
-      setIsListening(false);
-    } else {
-      try {
-        recognitionRef.current?.start();
-        setIsListening(true);
-      } catch {
-        setIsListening(false);
+      setDictationState('idle');
+      requestAnimationFrame(() => {
+        adjustHeight();
+        textareaRef.current?.focus();
+      });
+    }, 550);
+  };
+
+  const cancelDictation = () => {
+    setDictationState('idle');
+    stopAudioAnalyser();
+    try {
+      recognitionRef.current?.abort();
+    } catch {
+      // ignore
+    }
+    setValue(baseValueRef.current);
+    requestAnimationFrame(() => {
+      adjustHeight();
+      textareaRef.current?.focus();
+    });
+  };
+
+  const sendWhileDictating = () => {
+    stopAudioAnalyser();
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
+
+    const speech = dictationTranscriptRef.current.trim();
+    const base = baseValueRef.current.trim();
+    const combined = base ? (speech ? `${base} ${speech}` : base) : speech;
+
+    setDictationState('idle');
+
+    if (combined) {
+      onSend(combined);
+      setValue('');
+      setAttachedFiles([]);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
       }
+    }
+  };
+
+  const toggleVoiceDictation = () => {
+    if (dictationState === 'recording') {
+      finishDictation();
+    } else if (dictationState === 'idle') {
+      startDictation();
     }
   };
 
@@ -181,13 +340,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const text = value.trim();
     if ((!text && attachedFiles.length === 0) || disabled || isStreaming || disabledNoModel) return;
 
-    if (isListening) {
+    if (dictationState === 'recording') {
       try {
         recognitionRef.current?.stop();
       } catch {
         // ignore
       }
-      setIsListening(false);
+      stopAudioAnalyser();
+      setDictationState('idle');
     }
 
     let messageToSend = text;
@@ -261,7 +421,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       ? 'Choose a model to start chatting…'
       : isStreaming
         ? 'ROXY AI is thinking…'
-        : isListening
+        : dictationState === 'recording'
           ? 'Listening... speak now'
           : 'Ask anything, chat, or paste code…');
 
@@ -633,124 +793,183 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       )}
 
-      <div className={`chat-input__capsule ${isListening ? 'chat-input__capsule--listening' : ''}`}>
-        {/* Left tools slot: Attachment (+), Direct Attach, and ModelPicker */}
-        <div className="chat-input__left">
+      {/* Capsule Render: recording vs transcribing vs normal */}
+      {dictationState === 'recording' ? (
+        <div className="chat-input__capsule chat-input__capsule--dictating">
+          {/* ✕ Cancel Button */}
           <button
-            ref={actionBtnRef}
             type="button"
-            className={`chat-input__action-btn ${showToolsMenu ? 'chat-input__action-btn--active' : ''}`}
-            onClick={() => setShowToolsMenu((prev) => !prev)}
-            title="Add tools, files, and skills (+)"
-            aria-label="Add options"
-            aria-expanded={showToolsMenu}
+            className="chat-input__dictate-cancel-btn"
+            onClick={cancelDictation}
+            title="Cancel dictation (Esc)"
+            aria-label="Cancel dictation"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
 
-          <button
-            type="button"
-            className="chat-input__action-btn"
-            onClick={() => fileInputRef.current?.click()}
-            title="Add files from device (PDFs, PPTs, images, videos, code)"
-            aria-label="Add files from device"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-            </svg>
-          </button>
-          {leftSlot}
+          {/* Center Dynamic Audio Waveform */}
+          <div className="chat-input__dictate-waveform" aria-label="Recording audio">
+            {audioLevels.map((lvl, idx) => (
+              <span
+                key={idx}
+                className="chat-input__dictate-bar"
+                style={{ height: `${lvl}px` }}
+              />
+            ))}
+          </div>
+
+          {/* Right Action Buttons: Stop (■) and Send (↑) */}
+          <div className="chat-input__dictate-actions">
+            <button
+              type="button"
+              className="chat-input__dictate-stop-btn"
+              onClick={finishDictation}
+              title="Done dictating — transcribe"
+              aria-label="Stop dictation"
+            >
+              <span className="chat-input__dictate-stop-icon" />
+            </button>
+
+            <button
+              type="button"
+              className="chat-input__dictate-send-btn"
+              onClick={sendWhileDictating}
+              title="Send message"
+              aria-label="Send message"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5" />
+                <polyline points="5 12 12 5 19 12" />
+              </svg>
+            </button>
+          </div>
         </div>
+      ) : dictationState === 'transcribing' ? (
+        <div className="chat-input__capsule chat-input__capsule--transcribing">
+          <div className="chat-input__transcribing-box">
+            <span className="chat-input__spinner" aria-hidden="true" />
+            <span className="chat-input__transcribing-label">Transcribing…</span>
+          </div>
+        </div>
+      ) : (
+        <div className="chat-input__capsule">
+          {/* Left tools slot: Attachment (+), Direct Attach, and ModelPicker */}
+          <div className="chat-input__left">
+            <button
+              ref={actionBtnRef}
+              type="button"
+              className={`chat-input__action-btn ${showToolsMenu ? 'chat-input__action-btn--active' : ''}`}
+              onClick={() => setShowToolsMenu((prev) => !prev)}
+              title="Add tools, files, and skills (+)"
+              aria-label="Add options"
+              aria-expanded={showToolsMenu}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
 
-        {/* Text & Code Textarea */}
-        <textarea
-          ref={textareaRef}
-          className="chat-input__textarea"
-          value={value}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          disabled={disabled || isStreaming || disabledNoModel}
-          rows={1}
-          aria-label="Message input"
-          aria-multiline="true"
-        />
+            <button
+              type="button"
+              className="chat-input__action-btn"
+              onClick={() => fileInputRef.current?.click()}
+              title="Add files from device (PDFs, PPTs, images, videos, code)"
+              aria-label="Add files from device"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </svg>
+            </button>
+            {leftSlot}
+          </div>
 
-        {/* Right tools slot: Think button, Mic button, and Send / Voice Mode button */}
-        <div className="chat-input__right">
-          {/* Think Toggle Button */}
-          <button
-            type="button"
-            className={`chat-input__think-btn ${thinkMode ? 'chat-input__think-btn--active' : ''}`}
-            onClick={() => setThinkMode((prev) => !prev)}
-            title={thinkMode ? 'Deep reasoning enabled' : 'Enable deep reasoning (Think)'}
-            aria-label={thinkMode ? 'Deep reasoning enabled' : 'Enable deep reasoning (Think)'}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
-            <span>Think</span>
-          </button>
-
-          {/* Voice dictation mic button */}
-          <button
-            type="button"
-            className={`chat-input__mic-btn ${isListening ? 'chat-input__mic-btn--active' : ''}`}
-            onClick={toggleVoiceDictation}
-            title={isListening ? 'Stop listening' : 'Dictate with voice'}
-            aria-label={isListening ? 'Stop listening' : 'Dictate with voice'}
+          {/* Text & Code Textarea */}
+          <textarea
+            ref={textareaRef}
+            className="chat-input__textarea"
+            value={value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
             disabled={disabled || isStreaming || disabledNoModel}
-          >
-            {isListening ? (
-              <span className="chat-input__mic-pulse" aria-hidden="true" />
-            ) : (
+            rows={1}
+            aria-label="Message input"
+            aria-multiline="true"
+          />
+
+          {/* Right tools slot: Think button, Mic button, and Send / Voice Mode button */}
+          <div className="chat-input__right">
+            {/* Think Toggle Button */}
+            <button
+              type="button"
+              className={`chat-input__think-btn ${thinkMode ? 'chat-input__think-btn--active' : ''}`}
+              onClick={() => setThinkMode((prev) => !prev)}
+              title={thinkMode ? 'Deep reasoning enabled' : 'Enable deep reasoning (Think)'}
+              aria-label={thinkMode ? 'Deep reasoning enabled' : 'Enable deep reasoning (Think)'}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              <span>Think</span>
+            </button>
+
+            {/* Voice dictation mic button */}
+            <button
+              type="button"
+              className="chat-input__mic-btn"
+              onClick={toggleVoiceDictation}
+              title="Dictate with voice (Ctrl+Shift+D)"
+              aria-label="Dictate with voice"
+              disabled={disabled || isStreaming || disabledNoModel}
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                 <line x1="12" y1="19" x2="12" y2="23" />
                 <line x1="8" y1="23" x2="16" y2="23" />
               </svg>
-            )}
-          </button>
+            </button>
 
-          {/* If there is content: show Send (↑) button. If empty and onVoiceClick provided: show interactive Voice button */}
-          {hasContent || isStreaming || !onVoiceClick ? (
-            <button
-              type="submit"
-              className={`chat-input__send-btn ${hasContent ? 'chat-input__send-btn--ready' : ''}`}
-              disabled={!hasContent || disabled || isStreaming || disabledNoModel}
-              aria-label="Send message"
-            >
-              {isStreaming ? (
-                <span className="chat-input__spinner" aria-hidden="true" />
-              ) : (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="19" x2="12" y2="5" />
-                  <polyline points="5 12 12 5 19 12" />
-                </svg>
-              )}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="chat-input__voice-mode-btn"
-              onClick={onVoiceClick}
-              title="Talk out loud with ROXY AI using Voice"
-              aria-label="Talk out loud with ROXY AI using Voice"
-            >
-              <div className="chat-input__waveform">
-                <span />
-                <span />
-                <span />
-                <span />
-              </div>
-            </button>
-          )}
+            {/* If there is content: show Send (↑) button. If empty and onVoiceClick provided: show interactive Voice button */}
+            {hasContent || isStreaming || !onVoiceClick ? (
+              <button
+                type="submit"
+                className={`chat-input__send-btn ${hasContent ? 'chat-input__send-btn--ready' : ''}`}
+                disabled={!hasContent || disabled || isStreaming || disabledNoModel}
+                aria-label="Send message"
+              >
+                {isStreaming ? (
+                  <span className="chat-input__spinner" aria-hidden="true" />
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5" />
+                    <polyline points="5 12 12 5 19 12" />
+                  </svg>
+                )}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="chat-input__voice-mode-btn"
+                onClick={onVoiceClick}
+                title="Talk out loud with ROXY AI using Voice"
+                aria-label="Talk out loud with ROXY AI using Voice"
+              >
+                <div className="chat-input__waveform">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="chat-input__footer">
         <span className="chat-input__shortcut-hint">

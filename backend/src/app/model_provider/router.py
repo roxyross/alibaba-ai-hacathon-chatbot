@@ -64,20 +64,6 @@ async def list_models() -> ModelListResponse:
     # Catalog of all supported providers and models for ROXY JARVIS
     fallback: list[ProviderModels] = [
         ProviderModels(
-            name="runtime",
-            display_name="ROXY Autonomous Runtime",
-            enabled=True,
-            models=[
-                ModelInfo(
-                    name="coordinator",
-                    display_name="Runtime Coordinator (Multi-Agent)",
-                    enabled=True,
-                    task_types=["general", "coding", "finance", "automation", "research"],
-                    max_tokens=4096,
-                )
-            ],
-        ),
-        ProviderModels(
             name="grok",
             display_name="xAI / Groq",
             enabled=True,

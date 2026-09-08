@@ -99,10 +99,10 @@ class JobStore:
         self._load()
         self._ensure_user(user_id)
 
-        # Validate cron / timestamp
-        parsed = self._parse_schedule(schedule)
+        # Validate cron / natural language / timestamp
+        parsed, resolved_schedule = self._parse_schedule(schedule)
         if parsed is None:
-            return "", f"Invalid schedule: '{schedule}'. Use a cron expression (e.g. '0 8 * * 1-5') or an ISO-8601 timestamp."
+            return "", f"Invalid schedule: '{schedule}'. Try natural language like 'Every day at 9am' or a cron expression (e.g. '0 8 * * 1-5')."
         next_fire = parsed
 
         # Validate agent
@@ -120,7 +120,7 @@ class JobStore:
         now = datetime.now(dt_timezone.utc)
         job = {
             "name": name,
-            "schedule": schedule,
+            "schedule": resolved_schedule,
             "timezone": timezone,
             "action": action.model_dump(),
             "confirm_on_fire": confirm_on_fire,
@@ -177,10 +177,10 @@ class JobStore:
         if name is not None:
             job["name"] = name
         if schedule is not None:
-            parsed = self._parse_schedule(schedule)
+            parsed, resolved_schedule = self._parse_schedule(schedule)
             if parsed is None:
-                return False, f"Invalid schedule: '{schedule}'"
-            job["schedule"] = schedule
+                return False, f"Invalid schedule: '{schedule}'. Try e.g. 'Every day at 9am' or '0 8 * * 1-5'."
+            job["schedule"] = resolved_schedule
             job["next_fire_at"] = parsed.isoformat()
         if timezone is not None:
             job["timezone"] = timezone
@@ -198,28 +198,87 @@ class JobStore:
         return True, None
 
     @staticmethod
-    def _parse_schedule(schedule: str) -> datetime | None:
-        """Parse cron or ISO-8601. Returns next fire datetime or None on failure."""
+    def _natural_to_cron(text: str) -> str | None:
+        """Translates human-readable natural expressions into a 5-segment cron string."""
+        t = text.strip().lower()
+        # "every N minutes"
+        m_min = re.match(r"^every\s+(\d+)\s*(?:min|minute)s?$", t)
+        if m_min:
+            mins = int(m_min.group(1))
+            if 1 <= mins <= 59:
+                return f"*/{mins} * * * *"
+        if t == "every minute":
+            return "* * * * *"
+        if t in ("every hour", "hourly"):
+            return "0 * * * *"
+        m_hr = re.match(r"^every\s+(\d+)\s*(?:hour|hr)s?$", t)
+        if m_hr:
+            hrs = int(m_hr.group(1))
+            if 1 <= hrs <= 23:
+                return f"0 */{hrs} * * *"
+
+        # Time extraction: e.g. "at 9am", "at 9:30 pm", "at 14:00"
+        tm = re.search(r"at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", t)
+        hour = 9
+        minute = 0
+        if tm:
+            h = int(tm.group(1))
+            mn = int(tm.group(2)) if tm.group(2) else 0
+            mer = (tm.group(3) or "").lower()
+            if mer == "pm" and h < 12:
+                h += 12
+            elif mer == "am" and h == 12:
+                h = 0
+            hour, minute = h, mn
+
+        if any(k in t for k in ("weekday", "monday to friday", "mon-fri")):
+            return f"{minute} {hour} * * 1-5"
+        if "weekend" in t:
+            return f"{minute} {hour} * * 0,6"
+
+        days = {
+            "sunday": 0, "sun": 0, "monday": 1, "mon": 1, "tuesday": 2, "tue": 2,
+            "wednesday": 3, "wed": 3, "thursday": 4, "thu": 4, "friday": 5, "fri": 5,
+            "saturday": 6, "sat": 6,
+        }
+        for day, num in days.items():
+            if day in t:
+                return f"{minute} {hour} * * {num}"
+
+        if any(k in t for k in ("every day", "daily", "at ", "morning", "night", "evening")):
+            return f"{minute} {hour} * * *"
+        if any(k in t for k in ("monthly", "every month")):
+            return f"{minute} {hour} 1 * *"
+
+        return None
+
+    @classmethod
+    def _parse_schedule(cls, schedule: str) -> tuple[datetime | None, str]:
+        """Parse natural language, cron, or ISO-8601. Returns (next_fire, resolved_schedule)."""
         schedule = schedule.strip()
+        from datetime import timedelta
+
         # ISO-8601 datetime
         if re.match(r"^\d{4}-\d{2}-\d{2}", schedule):
             try:
                 dt = datetime.fromisoformat(schedule.replace("Z", "+00:00"))
-                return dt.astimezone(dt_timezone.utc) if dt.tzinfo is None else dt
+                return (dt.astimezone(dt_timezone.utc) if dt.tzinfo is None else dt, schedule)
             except Exception:
-                return None
-        # Cron: 5 fields
+                return (None, schedule)
+
+        # Standard 5-field Cron
         cron_pattern = re.compile(
             r"^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+(\S+))?$"
         )
-        m = cron_pattern.match(schedule)
-        if m:
-            # We can't compute next fire without a cron library; just return None and store as-is
-            # The runtime's scheduler will validate at fire time
-            # Return a placeholder far future so create succeeds
-            from datetime import timedelta
-            return datetime.now(dt_timezone.utc) + timedelta(days=1)
-        return None
+        if cron_pattern.match(schedule):
+            return (datetime.now(dt_timezone.utc) + timedelta(days=1), schedule)
+
+        # Natural Language Cron resolution
+        resolved = cls._natural_to_cron(schedule)
+        if resolved:
+            return (datetime.now(dt_timezone.utc) + timedelta(days=1), resolved)
+
+        return (None, schedule)
 
 
 _job_store: JobStore | None = None

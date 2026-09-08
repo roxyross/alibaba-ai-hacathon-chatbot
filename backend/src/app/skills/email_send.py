@@ -15,6 +15,7 @@ import base64
 import json
 import os
 import smtplib
+import uuid
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.policy import EmailPolicy
@@ -58,25 +59,20 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
 
         raw_bytes = msg.as_bytes()
 
-        # Try Gmail API first, fall back to SMTP, or simulated delivery in dev
-        if self._has_gmail_oauth():
+        # Check for direct SMTP credentials provided in request, environment SMTP, or Gmail OAuth
+        if self._has_direct_smtp(input_data) or self._has_smtp_config():
+            return self._send_via_smtp(input_data, msg)
+        elif self._has_gmail_oauth():
             return await self._send_via_gmail_api(input_data, raw_bytes)
-        elif self._has_smtp_config():
-            return self._send_via_smtp(input_data, raw_bytes)
         else:
-            import uuid
-            msg_id = f"msg_{uuid.uuid4().hex[:12]}"
-            log.info(
-                "email_send.simulated_dispatch",
-                to=input_data.to,
-                subject=input_data.subject,
-                message_id=msg_id,
-            )
             return EmailSendResponse(
-                success=True,
-                delivery_status="sent",
-                message_id=msg_id,
-                sent_at=datetime.now(timezone.utc).isoformat(),
+                success=False,
+                delivery_status="not_sent",
+                error=(
+                    "No SMTP delivery service is configured. "
+                    "To send real emails to inboxes, please enter your Gmail address and 16-character App Password "
+                    "in the 'SMTP Mail Settings' section below, or configure SMTP_HOST, SMTP_USER, and SMTP_PASS in backend/.env."
+                ),
             )
 
     # -------------------------------------------------------------------------
@@ -232,55 +228,90 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             )
 
     # -------------------------------------------------------------------------
-    # SMTP fallback
+    # SMTP support (direct credentials or environment variables)
     # -------------------------------------------------------------------------
+
+    def _has_direct_smtp(self, input_data: EmailSendRequest) -> bool:
+        return bool(input_data.smtp_user and input_data.smtp_pass)
 
     def _has_smtp_config(self) -> bool:
         return all(
             bool(os.environ.get(k))
-            for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM")
+            for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS")
         )
 
     def _send_via_smtp(
-        self, input_data: EmailSendRequest, raw_bytes: bytes
+        self, input_data: EmailSendRequest, msg: EmailMessage
     ) -> EmailSendResponse:
         try:
-            host = os.environ["SMTP_HOST"]
-            port = int(os.environ.get("SMTP_PORT", "587"))
-            user = os.environ["SMTP_USER"]
-            password = os.environ["SMTP_PASS"]
-            from_addr = os.environ["SMTP_FROM"]
+            # Direct credentials take priority over env vars
+            user = (input_data.smtp_user or os.environ.get("SMTP_USER", "")).strip()
+            password = (input_data.smtp_pass or os.environ.get("SMTP_PASS", "")).strip().replace(" ", "")
+            host = (input_data.smtp_host or os.environ.get("SMTP_HOST") or "smtp.gmail.com").strip()
+            port = int(input_data.smtp_port or os.environ.get("SMTP_PORT", "587"))
+            from_addr = (input_data.smtp_from or os.environ.get("SMTP_FROM") or user).strip()
 
-            with smtplib.SMTP(host, port, timeout=30) as server:
-                server.ehlo()
-                if server.has_extn("STARTTLS"):
-                    server.starttls()
-                server.login(user, password)
-                server.sendmail(from_addr, [input_data.to], raw_bytes)
+            if not user or not password:
+                return EmailSendResponse(
+                    success=False,
+                    delivery_status="failed",
+                    error="SMTP username and password/app-password are required to send emails.",
+                )
 
-            log.info("email_send.smtp_success", to=input_data.to)
+            # Ensure From header is set on the email message
+            if not msg.get("From"):
+                msg["From"] = from_addr
+
+            raw_bytes = msg.as_bytes()
+            all_recipients = [input_data.to] + (input_data.cc or []) + (input_data.bcc or [])
+
+            if port == 465:
+                # SSL connection
+                with smtplib.SMTP_SSL(host, port, timeout=25) as server:
+                    server.login(user, password)
+                    server.sendmail(from_addr, all_recipients, raw_bytes)
+            else:
+                # STARTTLS connection (standard for Gmail & port 587)
+                with smtplib.SMTP(host, port, timeout=25) as server:
+                    server.ehlo()
+                    if server.has_extn("STARTTLS"):
+                        server.starttls()
+                        server.ehlo()
+                    server.login(user, password)
+                    server.sendmail(from_addr, all_recipients, raw_bytes)
+
+            msg_id = f"smtp_{uuid.uuid4().hex[:12]}"
+            log.info("email_send.smtp_success", to=input_data.to, user=user)
             return EmailSendResponse(
                 success=True,
                 delivery_status="sent",
-                message_id=f"smtp-{datetime.now().timestamp()}",
+                message_id=msg_id,
                 sent_at=datetime.now(timezone.utc).isoformat(),
             )
 
-        except smtplib.SMTPAuthenticationError:
+        except smtplib.SMTPAuthenticationError as exc:
+            log.warning("email_send.smtp_auth_error", error=str(exc))
             return EmailSendResponse(
                 success=False,
                 delivery_status="failed",
-                error="SMTP authentication failed. Check SMTP_USER and SMTP_PASS.",
+                error="SMTP authentication failed. If using Gmail, make sure you use a 16-character Google App Password (not your normal Google account password).",
+            )
+        except smtplib.SMTPConnectError as exc:
+            log.error("email_send.smtp_connect_error", error=str(exc))
+            return EmailSendResponse(
+                success=False,
+                delivery_status="failed",
+                error=f"Could not connect to SMTP server {host}:{port}. Check host and port.",
             )
         except smtplib.SMTPException as exc:
             log.error("email_send.smtp_error", error=str(exc))
             return EmailSendResponse(
                 success=False,
                 delivery_status="failed",
-                error=f"SMTP error: {exc}",
+                error=f"SMTP delivery error: {exc}",
             )
         except Exception as exc:
-            log.error("email_send.smtp_error", error=str(exc))
+            log.error("email_send.smtp_unexpected", error=str(exc))
             return EmailSendResponse(
                 success=False,
                 delivery_status="failed",

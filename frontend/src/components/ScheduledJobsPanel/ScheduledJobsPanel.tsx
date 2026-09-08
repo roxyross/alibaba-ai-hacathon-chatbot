@@ -2,6 +2,7 @@
 // Uses GET/POST /api/v1/skills/schedule_job
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { parseNaturalSchedule, formatHumanSchedule } from '../../utils/naturalCron';
 import './ScheduledJobsPanel.css';
 
 const rawApiBase =
@@ -59,6 +60,15 @@ function fmtDate(iso: string | null): string {
   } catch { return iso; }
 }
 
+const SCHEDULE_PRESETS = [
+  { label: 'Every day at 9am', value: 'Every day at 9am' },
+  { label: 'Weekdays at 8am', value: 'Every weekday at 8am' },
+  { label: 'Every hour', value: 'Every hour' },
+  { label: 'Every Monday at 10am', value: 'Every Monday at 10am' },
+  { label: 'Every 30 mins', value: 'Every 30 minutes' },
+  { label: 'Every Friday at 5pm', value: 'Every Friday at 5pm' },
+];
+
 // ─── Create job form ──────────────────────────────────────────────
 
 interface CreateJobFormProps {
@@ -76,12 +86,18 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const parsedSchedule = parseNaturalSchedule(schedule);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !schedule.trim()) return;
     setSubmitting(true);
     setError(null);
     setSuccessMsg(null);
+
+    // Use resolved cron if parsed, otherwise send raw
+    const scheduleToSend = parsedSchedule.isValid ? parsedSchedule.cron : schedule.trim();
+
     try {
       const result = await fetchJSON<ScheduleJobResponse>(
         `${API_BASE}/skills/schedule_job`,
@@ -91,7 +107,7 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
           body: JSON.stringify({
             op: 'create',
             name: name.trim(),
-            schedule: schedule.trim(),
+            schedule: scheduleToSend,
             timezone,
             action: {
               agent_slug: 'automation',
@@ -153,20 +169,55 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
         </label>
       </div>
 
-      <label className="sjp-create-form__label">
-        Schedule (cron expression or ISO timestamp) *
+      <div className="sjp-create-form__label">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Schedule (Natural Language or Cron) *</span>
+          <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Powered by Natural Language Cron</span>
+        </div>
         <input
           type="text"
           className="sjp-create-form__input"
           value={schedule}
           onChange={(e) => setSchedule(e.target.value)}
-          placeholder="0 8 * * 1-5  (weekdays at 8:00 AM)"
+          placeholder="e.g. Every day at 9am, Weekdays at 8am, Every 30 mins"
           required
         />
-        <span className="sjp-create-form__hint">
-          Examples: <code>0 8 * * 1-5</code> (weekdays 8am) · <code>0 9 * * *</code> (daily 9am) · <code>*/30 * * * *</code> (every 30 mins)
-        </span>
-      </label>
+
+        {/* Quick Presets */}
+        <div className="sjp-presets">
+          <span className="sjp-presets__hint">Presets:</span>
+          {SCHEDULE_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              className="sjp-preset-btn"
+              onClick={() => setSchedule(p.value)}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Live Natural Language Feedback */}
+        {schedule.trim() && (
+          <div className={`sjp-parsed-feedback ${parsedSchedule.isValid ? 'sjp-parsed-feedback--valid' : 'sjp-parsed-feedback--invalid'}`}>
+            {parsedSchedule.isValid ? (
+              <>
+                <span className="sjp-parsed-icon">✨</span>
+                <span>
+                  <strong>Schedule:</strong> {parsedSchedule.description}
+                </span>
+                <code className="sjp-parsed-cron">{parsedSchedule.cron}</code>
+              </>
+            ) : (
+              <>
+                <span className="sjp-parsed-icon">ℹ️</span>
+                <span>Type plain English (e.g. "Every day at 9am") or standard 5-part cron.</span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       <label className="sjp-create-form__label">
         Task Instructions / Prompt *
@@ -335,8 +386,11 @@ export const ScheduledJobsPanel: React.FC<ScheduledJobsPanelProps> = ({
                       )}
                     </td>
                     <td className="sjp-cell__schedule">
-                      <code>{job.schedule}</code>
-                      <span className="sjp-tz">({job.timezone})</span>
+                      <div className="sjp-schedule-human">{formatHumanSchedule(job.schedule)}</div>
+                      <div className="sjp-schedule-sub">
+                        <code>{job.schedule}</code>
+                        <span className="sjp-tz"> · {job.timezone}</span>
+                      </div>
                     </td>
                     <td>
                       <span className={`sjp-status-pill sjp-status-pill--${job.status}`}>

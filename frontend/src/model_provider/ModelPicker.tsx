@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useModels, type ProviderModels, type ModelInfo } from './useModels';
 import './ModelPicker.css';
 
@@ -14,16 +14,30 @@ interface ModelPickerProps {
 
 const DEFAULT_PROVIDERS: ProviderModels[] = [
   {
-    name: 'runtime',
-    display_name: 'ROXY Autonomous Runtime',
+    name: 'gemini',
+    display_name: 'Google Gemini',
     enabled: true,
     models: [
       {
-        name: 'coordinator',
-        display_name: 'Runtime Coordinator (Multi-Agent)',
+        name: 'gemini-2.0-flash',
+        display_name: 'Gemini 2.0 Flash (Recommended)',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'gemini-1.5-pro',
+        display_name: 'Gemini 1.5 Pro (Deep Reasoning)',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'gemini-1.5-flash',
+        display_name: 'Gemini 1.5 Flash (Ultra Fast)',
         enabled: true,
         task_types: ['general'],
-        max_tokens: 4096,
+        max_tokens: 8192,
       },
     ],
   },
@@ -56,34 +70,6 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
     ],
   },
   {
-    name: 'gemini',
-    display_name: 'Google Gemini',
-    enabled: true,
-    models: [
-      {
-        name: 'gemini-2.0-flash',
-        display_name: 'Gemini 2.0 Flash',
-        enabled: true,
-        task_types: ['general', 'coding'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'gemini-1.5-pro',
-        display_name: 'Gemini 1.5 Pro',
-        enabled: true,
-        task_types: ['general', 'coding'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'gemini-1.5-flash',
-        display_name: 'Gemini 1.5 Flash',
-        enabled: true,
-        task_types: ['general'],
-        max_tokens: 8192,
-      },
-    ],
-  },
-  {
     name: 'openai',
     display_name: 'OpenAI',
     enabled: true,
@@ -99,7 +85,7 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
         name: 'gpt-4o-mini',
         display_name: 'GPT-4o Mini',
         enabled: true,
-        task_types: ['general'],
+        task_types: ['general', 'coding'],
         max_tokens: 4096,
       },
     ],
@@ -132,10 +118,27 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
 
   const grouped = useMemo(() => {
     const list = providers.length > 0 ? providers : DEFAULT_PROVIDERS;
-    return list.filter((p) => p.enabled);
+    // Strictly filter out runtime/coordinator
+    return list
+      .filter((p) => p.enabled && p.name !== 'runtime')
+      .map((p) => ({
+        ...p,
+        models: p.models.filter((m) => m.name !== 'coordinator'),
+      }))
+      .filter((p) => p.models.length > 0);
   }, [providers]);
 
-  const currentValue = value ? `${value.provider}/${value.model}` : 'runtime/coordinator';
+  // If currently selected is runtime, migrate to gemini-2.0-flash
+  useEffect(() => {
+    if (!value || value.provider === 'runtime' || value.model === 'coordinator') {
+      onChange({ provider: 'gemini', model: 'gemini-2.0-flash' });
+    }
+  }, [value, onChange]);
+
+  const currentValue =
+    value && value.provider !== 'runtime'
+      ? `${value.provider}/${value.model}`
+      : 'gemini/gemini-2.0-flash';
 
   return (
     <div className="model-picker">
