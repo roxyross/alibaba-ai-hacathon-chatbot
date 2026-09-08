@@ -658,11 +658,12 @@ async def _call_ai_for_agent(
     history_messages.append(Message(role=MessageRole.USER, content=user_message))
 
     router_ = AIRouter()
-    provider_override = provider if (provider and provider != "runtime") else None
+    provider_override = provider if (provider and provider not in ("runtime", "coordinator")) else None
+    model_override = model if (model and model not in ("coordinator", "runtime", "auto", "default")) else None
     request = AIRequest(
         messages=history_messages,
         provider=provider_override,
-        model=model,
+        model=model_override,
         temperature=0.7,
         max_tokens=800,
         stream=stream,
@@ -905,11 +906,12 @@ async def runtime_chat_stream(
             history_messages.append(Message(role=MessageRole.USER, content=body.message))
 
             router_ = AIRouter()
-            provider_override = body.provider if (body.provider and body.provider != "runtime") else None
+            provider_override = body.provider if (body.provider and body.provider not in ("runtime", "coordinator")) else None
+            model_override = body.model if (body.model and body.model not in ("coordinator", "runtime", "auto", "default")) else None
             request = AIRequest(
                 messages=history_messages,
                 provider=provider_override,
-                model=body.model,
+                model=model_override,
                 temperature=0.7,
                 max_tokens=800,
                 stream=True,
