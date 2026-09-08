@@ -142,6 +142,20 @@ export function useChat(options: UseChatOptions = {}) {
                   continue;
                 }
 
+                if (parsed.error) {
+                  const errMsg = parsed.detail || parsed.error || 'An error occurred during response generation.';
+                  setState((prev) => ({
+                    ...prev,
+                    isStreaming: false,
+                    error: errMsg,
+                    messages: [
+                      ...prev.messages,
+                      { role: 'assistant', content: errMsg },
+                    ],
+                  }));
+                  continue;
+                }
+
                 if (parsed.done) {
                   setState((prev) => ({
                     ...prev,
@@ -201,14 +215,14 @@ export function useChat(options: UseChatOptions = {}) {
           const data = await response.json();
 
           if (data.status === 'error' || data.error) {
-            const errorMsg = data.detail || data.error || 'Unknown error';
+            const errorMsg = data.response || data.detail || data.error || 'An issue occurred while processing your request. Please try again.';
             setState((prev) => ({
               ...prev,
               isStreaming: false,
               error: errorMsg,
               messages: [
                 ...prev.messages,
-                { role: 'assistant', content: `Error: ${errorMsg}` },
+                { role: 'assistant', content: errorMsg },
               ],
             }));
             return;

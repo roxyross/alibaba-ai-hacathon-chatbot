@@ -568,3 +568,29 @@
   box-shadow: 0 0 10px rgba(203, 166, 247, 0.25);
 }
 
+/* Extra small mobile screens (<= 480px) */
+@media (max-width: 480px) {
+  .chat-input__think-btn span {
+    display: none;
+  }
+
+  .chat-input__think-btn {
+    padding: 0.35rem;
+    border-radius: 50%;
+    width: 2rem;
+    height: 2rem;
+    justify-content: center;
+  }
+
+  .chat-input__capsule {
+    gap: 0.3rem;
+    padding: 0.35rem 0.5rem;
+  }
+
+  .chat-input__flyout {
+    width: calc(100vw - 1.5rem);
+    max-height: 22rem;
+  }
+}
+
+

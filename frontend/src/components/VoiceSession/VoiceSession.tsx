@@ -60,6 +60,17 @@ async function audioToBase64(blob: Blob): Promise<string> {
   });
 }
 
+// Browser speech recognition support
+interface IWindowWithSpeech extends Window {
+  SpeechRecognition?: any;
+  webkitSpeechRecognition?: any;
+}
+const SpeechRecognitionClass =
+  typeof window !== 'undefined'
+    ? (window as unknown as IWindowWithSpeech).SpeechRecognition ||
+      (window as unknown as IWindowWithSpeech).webkitSpeechRecognition
+    : null;
+
 export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () => void }> = ({
   accessToken,
   onBack,
@@ -75,6 +86,8 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const speakingAudioRef = useRef<HTMLAudioElement | null>(null);
+  const speechRecognitionRef = useRef<any>(null);
+  const recognizedSpeechRef = useRef<string>('');
 
   // Request mic permission on mount
   useEffect(() => {
@@ -83,8 +96,16 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       .then(() => setMicPermission(true))
       .catch(() => setMicPermission(false));
     return () => {
-      // Cleanup any ongoing playback
+      // Cleanup any ongoing playback or recognition
       speakingAudioRef.current?.pause();
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      try {
+        speechRecognitionRef.current?.stop();
+      } catch {
+        // ignore
+      }
     };
   }, []);
 
@@ -93,6 +114,34 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   const startRecording = useCallback(() => {
     if (!micPermission) return;
     audioChunksRef.current = [];
+    recognizedSpeechRef.current = '';
+
+    // Also start browser speech recognition in parallel if available
+    if (SpeechRecognitionClass) {
+      try {
+        const recognition = new SpeechRecognitionClass();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = navigator.language || 'en-US';
+        recognition.onresult = (e: any) => {
+          let text = '';
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            text += e.results[i][0].transcript;
+          }
+          if (text) {
+            recognizedSpeechRef.current = text.trim();
+          }
+        };
+        recognition.onerror = () => {
+          // ignore browser speech errors and rely on audio recording
+        };
+        recognition.start();
+        speechRecognitionRef.current = recognition;
+      } catch {
+        // ignore
+      }
+    }
+
     navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
       const recorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus',
@@ -118,6 +167,13 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   }, [micPermission]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopRecording = useCallback(() => {
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+    }
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
@@ -131,25 +187,35 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
     try {
       const base64Audio = await audioToBase64(audioBlob);
 
-      // 1. Transcribe
-      const sttResp = await fetchJSON<SpeechToTextResponse>(
-        `${API_BASE}/skills/speech_to_text`,
-        accessToken,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            audio_data: base64Audio,
-            language: null,
-            model: 'whisper',
-          }),
-        },
-      );
+      // 1. Transcribe (via backend Groq Whisper)
+      let userText = '';
+      try {
+        const sttResp = await fetchJSON<SpeechToTextResponse>(
+          `${API_BASE}/skills/speech_to_text`,
+          accessToken,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              audio_data: base64Audio,
+              language: null,
+              model: 'whisper',
+            }),
+          },
+        );
+        userText = (sttResp.text || '').trim();
+      } catch {
+        // Backend STT fallback
+      }
 
-      const userText = sttResp.text.trim();
+      // If backend STT returned empty, fall back to browser recognition
+      if (!userText && recognizedSpeechRef.current) {
+        userText = recognizedSpeechRef.current.trim();
+      }
+
       if (!userText) {
         setTranscripts((prev) => [
           ...prev,
-          { role: 'user', text: '(nothing detected)' },
+          { role: 'user', text: '(No voice detected — please ensure microphone is unmuted and speak clearly)' },
         ]);
         setIsProcessing(false);
         return;
@@ -186,6 +252,24 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   };
 
   const speakText = async (text: string) => {
+    const playWithBrowserSpeech = (cleanText: string) => {
+      if ('speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(cleanText);
+          utterance.rate = 1.0;
+          utterance.onstart = () => setIsSpeaking(true);
+          utterance.onend = () => setIsSpeaking(false);
+          utterance.onerror = () => setIsSpeaking(false);
+          window.speechSynthesis.speak(utterance);
+          return true;
+        } catch {
+          // ignore
+        }
+      }
+      return false;
+    };
+
     try {
       setIsSpeaking(true);
       const ttsResp = await fetchJSON<TextToSpeechResponse>(
@@ -219,14 +303,19 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       };
       audio.onerror = () => {
         setIsSpeaking(false);
-        setError('Audio playback failed');
         URL.revokeObjectURL(audioUrl);
+        const clean = text.replace(/[*#`_\[\]()]/g, '').trim();
+        playWithBrowserSpeech(clean);
       };
 
       await audio.play();
     } catch (err) {
       setIsSpeaking(false);
-      setError(`TTS failed: ${(err as Error).message}`);
+      const clean = text.replace(/[*#`_\[\]()]/g, '').trim();
+      const spoke = playWithBrowserSpeech(clean);
+      if (!spoke) {
+        setError(`TTS failed: ${(err as Error).message}`);
+      }
     }
   };
 

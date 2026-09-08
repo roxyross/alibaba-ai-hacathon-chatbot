@@ -31,9 +31,20 @@ class WebSearchSkill(SkillExecutor[WebSearchRequest, WebSearchResponse]):
     async def execute(self, input_data: WebSearchRequest) -> WebSearchResponse:
         query = input_data.query.strip()
         num = min(input_data.num_results, 20)
-        source = (input_data.source or "duckduckgo").lower()
+        source = (input_data.source or "tavily").lower()
 
         try:
+            # 1. Try Tavily first if available
+            tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
+            if tavily_key and source in ("tavily", "duckduckgo", "google", ""):
+                results = await self._tavily(query, num, tavily_key)
+                if results:
+                    return WebSearchResponse(
+                        query=query,
+                        results=results,
+                        total_results=len(results),
+                    )
+
             if source == "duckduckgo":
                 results = await self._duckduckgo(query, num)
             elif source == "google":
@@ -55,6 +66,48 @@ class WebSearchSkill(SkillExecutor[WebSearchRequest, WebSearchResponse]):
                 results=[],
                 total_results=0,
             )
+
+    async def _tavily(self, query: str, num: int, api_key: str) -> list[SearchResult]:
+        """Query Tavily Search API for real-time web results."""
+        payload = {
+            "api_key": api_key,
+            "query": query,
+            "max_results": num,
+            "search_depth": "basic",
+            "include_answer": True,
+        }
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.post("https://api.tavily.com/search", json=payload)
+            if resp.status_code != 200:
+                log.warning("tavily.search.failed", status=resp.status_code, body=resp.text[:200])
+                return []
+            data = resp.json()
+
+        results: list[SearchResult] = []
+        # If Tavily synthesized a direct answer, include as top summary
+        if data.get("answer"):
+            results.append(
+                SearchResult(
+                    title="Quick Summary",
+                    url="https://tavily.com",
+                    snippet=data["answer"],
+                    source="tavily",
+                )
+            )
+
+        for item in data.get("results", []):
+            results.append(
+                SearchResult(
+                    title=item.get("title", ""),
+                    url=item.get("url", ""),
+                    snippet=item.get("content", ""),
+                    source="tavily",
+                )
+            )
+            if len(results) >= num:
+                break
+
+        return results
 
     async def _duckduckgo(self, query: str, num: int) -> list[SearchResult]:
         """Scrape DuckDuckGo HTML for search results (no API key required)."""

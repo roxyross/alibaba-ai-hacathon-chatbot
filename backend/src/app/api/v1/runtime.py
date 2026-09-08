@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request as StarletteRequest, status
 from fastapi.responses import StreamingResponse
@@ -127,6 +129,176 @@ def generate_image_response(prompt: str) -> str:
     )
 
 
+_SEARCH_PREFIXES = [
+    re.compile(r"^(?:search\s+(?:the\s+)?web\s+for|web\s+search\s+for|google\s+search\s+for|look\s+up|search\s+for)\s*:\s*", re.I),
+    re.compile(r"^(?:search\s+(?:the\s+)?web\s+for|web\s+search\s+for|google\s+search\s+for)\s+", re.I),
+]
+
+_WEATHER_KEYWORDS = re.compile(
+    r"\b(weather|forecast|temperature|degrees|raining|rainy|sunny|snowing|humidity|wind\s+speed)\b",
+    re.I,
+)
+
+_WEATHER_CODES: dict[int, tuple[str, str]] = {
+    0: ("Clear sky", "☀️"),
+    1: ("Mainly clear", "🌤️"),
+    2: ("Partly cloudy", "⛅"),
+    3: ("Overcast", "☁️"),
+    45: ("Foggy", "🌫️"),
+    48: ("Depositing rime fog", "🌫️"),
+    51: ("Light drizzle", "🌦️"),
+    53: ("Moderate drizzle", "🌦️"),
+    55: ("Dense drizzle", "🌧️"),
+    61: ("Slight rain", "🌧️"),
+    63: ("Moderate rain", "🌧️"),
+    65: ("Heavy rain", "🌧️"),
+    66: ("Freezing rain", "🌨️"),
+    67: ("Heavy freezing rain", "🌨️"),
+    71: ("Slight snowfall", "❄️"),
+    73: ("Moderate snowfall", "❄️"),
+    75: ("Heavy snowfall", "❄️"),
+    77: ("Snow grains", "❄️"),
+    80: ("Slight rain showers", "🌧️"),
+    81: ("Moderate rain showers", "🌧️"),
+    82: ("Violent rain showers", "⛈️"),
+    85: ("Slight snow showers", "🌨️"),
+    86: ("Heavy snow showers", "❄️"),
+    95: ("Thunderstorm", "⛈️"),
+    96: ("Thunderstorm with slight hail", "⛈️"),
+    99: ("Thunderstorm with heavy hail", "⛈️"),
+}
+
+
+def extract_city_from_query(query: str) -> str:
+    s = query
+    for pat in [
+        r"^(?:search\s+(?:the\s+)?web\s+for|web\s+search\s+for|google\s+search\s+for|look\s+up|search\s+for|search)\s*:\s*",
+        r"\b(?:what\s+is|how\s+is|tell\s+me|show\s+me|check|give\s+me)\b",
+        r"\b(?:the|current|today|tomorrow|this\s+week|right\s+now)\b",
+        r"\b(?:weather|forecast|temperature|humidity|conditions?)\b",
+        r"\b(?:in|at|for|around|near|of|like)\b",
+    ]:
+        s = re.sub(pat, " ", s, flags=re.I)
+    cleaned = re.sub(r"[^\w\s\-,]", " ", s).strip()
+    words = [w for w in cleaned.split() if len(w) > 1]
+    return " ".join(words)
+
+
+def check_search_or_weather_intent(message: str) -> tuple[bool, str, bool, str]:
+    """Check if message is a web search or weather inquiry.
+    Returns (is_search_or_weather, search_query, is_weather, city_name).
+    """
+    msg = message.strip()
+    is_search_prefix = False
+    clean_query = msg
+
+    for p in _SEARCH_PREFIXES:
+        if p.search(msg):
+            clean_query = p.sub("", msg).strip().strip(":").strip()
+            is_search_prefix = True
+            break
+
+    is_weather = bool(_WEATHER_KEYWORDS.search(msg))
+    city = extract_city_from_query(clean_query if is_search_prefix else msg)
+
+    is_search = is_search_prefix or is_weather
+    return is_search, clean_query or msg, is_weather, city
+
+
+async def fetch_live_weather(city_name: str) -> str | None:
+    """Fetch live meteorological data from Open-Meteo (real-time, free, global)."""
+    target_city = city_name.strip() or "Tokyo"
+    headers = {
+        "User-Agent": "ROXY-Agent/1.0",
+        "Accept": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(target_city)}&count=1"
+            geo_res = await client.get(geo_url, headers=headers)
+            if geo_res.status_code != 200:
+                return None
+            geo_data = geo_res.json()
+            results = geo_data.get("results", [])
+            if not results:
+                return None
+
+            loc = results[0]
+            lat = loc.get("latitude")
+            lon = loc.get("longitude")
+            place_name = loc.get("name", target_city)
+            country = loc.get("country", "")
+            admin = loc.get("admin1", "")
+            full_place = f"{place_name}, {admin}, {country}".replace(", ,", ",").strip(", ")
+
+            w_url = (
+                f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+                f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m"
+                f"&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto"
+            )
+            w_res = await client.get(w_url, headers=headers)
+            if w_res.status_code != 200:
+                return None
+            w_data = w_res.json()
+            curr = w_data.get("current", {})
+
+            code = curr.get("weather_code", 0)
+            desc, emoji = _WEATHER_CODES.get(code, ("Clear conditions", "🌤️"))
+            temp_c = curr.get("temperature_2m", 0.0)
+            temp_f = round(temp_c * 9 / 5 + 32, 1)
+            feels_c = curr.get("apparent_temperature", temp_c)
+            feels_f = round(feels_c * 9 / 5 + 32, 1)
+            humidity = curr.get("relative_humidity_2m", 0)
+            wind_kmh = curr.get("wind_speed_10m", 0)
+            precip = curr.get("precipitation", 0)
+
+            daily = w_data.get("daily", {})
+            max_temps = daily.get("temperature_2m_max", [])
+            min_temps = daily.get("temperature_2m_min", [])
+            high_str = f"{max_temps[0]}°C" if max_temps else "N/A"
+            low_str = f"{min_temps[0]}°C" if min_temps else "N/A"
+
+            return (
+                f"### {emoji} Live Weather for **{full_place}**\n\n"
+                f"- **Condition:** {desc}\n"
+                f"- **Current Temperature:** **{temp_c}°C** ({temp_f}°F)\n"
+                f"- **Feels Like:** {feels_c}°C ({feels_f}°F)\n"
+                f"- **Today's High / Low:** {high_str} / {low_str}\n"
+                f"- **Relative Humidity:** {humidity}%\n"
+                f"- **Wind Speed:** {wind_kmh} km/h\n"
+                f"- **Precipitation:** {precip} mm\n\n"
+                f"*Real-time meteorological observations retrieved live via Open-Meteo.*"
+            )
+    except Exception as exc:
+        log.warning("fetch_live_weather.failed", city=city_name, error=str(exc))
+        return None
+
+
+async def fetch_live_search(query: str, num: int = 4) -> str | None:
+    """Fetch live web search results via Tavily or DuckDuckGo."""
+    try:
+        from app.skills.schemas import WebSearchRequest
+        from app.skills.web_search import WebSearchSkill
+
+        skill = WebSearchSkill()
+        res = await skill.execute(WebSearchRequest(query=query, num_results=num))
+        if not res.results:
+            return None
+
+        lines = [f"### 🌐 Web Search Results for: *\"{query}\"*\n"]
+        for idx, item in enumerate(res.results, 1):
+            title = item.title or "Web Result"
+            url = item.url or "#"
+            snippet = item.snippet or ""
+            lines.append(f"{idx}. [**{title}**]({url})\n   {snippet}\n")
+
+        lines.append("*Live web search powered by Tavily & ROXY Runtime Engine.*")
+        return "\n".join(lines)
+    except Exception as exc:
+        log.warning("fetch_live_search.failed", query=query, error=str(exc))
+        return None
+
+
 def classify_intent(message: str) -> str:
     """Classify user message into an agent slug using keyword matching.
 
@@ -136,6 +308,10 @@ def classify_intent(message: str) -> str:
 
     if check_image_intent(msg)[0]:
         return "image_generator"
+
+    is_search, _, is_weather, _ = check_search_or_weather_intent(msg)
+    if is_search or is_weather:
+        return "research"
 
     # Count matches per category
     scores: dict[str, int] = {
@@ -245,6 +421,27 @@ async def _call_ai_for_agent(
         except Exception:
             pass
 
+    is_search, search_q, is_weather, city = check_search_or_weather_intent(user_message)
+    live_context: str | None = None
+    if is_weather:
+        live_context = await fetch_live_weather(city)
+        if not live_context:
+            live_context = await fetch_live_search(f"current weather in {city or 'today'}")
+    elif is_search or agent_slug == "research":
+        live_context = await fetch_live_search(search_q)
+
+    if live_context:
+        history_messages.append(
+            Message(
+                role=MessageRole.SYSTEM,
+                content=(
+                    f"[LIVE REAL-TIME GROUND TRUTH DATA RETRIEVED AT RUNTIME]:\n"
+                    f"{live_context}\n\n"
+                    "Use this authoritative live data to directly answer the user's inquiry with exact numbers, conditions, and sources."
+                ),
+            )
+        )
+
     history_messages.append(Message(role=MessageRole.USER, content=user_message))
 
     router_ = AIRouter()
@@ -266,6 +463,8 @@ async def _call_ai_for_agent(
         return content, response.provider, response.model
     except Exception as exc:
         log.warning("router.route.failed_fallback", error=str(exc))
+        if live_context:
+            return live_context, "weather_search", "realtime-feed"
         lower = user_message.lower()
         if "python" in lower or "variable" in lower or "code" in lower:
             fallback_code = (
@@ -462,6 +661,27 @@ async def runtime_chat_stream(
                         history_messages.append(Message(role=role, content=r.content))
                 except Exception:
                     pass
+            is_search, search_q, is_weather, city = check_search_or_weather_intent(body.message)
+            live_context: str | None = None
+            if is_weather:
+                live_context = await fetch_live_weather(city)
+                if not live_context:
+                    live_context = await fetch_live_search(f"current weather in {city or 'today'}")
+            elif is_search or agent_slug == "research":
+                live_context = await fetch_live_search(search_q)
+
+            if live_context:
+                history_messages.append(
+                    Message(
+                        role=MessageRole.SYSTEM,
+                        content=(
+                            f"[LIVE REAL-TIME GROUND TRUTH DATA RETRIEVED AT RUNTIME]:\n"
+                            f"{live_context}\n\n"
+                            "Use this authoritative live data to directly answer the user's inquiry with exact numbers, conditions, and sources."
+                        ),
+                    )
+                )
+
             history_messages.append(Message(role=MessageRole.USER, content=body.message))
 
             router_ = AIRouter()
@@ -527,6 +747,10 @@ async def runtime_chat_stream(
         except Exception as exc:
             import json as _json
             log.error("runtime.chat.stream.error", agent=agent_slug, error=str(exc))
+            if live_context and not chunks_yielded:
+                yield f"data: {_json.dumps({'delta': live_context, 'done': True, 'agent_slug': 'research', 'provider': 'weather_search', 'model': 'realtime'})}\n\n".encode()
+                yield f"event: attribution\ndata: {_json.dumps({'done': True, 'provider': 'weather_search', 'model': 'realtime', 'agent_slug': 'research'})}\n\n".encode()
+                return
             error_data = _json.dumps({
                 "error": "runtime_error",
                 "detail": str(exc),
