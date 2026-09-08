@@ -10,10 +10,8 @@ from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
-
-if TYPE_CHECKING:
-    from app.auth.models import User
-    from app.chat_history.models import ChatMessage
+from app.auth.models import User
+from app.chat_history.models import ChatMessage
 
 
 class ChatSession(Base):
@@ -30,6 +28,9 @@ class ChatSession(Base):
     title: Mapped[str | None] = mapped_column(String(200), nullable=True)
     provider: Mapped[str] = mapped_column(String(50))
     model: Mapped[str] = mapped_column(String(100))
+    session_type: Mapped[str] = mapped_column(
+        String(20), default="chat", server_default="chat"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

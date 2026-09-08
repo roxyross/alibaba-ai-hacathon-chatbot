@@ -22,6 +22,7 @@ def _to_response(row) -> SessionResponse:
         title=row.title,
         provider=row.provider,
         model=row.model,
+        session_type=getattr(row, "session_type", "chat") or "chat",
         created_at=row.created_at,
         updated_at=row.updated_at,
         message_count=getattr(row, "message_count", 0),
@@ -35,10 +36,11 @@ _messages = ChatMessageRepository()
 
 @router.get("", response_model=list[SessionResponse])
 async def list_sessions(
+    session_type: str | None = None,
     current_user: User = Depends(get_current_user),
 ) -> list[SessionResponse]:
     """List the current user's chat sessions, newest first."""
-    rows = await _repo.list_for_user(current_user.id)
+    rows = await _repo.list_for_user(current_user.id, session_type=session_type)
     out: list[SessionResponse] = []
     for r in rows:
         msg_count = await _messages.count_for_session(r.id, current_user.id)
@@ -53,12 +55,13 @@ async def create_session(
     payload: SessionCreateRequest,
     current_user: User = Depends(get_current_user),
 ) -> SessionResponse:
-    """Create a new chat session with the given provider/model."""
+    """Create a new chat session with the given provider/model and session_type."""
     row = await _repo.create(
         user_id=current_user.id,
         provider=payload.provider,
         model=payload.model,
         title=payload.title,
+        session_type=payload.session_type,
     )
     return _to_response(row)
 

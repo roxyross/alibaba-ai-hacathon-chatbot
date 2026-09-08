@@ -32,7 +32,7 @@ const RUNTIME_DOCS_PATH = '/api/v1/documents';
 const RUNTIME_UPLOAD_PATH = '/api/v1/documents/upload';
 
 export function useDocumentUpload(options: UseDocumentUploadOptions = {}) {
-  const { runtimeUrl = 'http://localhost:8001', accessToken } = options;
+  const { runtimeUrl = '', accessToken } = options;
   const [state, setState] = useState<UploadState>({
     uploading: false,
     error: null,

@@ -23,14 +23,17 @@ const API_BASE =
   '/api/v1';
 
 const RUNTIME_URL =
-  (import.meta as { env: { VITE_RUNTIME_URL?: string } }).env.VITE_RUNTIME_URL ??
-  'http://localhost:8000';
+  (import.meta as { env: { VITE_RUNTIME_URL?: string } }).env.VITE_RUNTIME_URL ||
+  API_BASE;
 
 export function ChatScreen() {
   const { accessToken, signOut, user } = useAuth();
   const { create } = useSessions();
 
   const [activeSession, setActiveSession] = useState<ChatSession | null>(null);
+  // Dual-mode workflow: 'chat' for general conversation/search, 'task' for coding tasks
+  const [mode, setMode] = useState<'chat' | 'task'>('chat');
+
   // Default to Runtime Coordinator so buttons and prompt cards immediately work without blocking
   const [modelSelection, setModelSelection] = useState<ModelSelection | null>({
     provider: 'runtime',
@@ -65,6 +68,7 @@ export function ChatScreen() {
     model: modelSelection?.model,
     sessionId: activeSession?.id ?? undefined,
     accessToken,
+    agentOverride: mode === 'task' ? 'code_generation' : undefined,
   });
 
   // Sensitive action confirmation
@@ -78,19 +82,34 @@ export function ChatScreen() {
   // Mobile sidebar visibility
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // When the user clicks a past session, adopt its model and let history load.
+  // When switching between Chat and Task modes via sidebar toggle
+  const handleModeChange = useCallback(
+    (newMode: 'chat' | 'task') => {
+      setMode(newMode);
+      chat.clearMessages();
+      setActiveSession(null);
+      setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
+      setActiveView('chat');
+    },
+    [chat],
+  );
+
+  // When the user clicks a past session, adopt its model and mode.
   const handleSelectSession = useCallback(
     (s: ChatSession) => {
       chat.clearMessages();
       setActiveSession(s);
+      const sessType = s.session_type === 'task' || s.title?.startsWith('[Task]') || s.model === 'code_generation' ? 'task' : 'chat';
+      setMode(sessType);
       setModelSelection({ provider: s.provider, model: s.model });
       setActiveView('chat');
     },
     [chat],
   );
 
-  // "New chat" — clear active session and in-flight messages, keep selected model, and switch back to chat view.
+  // "New chat" — clear active session, set mode to 'chat', and switch back to chat view.
   const handleNewChat = useCallback(() => {
+    setMode('chat');
     chat.clearMessages();
     setActiveSession(null);
     setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
@@ -98,7 +117,17 @@ export function ChatScreen() {
     void history.reload();
   }, [chat, history]);
 
-  // After a turn completes in a brand-new (just-created) session, adopt it
+  // "New task" — clear active session, set mode to 'task' (for coding), and switch back to chat view.
+  const handleNewTask = useCallback(() => {
+    setMode('task');
+    chat.clearMessages();
+    setActiveSession(null);
+    setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
+    setActiveView('chat');
+    void history.reload();
+  }, [chat, history]);
+
+  // After a turn completes in a brand-new session, adopt it
   // as the active session so the sidebar highlights it.
   const handleSend = useCallback(
     async (text: string) => {
@@ -108,6 +137,8 @@ export function ChatScreen() {
         session = await create({
           provider: activeModel.provider,
           model: activeModel.model,
+          session_type: mode,
+          title: mode === 'task' ? `[Task] ${text.slice(0, 32)}` : undefined,
         } satisfies CreateSessionInput);
         setActiveSession(session);
       }
@@ -117,7 +148,7 @@ export function ChatScreen() {
         void history.reload();
       }, 500);
     },
-    [activeSession, modelSelection, create, chat, history],
+    [activeSession, modelSelection, create, chat, history, mode],
   );
 
   // The messages the chat window renders: persisted history + the in-flight
@@ -151,8 +182,11 @@ export function ChatScreen() {
       <SessionSidebar
         activeSessionId={activeSession?.id ?? null}
         activeView={activeView}
+        mode={mode}
+        onModeChange={handleModeChange}
         onSelect={(s) => { handleSelectSession(s); setSidebarOpen(false); }}
         onNewChat={() => { handleNewChat(); setSidebarOpen(false); }}
+        onNewTask={() => { handleNewTask(); setSidebarOpen(false); }}
         onViewChange={(view) => { setActiveView(view); setSidebarOpen(false); }}
       />
 
@@ -245,6 +279,8 @@ export function ChatScreen() {
               onVoiceClick={() => setActiveView('voice')}
               onAttachmentClick={() => setActiveView('documents')}
               disabledNoModel={!modelSelection}
+              mode={mode}
+              onNavigateView={setActiveView}
             />
           </div>
         )}

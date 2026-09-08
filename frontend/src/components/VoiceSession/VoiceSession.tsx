@@ -207,6 +207,27 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         // Backend STT fallback
       }
 
+      // Filter out silence hallucinations or unconfigured mocks
+      const silencePhrases = [
+        'thank you',
+        'thank you.',
+        'thank you very much',
+        'thank you very much.',
+        'thanks for watching',
+        'thanks for watching.',
+        'thank you for watching',
+        'thank you for watching.',
+        'subtitles by',
+        'you',
+        'you.',
+        'bye',
+        'bye.',
+      ];
+      const normText = userText.toLowerCase().replace(/[.,!?]/g, '').trim();
+      if (silencePhrases.includes(normText) || userText.startsWith('[STT not configured')) {
+        userText = '';
+      }
+
       // If backend STT returned empty, fall back to browser recognition
       if (!userText && recognizedSpeechRef.current) {
         userText = recognizedSpeechRef.current.trim();
@@ -215,7 +236,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       if (!userText) {
         setTranscripts((prev) => [
           ...prev,
-          { role: 'user', text: '(No voice detected — please ensure microphone is unmuted and speak clearly)' },
+          { role: 'user', text: '(No voice detected — please speak clearly into microphone)' },
         ]);
         setIsProcessing(false);
         return;
@@ -250,6 +271,17 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       setIsProcessing(false);
     }
   };
+
+  const stopSpeaking = useCallback(() => {
+    speakingAudioRef.current?.pause();
+    if (speakingAudioRef.current) {
+      speakingAudioRef.current.currentTime = 0;
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+  }, []);
 
   const speakText = async (text: string) => {
     const playWithBrowserSpeech = (cleanText: string) => {
@@ -320,7 +352,11 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   };
 
   const handleMicMouseDown = () => {
-    if (!isRecording && !isProcessing && !isSpeaking) {
+    if (isSpeaking) {
+      stopSpeaking();
+      return;
+    }
+    if (!isRecording && !isProcessing) {
       startRecording();
     }
   };
@@ -331,17 +367,18 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
     }
   };
 
-  // Keyboard support: spacebar to push-to-talk
+  // Keyboard support: spacebar to push-to-talk or stop speaking
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (
-      e.code === 'Space' &&
-      !e.repeat &&
-      !isRecording &&
-      !isProcessing &&
-      !isSpeaking
-    ) {
-      e.preventDefault();
-      startRecording();
+    if (e.code === 'Space' && !e.repeat) {
+      if (isSpeaking) {
+        e.preventDefault();
+        stopSpeaking();
+        return;
+      }
+      if (!isRecording && !isProcessing) {
+        e.preventDefault();
+        startRecording();
+      }
     }
   };
   const handleKeyUp = (e: React.KeyboardEvent) => {
@@ -453,18 +490,21 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         {/* Mic button */}
         <div className="vs__mic-wrap">
           <button
-            className={`vs__mic${isRecording ? ' vs__mic--recording' : ''}${isProcessing || isSpeaking ? ' vs__mic--busy' : ''}${!micPermission ? ' vs__mic--disabled' : ''}`}
+            className={`vs__mic${isRecording ? ' vs__mic--recording' : ''}${isProcessing ? ' vs__mic--busy' : ''}${isSpeaking ? ' vs__mic--speaking' : ''}${!micPermission ? ' vs__mic--disabled' : ''}`}
             onMouseDown={handleMicMouseDown}
             onMouseUp={handleMicMouseUp}
             onMouseLeave={isRecording ? handleMicMouseUp : undefined}
             onTouchStart={handleMicMouseDown}
             onTouchEnd={handleMicMouseUp}
-            disabled={!micPermission || isProcessing || isSpeaking}
+            disabled={!micPermission || isProcessing}
             aria-label={
-              isRecording
-                ? 'Release to send'
-                : 'Hold to record'
+              isSpeaking
+                ? 'Click to stop speaking'
+                : isRecording
+                  ? 'Release to send'
+                  : 'Hold to record'
             }
+            title={isSpeaking ? 'Click to stop speaking' : undefined}
             type="button"
           >
             {isRecording ? (
@@ -472,7 +512,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
             ) : isProcessing ? (
               <span className="vs__mic-spinner" />
             ) : isSpeaking ? (
-              <span className="vs__mic-icon">🔊</span>
+              <span className="vs__mic-icon">⏹</span>
             ) : (
               <span className="vs__mic-icon">🎤</span>
             )}
@@ -484,16 +524,31 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
           )}
           {isSpeaking && (
             <span className="vs__recording-label" aria-live="polite">
-              Speaking…
+              Speaking… (click to interrupt)
             </span>
           )}
         </div>
 
+        {/* Dedicated Stop Speaking Button */}
+        {isSpeaking && (
+          <button
+            type="button"
+            className="vs__stop-speaking-btn"
+            onClick={stopSpeaking}
+            title="Stop AI speaking"
+            aria-label="Stop AI speaking"
+          >
+            ⏹ Stop Speaking
+          </button>
+        )}
+
         {/* Hint */}
         <div className="vs__hint">
-          {micPermission
-            ? 'Hold to talk · Release to send'
-            : 'Mic access required'}
+          {isSpeaking
+            ? 'Speaking · Tap button or space to interrupt'
+            : micPermission
+              ? 'Hold to talk · Release to send'
+              : 'Mic access required'}
         </div>
       </div>
     </div>

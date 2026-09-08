@@ -55,23 +55,56 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
         import os
         import io
         import httpx
+        from pathlib import Path
 
-        grok_key = os.environ.get("GROK_API_KEY", "").strip()
+        # Ensure .env is loaded if keys aren't in os.environ
+        if not os.environ.get("GROK_API_KEY") and not os.environ.get("GROQ_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
+            try:
+                import dotenv
+                env_path = Path(__file__).resolve().parents[3] / ".env"
+                if env_path.exists():
+                    dotenv.load_dotenv(env_path)
+            except Exception:
+                pass
+
+        grok_key = (os.environ.get("GROK_API_KEY") or os.environ.get("GROQ_API_KEY", "")).strip()
         openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
         if not grok_key and not openai_key:
             return self._mock_transcribe(), None
 
         # Determine audio filename & mime type
-        is_webm = audio_bytes.startswith(b"\x1a\x45\xdf\xa3") or len(audio_bytes) > 4 and audio_bytes[:4] != b"RIFF"
+        is_webm = audio_bytes.startswith(b"\x1a\x45\xdf\xa3") or (len(audio_bytes) > 4 and audio_bytes[:4] != b"RIFF")
         filename = "audio.webm" if is_webm else "audio.wav"
         mime_type = "audio/webm" if is_webm else "audio/wav"
+
+        # Hallucination filter for quiet audio / silence
+        silence_hallucinations = {
+            "thank you",
+            "thank you.",
+            "thank you very much",
+            "thank you very much.",
+            "thanks for watching",
+            "thanks for watching.",
+            "thank you for watching",
+            "thank you for watching.",
+            "subtitles by",
+            "you",
+            "you.",
+            "bye",
+            "bye.",
+            "[music]",
+            "[applause]",
+        }
 
         # 1. Try Groq Whisper (blazing fast, high accuracy, active key)
         if grok_key:
             try:
                 files = {"file": (filename, io.BytesIO(audio_bytes), mime_type)}
-                data = {"model": "whisper-large-v3-turbo"}
+                data = {
+                    "model": "whisper-large-v3-turbo",
+                    "prompt": "Conversational speech with AI assistant.",
+                }
                 if language:
                     data["language"] = language
 
@@ -84,7 +117,11 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
                     )
                 if resp.is_success:
                     result = resp.json()
-                    return result.get("text", ""), None
+                    raw_text = (result.get("text") or "").strip()
+                    norm = raw_text.lower().rstrip(".,!?")
+                    if norm in silence_hallucinations or not norm:
+                        return "", None
+                    return raw_text, None
                 else:
                     log.warning("speech_to_text.groq_failed", status=resp.status_code, body=resp.text[:200])
             except Exception as exc:
@@ -94,7 +131,10 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
         if openai_key:
             try:
                 files = {"file": (filename, io.BytesIO(audio_bytes), mime_type)}
-                data = {"model": "whisper-1"}
+                data = {
+                    "model": "whisper-1",
+                    "prompt": "Conversational speech with AI assistant.",
+                }
                 if language:
                     data["language"] = language
 
@@ -107,7 +147,11 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
                     )
                 if resp.is_success:
                     result = resp.json()
-                    return result.get("text", ""), result.get("confidence", None)
+                    raw_text = (result.get("text") or "").strip()
+                    norm = raw_text.lower().rstrip(".,!?")
+                    if norm in silence_hallucinations or not norm:
+                        return "", None
+                    return raw_text, result.get("confidence", None)
             except Exception as exc:
                 log.warning("speech_to_text.openai_exc", error=str(exc))
 
@@ -146,8 +190,8 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
 
     @staticmethod
     def _mock_transcribe() -> str:
-        """Fallback when no STT API key is configured."""
-        return "[STT not configured — set OPENAI_API_KEY or DEEPGRAM_API_KEY to enable transcription]"
+        """Fallback when no STT API key is configured. Return empty so browser STT can take over."""
+        return ""
 
 
 def get_executor() -> SpeechToTextSkill:

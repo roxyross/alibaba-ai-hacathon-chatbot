@@ -412,45 +412,211 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   criticReview,
   isStreaming = false,
 }) => {
+  const [displayContent, setDisplayContent] = useState(content);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftContent, setDraftContent] = useState(content);
+  const [copied, setCopied] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  React.useEffect(() => {
+    setDisplayContent(content);
+    setDraftContent(content);
+  }, [content]);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(displayContent);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = displayContent;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([displayContent], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `response-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSaveEdit = () => {
+    setDisplayContent(draftContent);
+    setIsEditing(false);
+  };
+
+  const handleCancelEdit = () => {
+    setDraftContent(displayContent);
+    setIsEditing(false);
+  };
+
   const attributionLabel = attribution
     ? `Response from ${attribution.agentSlug} agent`
     : undefined;
 
   return (
-    <div
-      className={`chat-message chat-message--${role} ${isStreaming && role === 'assistant' ? 'chat-message--streaming' : ''}`}
-      aria-role={role === 'user' ? 'presentation' : 'article'}
-    >
-      <div className="chat-message__bubble">
-        {content ? (
-          <FormattedContent content={content} />
-        ) : isStreaming ? (
-          <span className="chat-message__cursor" aria-hidden="true" />
-        ) : null}
-        {isStreaming && content && (
-          <span className="chat-message__cursor" aria-hidden="true" />
+    <>
+      <div
+        className={`chat-message chat-message--${role} ${isStreaming && role === 'assistant' ? 'chat-message--streaming' : ''} ${isExpanded ? 'chat-message--expanded' : ''}`}
+        aria-role={role === 'user' ? 'presentation' : 'article'}
+      >
+        <div className="chat-message__bubble">
+          {role === 'assistant' && !isStreaming && (
+            <div className="chat-message__topbar">
+              <div className="chat-message__topbar-left">
+                <button
+                  type="button"
+                  className={`chat-message__edit-btn ${isEditing ? 'chat-message__edit-btn--active' : ''}`}
+                  onClick={() => setIsEditing(!isEditing)}
+                  title="Edit response"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                  </svg>
+                  <span>Edit</span>
+                </button>
+              </div>
+
+              <div className="chat-message__topbar-right">
+                <button
+                  type="button"
+                  className="chat-message__icon-btn"
+                  onClick={handleCopy}
+                  title={copied ? "Copied to clipboard!" : "Copy response"}
+                  aria-label="Copy response"
+                >
+                  {copied ? (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  className="chat-message__icon-btn"
+                  onClick={handleDownload}
+                  title="Download as markdown"
+                  aria-label="Download response"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                </button>
+
+                <button
+                  type="button"
+                  className={`chat-message__icon-btn ${isExpanded ? 'chat-message__icon-btn--active' : ''}`}
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  title={isExpanded ? "Exit full screen" : "Expand response"}
+                  aria-label="Expand response"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 3 21 3 21 9" />
+                    <polyline points="9 21 3 21 3 15" />
+                    <line x1="21" y1="3" x2="14" y2="10" />
+                    <line x1="3" y1="21" x2="10" y2="14" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {isEditing ? (
+            <div className="chat-message__edit-box">
+              <textarea
+                className="chat-message__edit-textarea"
+                value={draftContent}
+                onChange={(e) => setDraftContent(e.target.value)}
+                rows={Math.max(4, draftContent.split('\n').length)}
+              />
+              <div className="chat-message__edit-actions">
+                <button type="button" className="chat-message__edit-save" onClick={handleSaveEdit}>
+                  Save
+                </button>
+                <button type="button" className="chat-message__edit-cancel" onClick={handleCancelEdit}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {displayContent ? (
+                <FormattedContent content={displayContent} />
+              ) : isStreaming ? (
+                <span className="chat-message__cursor" aria-hidden="true" />
+              ) : null}
+              {isStreaming && displayContent && (
+                <span className="chat-message__cursor" aria-hidden="true" />
+              )}
+            </>
+          )}
+        </div>
+
+        {role === 'assistant' && (
+          <div
+            className="chat-message__attribution"
+            aria-label={attributionLabel}
+            title={attributionLabel}
+          >
+            {attribution ? (
+              <>
+                <span className="chat-message__provider">{attribution.agentSlug}</span>
+              </>
+            ) : (
+              <span className="chat-message__provider-unknown">routing…</span>
+            )}
+          </div>
+        )}
+
+        {role === 'assistant' && criticReview && (
+          <CriticReviewBadge review={criticReview as CriticReviewData | Record<string, unknown>} />
         )}
       </div>
 
-      {role === 'assistant' && (
-        <div
-          className="chat-message__attribution"
-          aria-label={attributionLabel}
-          title={attributionLabel}
-        >
-          {attribution ? (
-            <>
-              <span className="chat-message__provider">{attribution.agentSlug}</span>
-            </>
-          ) : (
-            <span className="chat-message__provider-unknown">routing…</span>
-          )}
+      {/* Fullscreen modal expanded view */}
+      {isExpanded && (
+        <div className="chat-message__modal-overlay" onClick={() => setIsExpanded(false)}>
+          <div className="chat-message__modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="chat-message__modal-header">
+              <span className="chat-message__modal-title">Expanded Response</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <button type="button" className="chat-message__modal-action-btn" onClick={handleCopy}>
+                  {copied ? '✓ Copied' : 'Copy'}
+                </button>
+                <button type="button" className="chat-message__modal-action-btn" onClick={handleDownload}>
+                  Download
+                </button>
+                <button type="button" className="chat-message__modal-close" onClick={() => setIsExpanded(false)}>
+                  ✕ Close
+                </button>
+              </div>
+            </div>
+            <div className="chat-message__modal-body">
+              <FormattedContent content={displayContent} />
+            </div>
+          </div>
         </div>
       )}
-
-      {role === 'assistant' && criticReview && (
-        <CriticReviewBadge review={criticReview as CriticReviewData | Record<string, unknown>} />
-      )}
-    </div>
+    </>
   );
 };

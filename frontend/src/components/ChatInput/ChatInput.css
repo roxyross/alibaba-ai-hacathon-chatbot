@@ -331,11 +331,29 @@
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  z-index: 100;
+  z-index: 1000;
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
   animation: flyout-pop 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* In centered hero view: open flyout downwards so it is never clipped off-screen */
+.chat-window__hero .chat-input__flyout {
+  bottom: auto;
+  top: calc(100% + 0.6rem);
+  animation: flyout-pop-down 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes flyout-pop-down {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 @keyframes flyout-pop {
@@ -347,6 +365,30 @@
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+.chat-input__flyout-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.08rem 0.45rem;
+  border-radius: 9999px;
+  background: rgba(137, 180, 250, 0.2);
+  color: var(--color-accent, #89b4fa);
+  border: 1px solid rgba(137, 180, 250, 0.35);
+}
+
+.chat-input__flyout-item--highlight {
+  background: rgba(137, 180, 250, 0.08);
+  border: 1px solid rgba(137, 180, 250, 0.22);
+  margin-bottom: 0.25rem;
+}
+
+.chat-input__flyout-item--highlight:hover {
+  background: rgba(137, 180, 250, 0.18) !important;
+  border-color: var(--color-accent, #89b4fa);
 }
 
 .chat-input__flyout-item {
@@ -403,6 +445,21 @@
   background: rgba(137, 180, 250, 0.14);
 }
 
+.chat-input__flyout-icon--purple {
+  color: #cba6f7;
+  background: rgba(203, 166, 247, 0.14);
+}
+
+.chat-input__flyout-icon--green {
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.14);
+}
+
+.chat-input__flyout-icon--yellow {
+  color: #f9e2af;
+  background: rgba(249, 226, 175, 0.14);
+}
+
 .chat-input__flyout-icon--pin {
   color: #f38ba8;
   background: rgba(243, 139, 168, 0.14);
@@ -411,21 +468,6 @@
 .chat-input__flyout-icon--telescope {
   color: #cba6f7;
   background: rgba(203, 166, 247, 0.14);
-}
-
-.chat-input__flyout-icon--openai {
-  color: #a6e3a1;
-  background: rgba(166, 227, 161, 0.14);
-}
-
-.chat-input__flyout-icon--atlassian {
-  color: #74c7ec;
-  background: rgba(116, 199, 236, 0.14);
-}
-
-.chat-input__flyout-icon--box {
-  color: #89b4fa;
-  background: rgba(137, 180, 250, 0.14);
 }
 
 .chat-input__flyout-text {
@@ -508,6 +550,12 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.chat-input__chip-size {
+  font-size: 0.7rem;
+  color: var(--color-muted, #6c7086);
+  opacity: 0.85;
 }
 
 .chat-input__chip-remove {

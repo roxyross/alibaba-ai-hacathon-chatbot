@@ -7,34 +7,79 @@ export type AppView = 'chat' | 'finance' | 'jobs' | 'email' | 'voice' | 'documen
 interface SessionSidebarProps {
   activeSessionId: string | null;
   activeView?: AppView;
+  mode?: 'chat' | 'task';
+  onModeChange?: (mode: 'chat' | 'task') => void;
   onSelect: (session: ChatSession) => void;
   onNewChat: () => void;
+  onNewTask?: () => void;
   onViewChange?: (view: AppView) => void;
 }
 
 export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   activeSessionId,
   activeView = 'chat',
+  mode = 'chat',
+  onModeChange,
   onSelect,
   onNewChat,
+  onNewTask,
   onViewChange,
 }) => {
   const { sessions, loading, error, rename, remove } = useSessions();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Filter sessions strictly by selected mode (chat vs task)
+  const filteredSessions = sessions.filter((s) => {
+    const isTask = s.session_type === 'task' || s.title?.startsWith('[Task]') || s.model === 'code_generation';
+    return mode === 'task' ? isTask : !isTask;
+  });
 
   return (
     <aside className="session-sidebar" aria-label="Chat history">
       <div className="session-sidebar__header">
+        {/* Toggle between New Chat and New Task */}
+        <div className="session-sidebar__mode-toggle" role="tablist" aria-label="Workflow mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'chat'}
+            className={`session-sidebar__mode-btn${mode === 'chat' ? ' session-sidebar__mode-btn--active' : ''}`}
+            onClick={() => {
+              onModeChange?.('chat');
+              if (activeView !== 'chat') onViewChange?.('chat');
+            }}
+          >
+            💬 Chat
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'task'}
+            className={`session-sidebar__mode-btn${mode === 'task' ? ' session-sidebar__mode-btn--active' : ''}`}
+            onClick={() => {
+              onModeChange?.('task');
+              if (activeView !== 'chat') onViewChange?.('chat');
+            }}
+          >
+            ⚡ Task
+          </button>
+        </div>
+
         <button
           type="button"
-          className="session-sidebar__new"
+          className={`session-sidebar__new${mode === 'task' ? ' session-sidebar__new--task' : ''}`}
           onClick={() => {
-            onNewChat();
+            if (mode === 'task') {
+              (onNewTask || onNewChat)();
+            } else {
+              onNewChat();
+            }
             if (onViewChange) onViewChange('chat');
           }}
         >
-          + New chat
+          {mode === 'task' ? '+ New task' : '+ New chat'}
         </button>
 
         {/* View navigation buttons moved under New Chat */}
@@ -92,7 +137,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         )}
       </div>
 
-      <div className="session-sidebar__section-title">Recent Chats</div>
+      <div className="session-sidebar__section-title">
+        {mode === 'task' ? 'Coding Tasks' : 'Recent Chats'}
+      </div>
 
       {loading && (
         <p className="session-sidebar__status">Loading…</p>
@@ -104,9 +151,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
       )}
 
       <ul className="session-sidebar__list">
-        {sessions.map((s) => {
+        {filteredSessions.map((s) => {
           const isActive = s.id === activeSessionId;
           const isRenaming = renamingId === s.id;
+          const isConfirmingDelete = confirmDeleteId === s.id;
+
           return (
             <li
               key={s.id}
@@ -144,7 +193,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onSelect(s)}
                 >
                   <span className="session-sidebar__title">
-                    {s.title || 'New chat'}
+                    {s.title || (mode === 'task' ? 'Coding task' : 'New chat')}
                   </span>
                   <span className="session-sidebar__meta">
                     {s.provider} · {s.model}
@@ -169,25 +218,36 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                 )}
                 <button
                   type="button"
-                  className="session-sidebar__icon"
-                  title="Delete"
-                  aria-label="Delete session"
+                  className={`session-sidebar__icon${isConfirmingDelete ? ' session-sidebar__icon--confirm-delete' : ''}`}
+                  title={isConfirmingDelete ? 'Click again to confirm deletion' : 'Delete session'}
+                  aria-label={isConfirmingDelete ? 'Confirm delete' : 'Delete session'}
                   onClick={async (e) => {
                     e.stopPropagation();
-                    if (!confirm('Delete this chat?')) return;
-                    await remove(s.id);
-                    if (isActive) onNewChat();
+                    if (!isConfirmingDelete) {
+                      setConfirmDeleteId(s.id);
+                      setTimeout(() => setConfirmDeleteId((prev) => (prev === s.id ? null : prev)), 3500);
+                      return;
+                    }
+                    try {
+                      await remove(s.id);
+                      setConfirmDeleteId(null);
+                      if (isActive) onNewChat();
+                    } catch (err) {
+                      console.error('Failed to delete session:', err);
+                    }
                   }}
                 >
-                  ✕
+                  {isConfirmingDelete ? 'Delete?' : '✕'}
                 </button>
               </div>
             </li>
           );
         })}
-        {!loading && sessions.length === 0 && (
+        {!loading && filteredSessions.length === 0 && (
           <li className="session-sidebar__empty">
-            No chats yet. Click <strong>+ New chat</strong> to start.
+            {mode === 'task'
+              ? <>No coding tasks yet. Click <strong>+ New task</strong> to start.</>
+              : <>No chats yet. Click <strong>+ New chat</strong> to start.</>}
           </li>
         )}
       </ul>

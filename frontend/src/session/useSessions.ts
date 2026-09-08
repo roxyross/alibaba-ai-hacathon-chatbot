@@ -6,6 +6,7 @@ export interface ChatSession {
   title: string | null;
   provider: string;
   model: string;
+  session_type?: 'chat' | 'task';
   created_at: string;
   updated_at: string;
   message_count: number;
@@ -15,6 +16,7 @@ export interface CreateSessionInput {
   provider: string;
   model: string;
   title?: string;
+  session_type?: 'chat' | 'task';
 }
 
 export function useSessions() {
@@ -23,11 +25,12 @@ export function useSessions() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (sessionType?: 'chat' | 'task') => {
     setLoading(true);
     setError(null);
     try {
-      const data = await authedFetch<ChatSession[]>('/sessions');
+      const url = sessionType ? `/sessions?session_type=${sessionType}` : '/sessions';
+      const data = await authedFetch<ChatSession[]>(url);
       setSessions(data);
     } catch (err) {
       setError((err as Error).message);

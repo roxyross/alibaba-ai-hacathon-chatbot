@@ -89,17 +89,21 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 # Sensitive skill confirmation gate
 # ---------------------------------------------------------------------------
 
+from typing import Any, TypeVar, cast
+
+T = TypeVar("T")
+
 # In-memory pending confirmations: user_id -> token -> (executor, input_data)
-_pending_confirmations: dict[str, dict[str, tuple]] = {}
+_pending_confirmations: dict[str, dict[str, tuple[Any, Any]]] = {}
 
 
 async def _run_skill(
-    executor,
+    executor: Any,
     input_data: Any,
     user: User,
     skill_slug: str = "",
     http_request: StarletteRequest | None = None,
-):
+) -> T:
     """Execute a skill and return its response, or raise HTTPException on failure.
 
     For sensitive skills (email_draft, browser_fill_form, bank_connect, schedule_job),
@@ -107,13 +111,21 @@ async def _run_skill(
     The caller must then POST /skills/confirm with the token to proceed.
     """
     # Stamp authenticated user id into input_data for per-user data isolation.
-    try:
-        setattr(input_data, "user_id", user.id)
-    except AttributeError:
-        pass  # Schema doesn't support user_id — skip (e.g. CalculatorRequest)
+    if hasattr(input_data, "model_fields") and "user_id" in input_data.model_fields:
+        try:
+            setattr(input_data, "user_id", str(user.id))
+        except Exception:
+            pass
+    elif hasattr(input_data, "__dict__") and "user_id" in getattr(input_data, "__dict__", {}):
+        try:
+            setattr(input_data, "user_id", str(user.id))
+        except Exception:
+            pass
 
-    # Security-privacy gate for sensitive skills (unless already explicitly confirmed)
-    if skill_slug in SENSITIVE_SKILLS and not getattr(input_data, "confirm", False):
+    # Read-only operations on schedule_job (like list) do not require confirmation
+    is_read_only = skill_slug == "schedule_job" and getattr(input_data, "op", None) in ("list", "LIST")
+    # Security-privacy gate for sensitive skills (unless already explicitly confirmed or read-only)
+    if skill_slug in SENSITIVE_SKILLS and not is_read_only and not getattr(input_data, "confirm", False):
         import secrets
         token = secrets.token_urlsafe(16)
         if user.id not in _pending_confirmations:
@@ -138,12 +150,13 @@ async def _run_skill(
         )
 
     try:
-        return await executor.execute(input_data)
+        res = await executor.execute(input_data)
+        return cast(T, res)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Skill execution failed: {exc}",
-        )
+        ) from exc
 
 
 def _describe_action(skill_slug: str, input_data: Any) -> str:
@@ -178,7 +191,7 @@ class ConfirmPreview(BaseModel):
 async def skill_confirm_preview(
     token: str,
     current_user: User = Depends(get_current_user),
-):
+) -> ConfirmPreview:
     """Preview the action a confirmation token authorizes."""
     user_id = current_user.id
     if user_id not in _pending_confirmations or token not in _pending_confirmations[user_id]:
@@ -210,7 +223,7 @@ class ConfirmResponse(BaseModel):
 async def skill_confirm_execute(
     req: ConfirmRequest,
     current_user: User = Depends(get_current_user),
-):
+) -> ConfirmResponse:
     """Execute a skill after user confirmation via token."""
     user_id = current_user.id
     if user_id not in _pending_confirmations or req.token not in _pending_confirmations[user_id]:

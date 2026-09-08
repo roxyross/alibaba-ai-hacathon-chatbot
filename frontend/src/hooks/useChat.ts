@@ -20,6 +20,8 @@ export interface UseChatOptions {
   accessToken?: string | null;
   /** Use SSE streaming instead of one-shot (default: false) */
   streaming?: boolean;
+  /** Override agent routing (e.g. 'code_generation' in task mode) */
+  agentOverride?: string;
 }
 
 export interface ChatState {
@@ -48,6 +50,15 @@ export function useChat(options: UseChatOptions = {}) {
 
   const abortRef = useRef<AbortController | null>(null);
 
+  const resolveUrl = (path: string): string => {
+    const raw = options.runtimeUrl || options.apiBase || '';
+    const base = raw.replace(/\/+$/, '');
+    if (base.endsWith('/api/v1') && path.startsWith('/api/v1')) {
+      return `${base.slice(0, -'/api/v1'.length)}${path}`;
+    }
+    return `${base}${path}`;
+  };
+
   const sendMessage = useCallback(
     async (content: string, overrideSessionId?: string) => {
       const useStreaming = options.streaming;
@@ -75,12 +86,12 @@ export function useChat(options: UseChatOptions = {}) {
           headers.Authorization = `Bearer ${options.accessToken}`;
         }
 
-        const baseUrl = options.runtimeUrl ?? options.apiBase ?? '/api/v1';
         const path = useStreaming ? RUNTIME_STREAM_PATH : RUNTIME_CHAT_PATH;
+        const fullUrl = resolveUrl(path);
 
         if (useStreaming) {
           // SSE streaming
-          const response = await fetch(`${baseUrl}${path}`, {
+          const response = await fetch(fullUrl, {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -88,6 +99,7 @@ export function useChat(options: UseChatOptions = {}) {
               ...(targetSessionId ? { session_id: targetSessionId } : {}),
               ...(options.provider ? { provider: options.provider } : {}),
               ...(options.model ? { model: options.model } : {}),
+              ...(options.agentOverride ? { agent_override: options.agentOverride } : {}),
             }),
             signal: abortRef.current.signal,
           });
@@ -195,7 +207,7 @@ export function useChat(options: UseChatOptions = {}) {
           setState((prev) => ({ ...prev, isStreaming: false }));
         } else {
           // One-shot JSON
-          const response = await fetch(`${baseUrl}${path}`, {
+          const response = await fetch(fullUrl, {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -203,6 +215,7 @@ export function useChat(options: UseChatOptions = {}) {
               ...(targetSessionId ? { session_id: targetSessionId } : {}),
               ...(options.provider ? { provider: options.provider } : {}),
               ...(options.model ? { model: options.model } : {}),
+              ...(options.agentOverride ? { agent_override: options.agentOverride } : {}),
             }),
             signal: abortRef.current.signal,
           });
@@ -273,6 +286,7 @@ export function useChat(options: UseChatOptions = {}) {
       options.sessionId,
       options.accessToken,
       options.streaming,
+      options.agentOverride,
     ],
   );
 

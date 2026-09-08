@@ -372,6 +372,7 @@ class ScheduleJobRequest(BaseModel):
     confirm_on_fire: bool = Field(default=False, description="Re-confirm before sensitive actions at fire time")
     tag: str | None = Field(default=None, description="Filter by tag (list op only)")
     user_id: str | None = Field(default=None, description="Stamped by the router from the authenticated user.")
+    confirm: bool = Field(default=True, description="Confirmation flag for skill execution.")
 
 
 class JobEntry(BaseModel):

@@ -250,7 +250,7 @@ def start_scheduler() -> AsyncIOScheduler:
     return scheduler
 
 
-def stop_scheduler():
+def stop_scheduler() -> None:
     """Shutdown the scheduler. Call from FastAPI shutdown."""
     global _scheduler
     if _scheduler is not None:

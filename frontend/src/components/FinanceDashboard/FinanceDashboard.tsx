@@ -101,6 +101,28 @@ const BankConnectionCard: React.FC<BankConnectionCardProps> = ({
     }
   };
 
+  // Connect instant demo bank (Chase checking + savings)
+  const handleDemoConnect = async () => {
+    if (!accessToken) return;
+    setConnecting(true);
+    setPlaidError(null);
+    try {
+      const res = await fetch(`${API_BASE}/bank/demo-connect`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Failed to connect demo bank' }));
+        throw new Error(err.detail ?? `HTTP ${res.status}`);
+      }
+      onConnected();
+    } catch (e) {
+      setPlaidError((e as Error).message);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   // Plaid Link handler — fires after user completes Plaid Link
   const onPlaidSuccess = async (publicToken: string, metadata: { institution?: { name?: string } | null }) => {
     if (!accessToken) return;
@@ -171,13 +193,23 @@ const BankConnectionCard: React.FC<BankConnectionCardProps> = ({
         <div className="finance-empty">
           <span className="finance-empty__icon">🏦</span>
           <p>No bank accounts connected yet.</p>
-          <button
-            className="connect-bank-btn"
-            onClick={handleConnect}
-            disabled={connecting}
-          >
-            {connecting ? 'Connecting…' : '🔗 Connect Bank'}
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%', maxWidth: '280px' }}>
+            <button
+              className="connect-bank-btn"
+              onClick={handleConnect}
+              disabled={connecting}
+            >
+              {connecting ? 'Connecting…' : '🔗 Connect Bank (Plaid OAuth)'}
+            </button>
+            <button
+              className="connect-bank-btn"
+              onClick={handleDemoConnect}
+              disabled={connecting}
+              style={{ background: 'linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%)', color: '#11111b', fontWeight: 600 }}
+            >
+              {connecting ? 'Connecting…' : '⚡ Connect Demo Bank (Instant)'}
+            </button>
+          </div>
         </div>
       ) : (
         <>
@@ -210,9 +242,18 @@ const BankConnectionCard: React.FC<BankConnectionCardProps> = ({
             </div>
           </div>
 
-          <button className="connect-bank-btn" onClick={handleConnect} style={{ marginTop: '0.25rem' }}>
-            + Connect Another Account
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+            <button className="connect-bank-btn" onClick={handleConnect} style={{ flex: 1 }}>
+              + Plaid Account
+            </button>
+            <button
+              className="connect-bank-btn"
+              onClick={handleDemoConnect}
+              style={{ flex: 1, background: 'linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%)', color: '#11111b', fontWeight: 600 }}
+            >
+              ⚡ Demo Bank
+            </button>
+          </div>
 
           {/* Disconnect */}
           <button
@@ -328,15 +369,19 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
   const [category, setCategory] = useState('');
   const [limit, setLimit] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!category.trim() || !limit) return;
     setSubmitting(true);
+    setFormError(null);
     try {
       await onCreate(category.trim(), parseFloat(limit));
       setCategory('');
       setLimit('');
+    } catch (err) {
+      setFormError((err as Error).message);
     } finally {
       setSubmitting(false);
     }
@@ -417,6 +462,11 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
             step="0.01"
           />
         </div>
+        {formError && (
+          <p role="alert" style={{ color: 'var(--color-error)', fontSize: '0.8125rem', margin: '0.25rem 0' }}>
+            {formError}
+          </p>
+        )}
         <button
           type="submit"
           className="add-budget-form__submit"
@@ -448,11 +498,13 @@ const SpendingAlertsCard: React.FC<SpendingAlertsCardProps> = ({
   const [alertType, setAlertType] = useState<'over_budget' | 'unusual_charge' | 'bill_reminder'>('over_budget');
   const [threshold, setThreshold] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
     setSubmitting(true);
+    setFormError(null);
     try {
       await onCreate({
         name: name.trim(),
@@ -464,6 +516,8 @@ const SpendingAlertsCard: React.FC<SpendingAlertsCardProps> = ({
       });
       setName('');
       setThreshold('');
+    } catch (err) {
+      setFormError((err as Error).message);
     } finally {
       setSubmitting(false);
     }
@@ -559,6 +613,11 @@ const SpendingAlertsCard: React.FC<SpendingAlertsCardProps> = ({
             {submitting ? 'Adding…' : '+ Add Alert'}
           </button>
         </div>
+        {formError && (
+          <p role="alert" style={{ color: 'var(--color-error)', fontSize: '0.8125rem', margin: '0.25rem 0' }}>
+            {formError}
+          </p>
+        )}
       </form>
     </div>
   );

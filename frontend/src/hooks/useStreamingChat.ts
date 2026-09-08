@@ -57,7 +57,7 @@ export function useStreamingChat(options: StreamingChatOptions = {}) {
       abortRef.current?.abort();
       abortRef.current = new AbortController();
 
-      const baseUrl = options.runtimeUrl ?? 'http://localhost:8000';
+      const baseUrl = options.runtimeUrl ?? '';
 
       try {
         const headers: Record<string, string> = {

@@ -16,6 +16,7 @@ class SessionCreateRequest(BaseModel):
     provider: str = Field(min_length=1, max_length=50)
     model: str = Field(default="coordinator", min_length=0, max_length=100)
     title: Optional[str] = Field(default=None, max_length=200)
+    session_type: str = Field(default="chat", max_length=20)
 
 
 class SessionUpdateRequest(BaseModel):
@@ -35,6 +36,7 @@ class SessionResponse(BaseModel):
     title: Optional[str]
     provider: str
     model: str
+    session_type: str = "chat"
     created_at: datetime
     updated_at: datetime
     message_count: int = 0

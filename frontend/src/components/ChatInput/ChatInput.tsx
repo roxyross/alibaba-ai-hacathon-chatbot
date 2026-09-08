@@ -17,6 +17,23 @@ interface ChatInputProps {
   onAttachmentClick?: () => void;
   /** Custom placeholder override */
   placeholder?: string;
+  /** Navigation callback to switch modules directly from tools menu */
+  onNavigateView?: (view: 'finance' | 'jobs' | 'email') => void;
+}
+
+// File extension to icon resolver
+function getFileIcon(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext)) return '🖼️';
+  if (['mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v'].includes(ext)) return '🎥';
+  if (['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(ext)) return '🎵';
+  if (ext === 'pdf') return '📕';
+  if (['ppt', 'pptx', 'key'].includes(ext)) return '📊';
+  if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) return '📄';
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return '📈';
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return '📦';
+  if (['py', 'js', 'ts', 'tsx', 'jsx', 'html', 'css', 'json', 'yaml', 'yml', 'c', 'cpp', 'rs', 'go', 'java', 'sql', 'sh', 'md'].includes(ext)) return '💻';
+  return '📎';
 }
 
 // Check for Web Speech API
@@ -30,8 +47,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   disabledNoModel = false,
   leftSlot,
   onVoiceClick,
-  onAttachmentClick,
+  onAttachmentClick: _onAttachmentClick,
   placeholder: customPlaceholder,
+  onNavigateView,
 }) => {
   const [value, setValue] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -41,6 +59,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const actionBtnRef = useRef<HTMLButtonElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -157,7 +176,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const text = value.trim();
     if ((!text && attachedFiles.length === 0) || disabled || isStreaming || disabledNoModel) return;
@@ -175,13 +194,29 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (thinkMode) {
       messageToSend = `[Deep Reasoning Mode]\n${messageToSend}`;
     }
+
     if (attachedFiles.length > 0) {
       const fileListDesc = attachedFiles
-        .map((f) => `• ${f.name} (${(f.size / 1024).toFixed(1)} KB, ${f.type || 'file'})`)
+        .map((f) => `• ${getFileIcon(f.name)} ${f.name} (${(f.size / 1024).toFixed(1)} KB, ${f.type || 'file'})`)
         .join('\n');
+
+      let fileContents = '';
+      for (const file of attachedFiles) {
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        const isText = ['py', 'js', 'ts', 'tsx', 'jsx', 'html', 'css', 'json', 'yaml', 'yml', 'txt', 'md', 'sql', 'sh', 'csv', 'env'].includes(ext);
+        if (isText && file.size < 120 * 1024) {
+          try {
+            const content = await file.text();
+            fileContents += `\n\n--- [File: ${file.name}] ---\n\`\`\`${ext}\n${content.slice(0, 6000)}\n\`\`\``;
+          } catch {
+            // ignore
+          }
+        }
+      }
+
       messageToSend = messageToSend
-        ? `${messageToSend}\n\n[Attached files from device]:\n${fileListDesc}`
-        : `[Attached files from device]:\n${fileListDesc}\nPlease analyze the attached files.`;
+        ? `${messageToSend}\n\n[Attached files from device]:\n${fileListDesc}${fileContents}`
+        : `[Attached files from device]:\n${fileListDesc}${fileContents}\nPlease analyze and assist with the attached files.`;
     }
 
     onSend(messageToSend);
@@ -234,62 +269,182 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <form className="chat-input" onSubmit={handleSubmit} aria-label="Send message">
-      {/* Hidden file input for native computer file access */}
+      {/* Hidden file input for native computer file access (all extensions: images, videos, pdfs, ppts, docs, code, zips) */}
       <input
         type="file"
         ref={fileInputRef}
         onChange={handleFilesSelected}
         multiple
-        style={{ display: 'none' }}
+        accept="*/*"
+        style={{ position: 'fixed', top: -9999, left: -9999, opacity: 0, pointerEvents: 'none' }}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+
+      {/* Hidden folder input for native computer folder upload */}
+      <input
+        type="file"
+        ref={folderInputRef}
+        onChange={handleFilesSelected}
+        multiple
+        {...({ webkitdirectory: '', directory: '' } as unknown as React.InputHTMLAttributes<HTMLInputElement>)}
+        style={{ position: 'fixed', top: -9999, left: -9999, opacity: 0, pointerEvents: 'none' }}
+        tabIndex={-1}
+        aria-hidden="true"
       />
 
       {/* Floating Tools Popover (+ Menu) */}
       {showToolsMenu && (
         <div className="chat-input__flyout" ref={menuRef} role="menu" aria-label="Add options">
-          {/* 1. Add photos & files (upload from computer) */}
+          {/* 1. Add files (opens native device file explorer dialog) */}
           <button
             type="button"
-            className="chat-input__flyout-item"
+            className="chat-input__flyout-item chat-input__flyout-item--highlight"
             role="menuitem"
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               setShowToolsMenu(false);
               fileInputRef.current?.click();
             }}
           >
-            <div className="chat-input__flyout-icon chat-input__flyout-icon--gray">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <div className="chat-input__flyout-icon chat-input__flyout-icon--blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </svg>
             </div>
             <div className="chat-input__flyout-text">
-              <span className="chat-input__flyout-title">Add photos &amp; files</span>
-              <span className="chat-input__flyout-subtitle">Upload from computer</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span className="chat-input__flyout-title" style={{ fontWeight: 600 }}>Add files</span>
+                <span className="chat-input__flyout-badge">Upload</span>
+              </div>
+              <span className="chat-input__flyout-subtitle">Upload files, PDFs, PPTs, videos, images, code from device</span>
             </div>
           </button>
 
-          {/* 2. Add from library */}
+          {/* 2. Add folder (upload entire folder) */}
           <button
             type="button"
             className="chat-input__flyout-item"
             role="menuitem"
             onClick={() => {
               setShowToolsMenu(false);
-              onAttachmentClick?.();
+              folderInputRef.current?.click();
             }}
           >
-            <div className="chat-input__flyout-icon chat-input__flyout-icon--orange">
+            <div className="chat-input__flyout-icon chat-input__flyout-icon--yellow">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
               </svg>
             </div>
             <div className="chat-input__flyout-text">
-              <span className="chat-input__flyout-title">Add from library</span>
-              <span className="chat-input__flyout-subtitle">Browse and search your files</span>
+              <span className="chat-input__flyout-title">Add folder</span>
+              <span className="chat-input__flyout-subtitle">Upload complete directory from device</span>
             </div>
           </button>
 
-          {/* 3. Create image */}
+          {/* 3. Write or edit code */}
+          <button
+            type="button"
+            className="chat-input__flyout-item"
+            role="menuitem"
+            onClick={() => {
+              setShowToolsMenu(false);
+              setValue('Write a script to: ');
+              textareaRef.current?.focus();
+            }}
+          >
+            <div className="chat-input__flyout-icon chat-input__flyout-icon--purple">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
+              </svg>
+            </div>
+            <div className="chat-input__flyout-text">
+              <span className="chat-input__flyout-title">Write or edit code</span>
+              <span className="chat-input__flyout-subtitle">Build code, scripts, or debug</span>
+            </div>
+          </button>
+
+          {/* 4. Search the web */}
+          <button
+            type="button"
+            className="chat-input__flyout-item"
+            role="menuitem"
+            onClick={() => {
+              setShowToolsMenu(false);
+              setValue('Search the web for: ');
+              textareaRef.current?.focus();
+            }}
+          >
+            <div className="chat-input__flyout-icon chat-input__flyout-icon--blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+            </div>
+            <div className="chat-input__flyout-text">
+              <span className="chat-input__flyout-title">Search the web</span>
+              <span className="chat-input__flyout-subtitle">Find real-time news and info</span>
+            </div>
+          </button>
+
+          {/* 5. Check finances & balances */}
+          <button
+            type="button"
+            className="chat-input__flyout-item"
+            role="menuitem"
+            onClick={() => {
+              setShowToolsMenu(false);
+              if (onNavigateView) {
+                onNavigateView('finance');
+              } else {
+                setValue('Check my current bank account balance and review recent transactions.');
+                textareaRef.current?.focus();
+              }
+            }}
+          >
+            <div className="chat-input__flyout-icon chat-input__flyout-icon--green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="1" x2="12" y2="23" />
+                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+              </svg>
+            </div>
+            <div className="chat-input__flyout-text">
+              <span className="chat-input__flyout-title">Check finances &amp; balances</span>
+              <span className="chat-input__flyout-subtitle">Review accounts and balances</span>
+            </div>
+          </button>
+
+          {/* 6. Schedule a task or reminder */}
+          <button
+            type="button"
+            className="chat-input__flyout-item"
+            role="menuitem"
+            onClick={() => {
+              setShowToolsMenu(false);
+              if (onNavigateView) {
+                onNavigateView('jobs');
+              } else {
+                setValue('Schedule a reminder for tomorrow at 10 AM to: ');
+                textareaRef.current?.focus();
+              }
+            }}
+          >
+            <div className="chat-input__flyout-icon chat-input__flyout-icon--blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </div>
+            <div className="chat-input__flyout-text">
+              <span className="chat-input__flyout-title">Schedule a task or reminder</span>
+              <span className="chat-input__flyout-subtitle">Automate jobs and reminders</span>
+            </div>
+          </button>
+
+          {/* 7. Create image */}
           <button
             type="button"
             className="chat-input__flyout-item"
@@ -309,35 +464,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
             <div className="chat-input__flyout-text">
               <span className="chat-input__flyout-title">Create image</span>
-              <span className="chat-input__flyout-subtitle">Visualize anything</span>
+              <span className="chat-input__flyout-subtitle">Visualize anything with diffusion</span>
             </div>
           </button>
 
-          {/* 4. Web search */}
-          <button
-            type="button"
-            className="chat-input__flyout-item"
-            role="menuitem"
-            onClick={() => {
-              setShowToolsMenu(false);
-              setValue('Search the web for: ');
-              textareaRef.current?.focus();
-            }}
-          >
-            <div className="chat-input__flyout-icon chat-input__flyout-icon--blue">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="2" y1="12" x2="22" y2="12" />
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-              </svg>
-            </div>
-            <div className="chat-input__flyout-text">
-              <span className="chat-input__flyout-title">Web search</span>
-              <span className="chat-input__flyout-subtitle">Find real-time news and info</span>
-            </div>
-          </button>
-
-          {/* 5. Maps */}
+          {/* 8. Maps */}
           <button
             type="button"
             className="chat-input__flyout-item"
@@ -366,7 +497,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
           </button>
 
-          {/* 6. Deep research */}
+          {/* 9. Deep research */}
           <button
             type="button"
             className="chat-input__flyout-item"
@@ -399,8 +530,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         <div className="chat-input__attached-bar">
           {attachedFiles.map((file, idx) => (
             <div key={`${file.name}-${idx}`} className="chat-input__file-chip">
-              <span className="chat-input__chip-icon">📎</span>
+              <span className="chat-input__chip-icon">{getFileIcon(file.name)}</span>
               <span className="chat-input__chip-name" title={file.name}>{file.name}</span>
+              <span className="chat-input__chip-size">{(file.size / 1024).toFixed(0)}KB</span>
               <button
                 type="button"
                 className="chat-input__chip-remove"
@@ -415,20 +547,32 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       )}
 
       <div className={`chat-input__capsule ${isListening ? 'chat-input__capsule--listening' : ''}`}>
-        {/* Left tools slot: Attachment (+) and ModelPicker */}
+        {/* Left tools slot: Attachment (+), Direct Attach, and ModelPicker */}
         <div className="chat-input__left">
           <button
             ref={actionBtnRef}
             type="button"
             className={`chat-input__action-btn ${showToolsMenu ? 'chat-input__action-btn--active' : ''}`}
             onClick={() => setShowToolsMenu((prev) => !prev)}
-            title="Add files, tools, and search"
-            aria-label="Add files, tools, and search"
+            title="Add tools, files, and skills (+)"
+            aria-label="Add options"
             aria-expanded={showToolsMenu}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+
+          <button
+            type="button"
+            className="chat-input__action-btn"
+            onClick={() => fileInputRef.current?.click()}
+            title="Add files from device (PDFs, PPTs, images, videos, code)"
+            aria-label="Add files from device"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
             </svg>
           </button>
           {leftSlot}

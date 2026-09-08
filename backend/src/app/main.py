@@ -1,10 +1,10 @@
 """ROXY JARVIS AI Gateway — FastAPI application entry point."""
 
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
-from fastapi import Request as StarletteRequest
 from fastapi.middleware.cors import CORSMiddleware
 
 # Load .env from the working directory (or backend/.env if cwd is the repo
@@ -42,7 +42,15 @@ app = FastAPI(
 # CORS — allow frontend to call the gateway
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: restrict to frontend origin in production
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,7 +71,7 @@ app.include_router(finance_router, prefix="/api/v1")
 
 
 @app.on_event("startup")
-async def on_startup():
+async def on_startup() -> None:
     """Start the APScheduler job runner and ensure DB tables exist."""
     # Ensure all ORM models are registered before creating tables
     try:
@@ -91,7 +99,7 @@ async def on_startup():
 
 
 @app.on_event("shutdown")
-async def on_shutdown():
+async def on_shutdown() -> None:
     """Stop the APScheduler job runner when the backend stops."""
     from app.job_scheduler import stop_scheduler
     stop_scheduler()
@@ -100,15 +108,14 @@ async def on_shutdown():
 # Email send alias route so both /api/v1/email/send and /api/v1/skills/email_send work
 @app.post("/api/v1/email/send")
 async def email_send_alias(
-    req: dict,
-    http_request: StarletteRequest = None,
-):
+    req: dict[str, Any],
+) -> Any:
     from app.skills.email_send import get_executor
     from app.skills.schemas import EmailSendRequest
 
-    to = req.get("to", "")
-    subject = req.get("subject", "")
-    body = req.get("body", "")
+    to = str(req.get("to", ""))
+    subject = str(req.get("subject", ""))
+    body = str(req.get("body", ""))
     cc = req.get("cc", [])
     bcc = req.get("bcc", [])
 
@@ -126,7 +133,7 @@ async def email_send_alias(
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     return {"status": "ok", "service": "ai-gateway"}
 
 

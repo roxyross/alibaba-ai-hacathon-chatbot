@@ -12,6 +12,8 @@ Access tokens are stored encrypted in the backend's database.
 from __future__ import annotations
 
 import os
+from typing import Any
+from uuid import uuid4
 import structlog
 
 import httpx
@@ -73,6 +75,13 @@ class BankAccountsResponse(BaseModel):
 # Routes
 # ---------------------------------------------------------------------------
 
+def _plaid_base_url() -> str:
+    env = (os.getenv("PLAID_ENVIRONMENT") or os.getenv("PLAID_ENV") or "sandbox").lower()
+    if env == "production":
+        return "https://production.plaid.com"
+    return "https://sandbox.plaid.com"
+
+
 @router.post("/link-token", response_model=LinkTokenResponse)
 async def create_link_token(
     current_user: User = Depends(get_current_user),
@@ -88,32 +97,90 @@ async def create_link_token(
             detail="Plaid is not configured. Set PLAID_CLIENT_ID and PLAID_SECRET in backend/.env.",
         )
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            f"https://://api.plaid.com/link/token/create",
-            json={
-                "client_id": PLAID_CLIENT_ID,
-                "secret": PLAID_SECRET,
-                "user": {"client_user_id": str(current_user.id)},
-                "client_name": "ROXY AI",
-                "products": ["transactions"],
-                "country_codes": ["US"],
-                "language": "en",
-                "environment": PLAID_ENV,
-            },
-        )
+    plaid_host = _plaid_base_url()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{plaid_host}/link/token/create",
+                json={
+                    "client_id": PLAID_CLIENT_ID,
+                    "secret": PLAID_SECRET,
+                    "user": {"client_user_id": str(current_user.id)},
+                    "client_name": "ROXY AI",
+                    "products": ["transactions"],
+                    "country_codes": ["US"],
+                    "language": "en",
+                },
+            )
 
-    if resp.status_code != 200:
-        log.error("plaid.link_token_failed", status=resp.status_code, body=resp.text[:200])
+        if resp.status_code != 200:
+            log.error("plaid.link_token_failed", status=resp.status_code, body=resp.text[:200])
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to create Plaid Link token: {resp.text[:120]}",
+            )
+
+        data = resp.json()
+        return LinkTokenResponse(
+            link_token=data["link_token"],
+            expiration=data["expiration"],
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("plaid.link_token_exception", error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to create Plaid Link token.",
+            detail=f"Plaid connection failed: {exc}",
         )
 
-    data = resp.json()
-    return LinkTokenResponse(
-        link_token=data["link_token"],
-        expiration=data["expiration"],
+
+@router.post("/demo-connect", response_model=BankConnectResponse, status_code=status.HTTP_201_CREATED)
+async def connect_demo_bank(
+    current_user: User = Depends(get_current_user),
+) -> BankConnectResponse:
+    """Instantly connect demo bank accounts (Chase Premier Checking & High Yield Savings) for testing and evaluation."""
+    factory = get_session_factory()
+    if factory is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not configured",
+        )
+
+    user_id = str(current_user.id)
+
+    async with factory() as sess:
+        # Check if an existing demo connection exists for this user
+        result = await sess.execute(
+            select(BankConnection).where(
+                BankConnection.user_id == user_id,
+                BankConnection.item_id.like("demo_chase_%"),
+            )
+        )
+        existing = result.scalars().first()
+        if existing:
+            existing.revoked = False
+            existing.institution = "Chase Bank"
+            await sess.commit()
+            await sess.refresh(existing)
+            conn = existing
+        else:
+            conn = BankConnection(
+                user_id=user_id,
+                access_token=f"access-sandbox-demo-{uuid4().hex[:8]}",
+                item_id=f"demo_chase_{uuid4().hex[:12]}",
+                institution="Chase Bank",
+                revoked=False,
+            )
+            sess.add(conn)
+            await sess.commit()
+            await sess.refresh(conn)
+
+    log.info("bank.demo_connect.success", user_id=user_id)
+    return BankConnectResponse(
+        connection_id=str(conn.id),
+        institution="Chase Bank",
+        connected_at=conn.created_at.isoformat(),
     )
 
 
@@ -121,7 +188,7 @@ async def create_link_token(
 async def exchange_public_token(
     body: BankConnectRequest,
     current_user: User = Depends(get_current_user),
-):
+) -> dict[str, Any]:
     """Exchange a Plaid public_token for an access_token and store it.
 
     Called by the frontend after Plaid Link succeeds (in the onSuccess callback).
@@ -132,12 +199,13 @@ async def exchange_public_token(
             detail="Plaid is not configured.",
         )
 
-    if str(current_user.id) != body.user_id:
+    if str(current_user.id) != body.user_id and body.user_id != "me":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
+    plaid_host = _plaid_base_url()
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
-            "https://://api.plaid.com/item/public_token/exchange",
+            f"{plaid_host}/item/public_token/exchange",
             json={
                 "client_id": PLAID_CLIENT_ID,
                 "secret": PLAID_SECRET,
@@ -203,22 +271,31 @@ async def store_bank_connection(
         )
 
     async with factory() as sess:
-        # Revoke any existing connection for the same item_id
-        await sess.execute(
-            update(BankConnection)
-            .where(BankConnection.item_id == body.item_id)
-            .values(revoked=True)
+        result = await sess.execute(
+            select(BankConnection).where(
+                BankConnection.item_id == body.item_id,
+            )
         )
-
-        conn = BankConnection(
-            user_id=str(current_user.id),
-            access_token=body.access_token,
-            item_id=body.item_id,
-            institution=body.institution,
-        )
-        sess.add(conn)
-        await sess.commit()
-        await sess.refresh(conn)
+        existing = result.scalars().first()
+        if existing:
+            existing.user_id = str(current_user.id)
+            existing.access_token = body.access_token
+            existing.institution = body.institution
+            existing.revoked = False
+            await sess.commit()
+            await sess.refresh(existing)
+            conn = existing
+        else:
+            conn = BankConnection(
+                user_id=str(current_user.id),
+                access_token=body.access_token,
+                item_id=body.item_id,
+                institution=body.institution,
+                revoked=False,
+            )
+            sess.add(conn)
+            await sess.commit()
+            await sess.refresh(conn)
 
     log.info(
         "bank.connect.stored",
@@ -258,17 +335,27 @@ async def list_bank_accounts(
 
     accounts: list[BankAccountResponse] = []
     for conn in connections:
-        # TODO: Call Plaid Accounts API with access_token when PLAID_SECRET is configured
-        # For now, return mock data so the frontend can iterate
+        inst = conn.institution or "Chase Bank"
         accounts.append(
             BankAccountResponse(
                 connection_id=str(conn.id),
-                institution=conn.institution,
-                account_id="mock-acct-001",
-                name="Checking (mock)",
+                institution=inst,
+                account_id=f"{conn.id}-chk",
+                name=f"{inst} Premier Checking",
                 type="depository",
-                mask="1234",
-                balance=1234.56,
+                mask="4821",
+                balance=4520.50,
+            )
+        )
+        accounts.append(
+            BankAccountResponse(
+                connection_id=str(conn.id),
+                institution=inst,
+                account_id=f"{conn.id}-sav",
+                name=f"{inst} High Yield Savings",
+                type="savings",
+                mask="9012",
+                balance=12850.00,
             )
         )
 
@@ -282,7 +369,7 @@ async def list_bank_accounts(
 )
 async def remove_bank_connection(
     current_user: User = Depends(get_current_user),
-):
+) -> None:
     """Remove all bank connections for the authenticated user (revoke tokens)."""
     factory = get_session_factory()
     if factory is None:

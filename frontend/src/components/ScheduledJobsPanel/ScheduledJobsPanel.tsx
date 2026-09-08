@@ -99,6 +99,7 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
               inputs: message.trim() ? { message: message.trim() } : { message: name.trim() },
             },
             confirm_on_fire: confirmOnFire,
+            confirm: true,
           }),
         }
       );
@@ -227,7 +228,7 @@ export const ScheduledJobsPanel: React.FC<ScheduledJobsPanelProps> = ({
         accessToken,
         {
           method: 'POST',
-          body: JSON.stringify({ op: 'list' }),
+          body: JSON.stringify({ op: 'list', confirm: true }),
         }
       );
       if (result.success && result.jobs) {
@@ -254,7 +255,7 @@ export const ScheduledJobsPanel: React.FC<ScheduledJobsPanelProps> = ({
         accessToken,
         {
           method: 'POST',
-          body: JSON.stringify({ op, job_id: jobId }),
+          body: JSON.stringify({ op, job_id: jobId, confirm: true }),
         }
       );
       await loadJobs();
