@@ -112,6 +112,133 @@ function CriticReviewBadge({ review }: { review: CriticReviewData | Record<strin
   );
 }
 
+interface MapCardData {
+  place: string;
+  query?: string;
+  lat: number;
+  lon: number;
+  zoom?: number;
+  embed_osm?: string;
+  embed_google?: string;
+  gmaps_search?: string;
+  directions?: string;
+  osm_url?: string;
+}
+
+function InteractiveMapCard({ data }: { data: MapCardData }) {
+  const [provider, setProvider] = useState<'google' | 'osm'>('google');
+  const [copied, setCopied] = useState(false);
+
+  const lat = Number(data.lat) || 0;
+  const lon = Number(data.lon) || 0;
+  const zoom = Number(data.zoom) || 14;
+
+  const osmUrl =
+    data.embed_osm ||
+    `https://www.openstreetmap.org/export/embed.html?bbox=${(lon - 0.015).toFixed(5)}%2C${(lat - 0.010).toFixed(5)}%2C${(lon + 0.015).toFixed(5)}%2C${(lat + 0.010).toFixed(5)}&layer=mapnik&marker=${lat.toFixed(5)}%2C${lon.toFixed(5)}`;
+
+  const googleUrl =
+    data.embed_google ||
+    `https://maps.google.com/maps?q=${lat},${lon}&hl=en&z=${zoom}&output=embed`;
+
+  const gmapsSearchUrl =
+    data.gmaps_search ||
+    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(data.place || `${lat},${lon}`)}`;
+
+  const directionsUrl =
+    data.directions ||
+    `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
+
+  const osmDirectUrl =
+    data.osm_url ||
+    `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=${zoom}/${lat}/${lon}`;
+
+  const handleCopy = () => {
+    const coords = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    navigator.clipboard.writeText(coords).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="chat-map-card">
+      <div className="chat-map-card__header">
+        <div className="chat-map-card__title-row">
+          <span className="chat-map-card__pin-icon" aria-hidden="true">📍</span>
+          <div className="chat-map-card__title-meta">
+            <span className="chat-map-card__title">{data.place || 'Map Location'}</span>
+            <button
+              type="button"
+              className="chat-map-card__coords"
+              onClick={handleCopy}
+              title="Click to copy coordinates"
+            >
+              {copied ? '✓ Copied' : `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`}
+            </button>
+          </div>
+        </div>
+
+        <div className="chat-map-card__tabs" role="tablist">
+          <button
+            type="button"
+            className={`chat-map-card__tab ${provider === 'google' ? 'chat-map-card__tab--active' : ''}`}
+            onClick={() => setProvider('google')}
+          >
+            Google Maps
+          </button>
+          <button
+            type="button"
+            className={`chat-map-card__tab ${provider === 'osm' ? 'chat-map-card__tab--active' : ''}`}
+            onClick={() => setProvider('osm')}
+          >
+            OpenStreetMap
+          </button>
+        </div>
+      </div>
+
+      <div className="chat-map-card__viewport">
+        <iframe
+          key={provider}
+          src={provider === 'google' ? googleUrl : osmUrl}
+          className="chat-map-card__iframe"
+          title={`Map of ${data.place || 'location'}`}
+          loading="lazy"
+          allowFullScreen
+          referrerPolicy="no-referrer-when-downgrade"
+        />
+      </div>
+
+      <div className="chat-map-card__actions">
+        <a
+          href={gmapsSearchUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="chat-map-card__btn"
+        >
+          <span>📍</span> Open in Google Maps
+        </a>
+        <a
+          href={directionsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="chat-map-card__btn"
+        >
+          <span>🧭</span> Directions
+        </a>
+        <a
+          href={osmDirectUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="chat-map-card__btn"
+        >
+          <span>🌐</span> OpenStreetMap
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -252,9 +379,22 @@ function FormattedContent({ content }: { content: string }) {
     }
     const lang = match[1] || 'code';
     const code = match[2];
-    tokens.push(
-      <CodeBlock key={`code-${match.index}`} lang={lang} code={code} />
-    );
+    if (lang === 'map') {
+      try {
+        const mapData = JSON.parse(code.trim());
+        tokens.push(
+          <InteractiveMapCard key={`map-${match.index}`} data={mapData} />
+        );
+      } catch {
+        tokens.push(
+          <CodeBlock key={`code-${match.index}`} lang={lang} code={code} />
+        );
+      }
+    } else {
+      tokens.push(
+        <CodeBlock key={`code-${match.index}`} lang={lang} code={code} />
+      );
+    }
     lastIndex = match.index + match[0].length;
   }
 

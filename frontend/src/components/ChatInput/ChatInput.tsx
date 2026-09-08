@@ -345,7 +345,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             onClick={() => {
               setShowToolsMenu(false);
               setValue('Find places near: ');
-              textareaRef.current?.focus();
+              setTimeout(() => {
+                if (textareaRef.current) {
+                  textareaRef.current.focus();
+                  const len = textareaRef.current.value.length;
+                  textareaRef.current.setSelectionRange(len, len);
+                }
+              }, 50);
             }}
           >
             <div className="chat-input__flyout-icon chat-input__flyout-icon--pin">

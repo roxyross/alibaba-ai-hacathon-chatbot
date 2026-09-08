@@ -300,74 +300,126 @@ async def fetch_live_search(query: str, num: int = 4) -> str | None:
         return None
 
 
-_MAPS_PATTERNS = [
-    re.compile(r"^(?:find\s+places\s+near|places\s+near|maps?\s+for|show\s+map\s+of|map\s+of|view\s+on\s+map)\s*:\s*", re.I),
+_MAPS_TRIGGERS = [
+    re.compile(r"^(?:find\s+places\s+near|places\s+near|maps?\s+for|show\s+(?:me\s+)?map\s+of|map\s+of|view\s+on\s+map)\s*:\s*", re.I),
     re.compile(r"\b(?:find\s+places\s+near|places\s+near|restaurants?\s+near|cafes?\s+near|coffee\s+shops?\s+near|hotels?\s+near|food\s+near|attractions?\s+near|spots?\s+near|bars?\s+near)\b", re.I),
-    re.compile(r"\b(?:show\s+(?:me\s+)?(?:the\s+)?map\s+(?:of|for)|open\s+(?:the\s+)?map\s+(?:of|for)|map\s+of)\b", re.I),
-    re.compile(r"\b(?:google\s+maps?|openstreetmap|navigate\s+to|directions\s+to)\b", re.I),
+    re.compile(r"\b(?:show\s+(?:me\s+)?(?:the\s+)?map\s+(?:of|for)?|open\s+(?:the\s+)?map\s+(?:of|for)?|map\s+of)\b", re.I),
+    re.compile(r"\b(?:google\s+maps?|openstreetmap|navigate\s+to|directions\s+to|view\s+on\s+map)\b", re.I),
+    re.compile(r"\b(?:where\s+is\s+(?:the\s+)?|location\s+of\s+(?:the\s+)?)\b", re.I),
+    re.compile(r"^(?:maps?|open\s+maps?|show\s+maps?|view\s+map)$", re.I),
 ]
+
+_POPULAR_COORDINATES: dict[str, tuple[float, float, str]] = {
+    "paris": (48.8566, 2.3522, "Paris, Île-de-France, France"),
+    "eiffel tower": (48.8584, 2.2945, "Eiffel Tower, Paris, France"),
+    "tokyo": (35.6762, 139.6503, "Tokyo, Japan"),
+    "new york": (40.7128, -74.0060, "New York City, NY, USA"),
+    "times square": (40.7580, -73.9855, "Times Square, New York, NY, USA"),
+    "central park": (40.785091, -73.968285, "Central Park, New York, NY, USA"),
+    "london": (51.5074, -0.1278, "London, United Kingdom"),
+    "big ben": (51.5007, -0.1246, "Big Ben, London, United Kingdom"),
+    "dubai": (25.2048, 55.2708, "Dubai, United Arab Emirates"),
+    "burj khalifa": (25.1972, 55.2744, "Burj Khalifa, Dubai, United Arab Emirates"),
+    "rome": (41.9028, 12.4964, "Rome, Lazio, Italy"),
+    "colosseum": (41.8902, 12.4922, "Colosseum, Rome, Italy"),
+    "san francisco": (37.7749, -122.4194, "San Francisco, CA, USA"),
+    "sydney": (-33.8688, 151.2093, "Sydney, NSW, Australia"),
+    "singapore": (1.3521, 103.8198, "Singapore"),
+    "berlin": (52.5200, 13.4050, "Berlin, Germany"),
+    "toronto": (43.6532, -79.3832, "Toronto, Ontario, Canada"),
+    "mumbai": (19.0760, 72.8777, "Mumbai, Maharashtra, India"),
+    "delhi": (28.6139, 77.2090, "New Delhi, Delhi, India"),
+    "shanghai": (31.2304, 121.4737, "Shanghai, China"),
+    "beijing": (39.9042, 116.4074, "Beijing, China"),
+}
+
+
+def extract_place_from_query(query: str) -> str:
+    s = query.strip()
+    s = re.sub(r"^(?:find\s+places\s+near|places\s+near|maps?\s+for|show\s+(?:me\s+)?(?:the\s+)?map\s+(?:of|for)?|map\s+of|view\s+on\s+map|navigate\s+to|directions\s+to|where\s+is\s+(?:the\s+)?|location\s+of\s+(?:the\s+)?)\s*:\s*", "", s, flags=re.I)
+    s = re.sub(r"\b(?:show\s+(?:me\s+)?(?:the\s+)?map\s+(?:of|for)?|open\s+(?:the\s+)?map\s+(?:of|for)?|navigate\s+to|directions\s+to|where\s+is\s+(?:the\s+)?|location\s+of\s+(?:the\s+)?)\b", "", s, flags=re.I)
+    s = re.sub(r"\b(?:find\s+places\s+near|places\s+near|restaurants?\s+near|cafes?\s+near|hotels?\s+near|food\s+near|attractions?\s+near)\b", "", s, flags=re.I)
+    s = re.sub(r"\b(?:google\s+maps?|openstreetmap|in\s+maps?)\b", "", s, flags=re.I)
+    cleaned = re.sub(r"[^\w\s\-,]", " ", s).strip()
+    words = [w for w in cleaned.split() if len(w) > 0]
+    return " ".join(words)
 
 
 def check_maps_intent(message: str) -> tuple[bool, str]:
     """Check if message is asking for maps, navigation, or places nearby."""
     msg = message.strip()
-    for p in _MAPS_PATTERNS:
+    for p in _MAPS_TRIGGERS:
         if p.search(msg):
-            extracted = re.sub(
-                r"^(?:find\s+places\s+near|places\s+near|maps?\s+for|show\s+map\s+of|map\s+of|view\s+on\s+map)\s*:\s*",
-                "",
-                msg,
-                flags=re.I,
-            ).strip()
-            return True, extracted or msg
+            place = extract_place_from_query(msg)
+            return True, place
     return False, ""
 
 
 async def fetch_live_maps(query: str) -> str | None:
-    """Fetch live map coordinates, navigation links, map preview, and nearby recommendations."""
-    clean_target = query.strip() or "Tokyo"
+    """Fetch live map coordinates, interactive embeds, navigation links, and nearby recommendations."""
+    raw = query.strip()
+    is_empty_or_generic = (not raw) or raw.lower() in ("maps", "map", "near me", "my location", "here")
+
+    if is_empty_or_generic:
+        clean_target = "Paris"
+        place_name = "Paris, Île-de-France, France"
+        lat, lon = 48.8566, 2.3522
+    else:
+        clean_target = raw
+        place_name = clean_target
+        lat: float | None = None
+        lon: float | None = None
+
+        target_lower = clean_target.lower()
+        for key, (k_lat, k_lon, k_name) in _POPULAR_COORDINATES.items():
+            if key == target_lower or key in target_lower:
+                lat, lon, place_name = k_lat, k_lon, k_name
+                break
+
     headers = {
-        "User-Agent": "ROXY-Agent/1.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 (ROXY/1.0)",
         "Accept": "application/json",
     }
 
-    lat: float | None = None
-    lon: float | None = None
-    place_name = clean_target
-
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            # 1. Try Nominatim for landmarks, points of interest, and addresses
-            nom_url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(clean_target)}&format=json&limit=1"
-            try:
-                nom_res = await client.get(nom_url, headers=headers)
-                if nom_res.status_code == 200:
-                    nom_data = nom_res.json()
-                    if nom_data:
-                        lat = float(nom_data[0]["lat"])
-                        lon = float(nom_data[0]["lon"])
-                        place_name = nom_data[0].get("display_name", clean_target)
-            except Exception:
-                pass
-
-            # 2. If not found by Nominatim, try Open-Meteo geocoding
-            if lat is None or lon is None:
-                geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(clean_target)}&count=1"
+            if not is_empty_or_generic and (lat is None or lon is None):
+                # 1. Try Nominatim for landmarks and addresses
+                nom_url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(clean_target)}&format=json&limit=1"
                 try:
-                    geo_res = await client.get(geo_url, headers=headers)
-                    if geo_res.status_code == 200:
-                        geo_data = geo_res.json()
-                        results = geo_data.get("results", [])
-                        if results:
-                            loc = results[0]
-                            lat = float(loc["latitude"])
-                            lon = float(loc["longitude"])
-                            p_name = loc.get("name", clean_target)
-                            country = loc.get("country", "")
-                            admin = loc.get("admin1", "")
-                            place_name = f"{p_name}, {admin}, {country}".replace(", ,", ",").strip(", ")
+                    nom_res = await client.get(nom_url, headers=headers)
+                    if nom_res.status_code == 200:
+                        nom_data = nom_res.json()
+                        if nom_data:
+                            lat = float(nom_data[0]["lat"])
+                            lon = float(nom_data[0]["lon"])
+                            place_name = nom_data[0].get("display_name", clean_target)
                 except Exception:
                     pass
+
+                # 2. If not found by Nominatim, try Open-Meteo geocoding
+                if lat is None or lon is None:
+                    geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(clean_target)}&count=1"
+                    try:
+                        geo_res = await client.get(geo_url, headers=headers)
+                        if geo_res.status_code == 200:
+                            geo_data = geo_res.json()
+                            results = geo_data.get("results", [])
+                            if results:
+                                loc = results[0]
+                                lat = float(loc["latitude"])
+                                lon = float(loc["longitude"])
+                                p_name = loc.get("name", clean_target)
+                                country = loc.get("country", "")
+                                admin = loc.get("admin1", "")
+                                place_name = f"{p_name}, {admin}, {country}".replace(", ,", ",").strip(", ")
+                    except Exception:
+                        pass
+
+            # Fallback if still unlocated
+            if lat is None or lon is None:
+                lat, lon = 48.8566, 2.3522
+                place_name = f"{clean_target} (estimated)"
 
             # 3. Retrieve top places & reviews via Tavily
             tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
@@ -397,25 +449,46 @@ async def fetch_live_maps(query: str) -> str | None:
                 except Exception as t_exc:
                     log.warning("tavily.maps.failed", error=str(t_exc))
 
+            lon_min = round(lon - 0.015, 5)
+            lat_min = round(lat - 0.010, 5)
+            lon_max = round(lon + 0.015, 5)
+            lat_max = round(lat + 0.010, 5)
+
+            embed_osm = f"https://www.openstreetmap.org/export/embed.html?bbox={lon_min}%2C{lat_min}%2C{lon_max}%2C{lat_max}&layer=mapnik&marker={lat}%2C{lon}"
+            embed_google = f"https://maps.google.com/maps?q={lat},{lon}&hl=en&z=15&output=embed"
             encoded_q = urllib.parse.quote(clean_target)
             gmaps_search_url = f"https://www.google.com/maps/search/?api=1&query={encoded_q}"
+            gmaps_dir_url = f"https://www.google.com/maps/dir/?api=1&destination={lat},{lon}"
+            osm_url = f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=15/{lat}/{lon}"
 
-            lines = [f"### 📍 Maps & Places Guide: **{place_name}**\n"]
+            map_data = {
+                "place": place_name,
+                "query": clean_target,
+                "lat": lat,
+                "lon": lon,
+                "zoom": 15,
+                "embed_osm": embed_osm,
+                "embed_google": embed_google,
+                "gmaps_search": gmaps_search_url,
+                "directions": gmaps_dir_url,
+                "osm_url": osm_url,
+            }
 
-            if lat is not None and lon is not None:
-                gmaps_dir_url = f"https://www.google.com/maps/dir/?api=1&destination={lat},{lon}"
-                osm_url = f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=15/{lat}/{lon}"
-                static_map_url = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom=14&size=650x300&maptype=mapnik"
+            lines = []
+            if is_empty_or_generic:
+                lines.append("📍 **Interactive Maps & Places Explorer**: Enter any city, landmark, or neighborhood (for example: *Find places near: Tokyo* or *restaurants near Times Square*) to explore live navigation, coordinates, and local spots. Here is a featured map preview:\n")
 
-                lines.append(f"**Coordinates:** `{lat:.5f}, {lon:.5f}`\n")
-                lines.append(f"![Map of {clean_target}]({static_map_url})\n")
-                lines.append("#### 🗺️ Quick Navigation & Maps:\n")
-                lines.append(f"- [📍 **Open in Google Maps**]({gmaps_search_url})")
-                lines.append(f"- [🧭 **Turn-by-Turn Directions**]({gmaps_dir_url})")
-                lines.append(f"- [🌐 **View on OpenStreetMap**]({osm_url})\n")
-            else:
-                lines.append("#### 🗺️ Quick Navigation & Maps:\n")
-                lines.append(f"- [📍 **Open in Google Maps**]({gmaps_search_url})\n")
+            lines.append("```map")
+            lines.append(json.dumps(map_data, indent=2))
+            lines.append("```\n")
+
+            lines.append(f"### 📍 Maps & Places Guide: **{place_name}**\n")
+            lines.append(f"**Coordinates:** `{lat:.5f}°, {lon:.5f}°`\n")
+
+            lines.append("#### 🗺️ Quick Navigation & Maps:\n")
+            lines.append(f"- [📍 **Open in Google Maps**]({gmaps_search_url})")
+            lines.append(f"- [🧭 **Turn-by-Turn Directions**]({gmaps_dir_url})")
+            lines.append(f"- [🌐 **View on OpenStreetMap**]({osm_url})\n")
 
             if places_summary:
                 lines.append(f"#### 🌟 Highlights & Overview:\n{places_summary}\n")
@@ -425,7 +498,7 @@ async def fetch_live_maps(query: str) -> str | None:
                 lines.extend(places_list)
                 lines.append("")
 
-            lines.append("*Live mapping & geographical telemetry provided by OpenStreetMap, Google Maps & ROXY Maps Engine.*")
+            lines.append("*Live interactive mapping & geographical telemetry powered by Google Maps, OpenStreetMap & ROXY Navigation Engine.*")
             return "\n".join(lines)
     except Exception as exc:
         log.warning("fetch_live_maps.failed", query=query, error=str(exc))
@@ -600,12 +673,14 @@ async def _call_ai_for_agent(
     try:
         response: AIResponse = await router_.route(request)
         content = getattr(response, "content", None) or (response.choices[0].message.content if hasattr(response, "choices") else str(response))
+        if is_maps and live_context and "```map" not in content:
+            content = f"{live_context}\n\n{content}"
         return content, response.provider, response.model
     except Exception as exc:
         log.warning("router.route.failed_fallback", error=str(exc))
         if live_context:
             prov = "maps_service" if is_maps else ("weather_service" if is_weather else "web_search")
-            mod = "openstreetmap" if is_maps else ("open-meteo" if is_weather else "tavily")
+            mod = "google_maps" if is_maps else ("open-meteo" if is_weather else "tavily")
             return live_context, prov, mod
         lower = user_message.lower()
         if "python" in lower or "variable" in lower or "code" in lower:
@@ -842,27 +917,49 @@ async def runtime_chat_stream(
                 session_id=body.session_id,
             )
 
-            async for chunk in router_.route_stream(request):
+            if is_maps and live_context:
                 chunks_yielded = True
-                if provider_name in ("unknown", None):
-                    provider_name = chunk.provider
-                    model_name = chunk.model
-                    yield f": provider={provider_name} model={model_name}\n\n".encode()
-
-                delta = chunk.delta
-                full_response.append(delta)
-
+                provider_name = "maps_service"
+                model_name = "google_maps"
                 data = json.dumps({
-                    "delta": delta,
-                    "provider": chunk.provider,
-                    "model": chunk.model,
-                    "done": chunk.done,
+                    "delta": live_context + "\n\n",
+                    "provider": provider_name,
+                    "model": model_name,
+                    "done": False,
                     "agent_slug": agent_slug,
                 })
                 yield f"data: {data}\n\n".encode()
 
-                if chunk.done:
-                    break
+            try:
+                async for chunk in router_.route_stream(request):
+                    chunks_yielded = True
+                    if provider_name in ("unknown", None):
+                        provider_name = chunk.provider
+                        model_name = chunk.model
+                        yield f": provider={provider_name} model={model_name}\n\n".encode()
+
+                    delta = getattr(chunk, "delta", None) or getattr(chunk, "content", "")
+                    chunk_done = getattr(chunk, "done", False)
+                    full_response.append(delta)
+
+                    data = json.dumps({
+                        "delta": delta,
+                        "provider": getattr(chunk, "provider", provider_name),
+                        "model": getattr(chunk, "model", model_name),
+                        "done": chunk_done,
+                        "agent_slug": agent_slug,
+                    })
+                    yield f"data: {data}\n\n".encode()
+
+                    if chunk_done:
+                        break
+            except Exception as stream_err:
+                log.warning("router.stream.inner_failed", error=str(stream_err))
+                if not chunks_yielded and live_context:
+                    chunks_yielded = True
+                    provider_name = "maps_service" if is_maps else "research"
+                    model_name = "google_maps" if is_maps else "realtime"
+                    yield f"data: {json.dumps({'delta': live_context, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
 
             # Critic pre-flight on full response (only for non-trivial responses)
             if chunks_yielded and len("".join(full_response)) > 200:
@@ -892,10 +989,21 @@ async def runtime_chat_stream(
         except Exception as exc:
             import json as _json
             log.error("runtime.chat.stream.error", agent=agent_slug, error=str(exc))
+            if is_maps and chunks_yielded:
+                final = _json.dumps({
+                    "done": True,
+                    "provider": "maps_service",
+                    "model": "google_maps",
+                    "agent_slug": agent_slug,
+                })
+                yield f"data: {_json.dumps({'delta': '', 'done': True, 'agent_slug': agent_slug, 'provider': 'maps_service', 'model': 'google_maps'})}\n\n".encode()
+                yield f"event: attribution\ndata: {final}\n\n".encode()
+                return
             if live_context and not chunks_yielded:
                 prov_lbl = "maps_service" if is_maps else ("weather_service" if is_weather else "weather_search")
-                yield f"data: {_json.dumps({'delta': live_context, 'done': True, 'agent_slug': 'research', 'provider': prov_lbl, 'model': 'realtime'})}\n\n".encode()
-                yield f"event: attribution\ndata: {_json.dumps({'done': True, 'provider': 'weather_search', 'model': 'realtime', 'agent_slug': 'research'})}\n\n".encode()
+                mod_lbl = "google_maps" if is_maps else ("open-meteo" if is_weather else "tavily")
+                yield f"data: {_json.dumps({'delta': live_context, 'done': True, 'agent_slug': agent_slug, 'provider': prov_lbl, 'model': mod_lbl})}\n\n".encode()
+                yield f"event: attribution\ndata: {_json.dumps({'done': True, 'provider': prov_lbl, 'model': mod_lbl, 'agent_slug': agent_slug})}\n\n".encode()
                 return
             error_data = _json.dumps({
                 "error": "runtime_error",
