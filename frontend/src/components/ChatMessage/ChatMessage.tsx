@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import type { Attribution } from '../../hooks/useChat';
+import './ChatMessage.css';
 
 export type { Attribution };
 
