@@ -541,18 +541,124 @@ def classify_intent(message: str) -> str:
     return "general"
 
 
+MULTILINGUAL_AGENT_HEADER = """# UNIVERSAL MULTILINGUAL MANDATE:
+- You are a native-level, fully fluent multilingual AI assistant.
+- You understand and speak English, Urdu (اردو), Roman Urdu, Hindi (हिंदी), Arabic (العربية), Spanish (Español), French (Français), German (Deutsch), Chinese (中文), Japanese (日本語), and all other languages.
+- MANDATORY RULE: You MUST always respond in the EXACT SAME LANGUAGE and SCRIPT that the user writes or speaks in.
+  - If the user writes or speaks in Urdu (اردو), you MUST respond in fluent Urdu script (اردو).
+  - If the user writes or speaks in Roman Urdu (e.g. "aap kaise hain", "mujhe batao", "kya haal hai"), you MUST respond in fluent Roman Urdu.
+  - If the user writes or speaks in English, respond in English.
+  - If the user writes or speaks in Hindi, Arabic, Spanish, French, German, Chinese, etc., respond in that respective language.
+- Never switch back to English unless the user explicitly requests an English translation or answer.
+- Maintain natural tone, correct grammar, and culturally appropriate phrasing in the chosen language.
+"""
+
+
+def detect_user_language_instruction(text: str) -> str:
+    """Detect language of user message and return an explicit high-priority directive."""
+    if not text:
+        return ""
+
+    # 1. Urdu / Arabic script
+    if re.search(r"[\u0600-\u06FF]", text):
+        return (
+            "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Urdu (اردو) / Arabic script. "
+            "You MUST respond strictly and completely in Urdu (اردو) script. Do NOT respond in English."
+        )
+
+    # 2. Hindi / Devanagari script
+    if re.search(r"[\u0900-\u097F]", text):
+        return (
+            "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Hindi (हिंदी) script. "
+            "You MUST respond strictly and completely in Hindi (हिंदी) script. Do NOT respond in English."
+        )
+
+    # 3. Chinese script
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return (
+            "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Chinese (中文). "
+            "You MUST respond strictly and completely in Chinese (中文). Do NOT respond in English."
+        )
+
+    # 4. Japanese script (Hiragana / Katakana)
+    if re.search(r"[\u3040-\u30ff]", text):
+        return (
+            "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Japanese (日本語). "
+            "You MUST respond strictly and completely in Japanese (日本語). Do NOT respond in English."
+        )
+
+    # 5. Russian / Cyrillic script
+    if re.search(r"[\u0400-\u04FF]", text):
+        return (
+            "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Russian (Русский). "
+            "You MUST respond strictly and completely in Russian (Русский). Do NOT respond in English."
+        )
+
+    # 6. Roman Urdu detection (high-frequency lexical markers)
+    roman_urdu_words = {
+        "kya", "kaise", "kaisay", "kese", "hai", "hain", "mujhe", "mujhko", "tum", "tumhe",
+        "aap", "ap", "aapko", "apko", "batao", "bataiye", "chahiye", "karna", "karne",
+        "raha", "rahe", "rahi", "shukriya", "theek", "thik", "nahi", "nahin", "acha",
+        "achha", "bohot", "bahut", "kaun", "kon", "kab", "kaha", "kahan", "mera", "meri",
+        "mere", "tera", "teri", "tere", "apka", "apki", "apke", "zada", "ziyada",
+        "zaroorat", "zarurat", "hoga", "hogi", "hoge", "karte", "karti", "karta",
+        "bhi", "yeh", "woh", "wo", "idhar", "udhar", "ab", "karo", "sakta", "sakti", "sakte",
+        "bhai", "yaar", "lekin", "magar", "kyun", "kyu", "kuch", "sirf"
+    }
+    tokens = [w.strip(".,!?:;\"'()[]{}").lower() for w in text.split()]
+    roman_matches = sum(1 for t in tokens if t in roman_urdu_words)
+    if roman_matches >= 2 or (len(tokens) <= 4 and roman_matches >= 1):
+        return (
+            "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Roman Urdu (Urdu written in Latin letters). "
+            "You MUST formulate your response in natural, friendly, and fluent Roman Urdu (Latin script Urdu). "
+            "For example: 'Jee zaroor, main aap ki madad kar sakta hoon...'. Do NOT switch to English."
+        )
+
+    # 7. Spanish detection
+    spanish_markers = {"cómo", "como", "estás", "estas", "gracias", "por favor", "ayuda", "puedes", "hola", "buenos", "días", "noches", "quiero", "hacer", "para"}
+    if sum(1 for t in tokens if t in spanish_markers) >= 2:
+        return (
+            "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Spanish (Español). "
+            "You MUST respond strictly and completely in Spanish (Español). Do NOT respond in English."
+        )
+
+    # 8. French detection
+    french_markers = {"bonjour", "comment", "merci", "plaît", "pouvez", "faire", "aide", "salut", "pourquoi", "avec"}
+    if sum(1 for t in tokens if t in french_markers) >= 2:
+        return (
+            "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in French (Français). "
+            "You MUST respond strictly and completely in French (Français). Do NOT respond in English."
+        )
+
+    # 9. German detection
+    german_markers = {"hallo", "wie", "geht's", "danke", "bitte", "kannst", "können", "hilfe", "guten", "morgen", "abend"}
+    if sum(1 for t in tokens if t in german_markers) >= 2:
+        return (
+            "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in German (Deutsch). "
+            "You MUST respond strictly and completely in German (Deutsch). Do NOT respond in English."
+        )
+
+    # Default fallback: strict preservation of user's chosen language
+    return (
+        "[CRITICAL MULTILINGUAL MANDATE]: Always detect the user's language and respond in the exact same language they used. "
+        "If they speak or write in English, respond in English. If in Urdu, Roman Urdu, or any other language, respond in that same language."
+    )
+
+
 def load_agent_system_prompt(slug: str) -> str:
     """Load the system prompt from .claude/agents/<slug>.md.
 
-    Strips YAML frontmatter and returns just the markdown body.
+    Strips YAML frontmatter and returns the markdown body with the universal multilingual mandate.
     Returns a default prompt if the agent file doesn't exist.
     """
     if not _AGENTS_DIR.exists():
-        return f"You are the {slug} agent. Handle the user's request appropriately."
+        base = f"You are the {slug} agent. Handle the user's request appropriately."
+        return f"{MULTILINGUAL_AGENT_HEADER}\n\n{base}"
 
     agent_file = _AGENTS_DIR / f"{slug}.md"
     if not agent_file.exists():
-        return f"You are the {slug} agent. Handle the user's request appropriately."
+        base = f"You are the {slug} agent. Handle the user's request appropriately."
+        return f"{MULTILINGUAL_AGENT_HEADER}\n\n{base}"
 
     content = agent_file.read_text(encoding="utf-8")
     # Strip YAML frontmatter
@@ -560,7 +666,7 @@ def load_agent_system_prompt(slug: str) -> str:
         parts = content.split("---", 2)
         if len(parts) >= 3:
             content = parts[2].lstrip("\n")
-    return content.strip()
+    return f"{MULTILINGUAL_AGENT_HEADER}\n\n{content.strip()}"
 
 
 # ---------------------------------------------------------------------------
@@ -654,6 +760,10 @@ async def _call_ai_for_agent(
                 ),
             )
         )
+
+    lang_directive = detect_user_language_instruction(user_message)
+    if lang_directive:
+        history_messages.append(Message(role=MessageRole.SYSTEM, content=lang_directive))
 
     history_messages.append(Message(role=MessageRole.USER, content=user_message))
 
@@ -902,6 +1012,10 @@ async def runtime_chat_stream(
                         ),
                     )
                 )
+
+            lang_directive = detect_user_language_instruction(body.message)
+            if lang_directive:
+                history_messages.append(Message(role=MessageRole.SYSTEM, content=lang_directive))
 
             history_messages.append(Message(role=MessageRole.USER, content=body.message))
 

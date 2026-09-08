@@ -97,16 +97,20 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
             "[applause]",
         }
 
+        # Multilingual vocabulary hint for high accuracy across languages
+        multilingual_prompt = "Conversational speech in English, Urdu (اردو), Roman Urdu, Hindi, Arabic, Spanish, French, or other languages."
+        whisper_lang = language.split("-")[0].lower() if language else None
+
         # 1. Try Groq Whisper (blazing fast, high accuracy, active key)
         if grok_key:
             try:
                 files = {"file": (filename, io.BytesIO(audio_bytes), mime_type)}
                 data = {
                     "model": "whisper-large-v3-turbo",
-                    "prompt": "Conversational speech with AI assistant.",
+                    "prompt": multilingual_prompt,
                 }
-                if language:
-                    data["language"] = language
+                if whisper_lang:
+                    data["language"] = whisper_lang
 
                 async with httpx.AsyncClient(timeout=25.0) as client:
                     resp = await client.post(
@@ -133,10 +137,10 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
                 files = {"file": (filename, io.BytesIO(audio_bytes), mime_type)}
                 data = {
                     "model": "whisper-1",
-                    "prompt": "Conversational speech with AI assistant.",
+                    "prompt": multilingual_prompt,
                 }
-                if language:
-                    data["language"] = language
+                if whisper_lang:
+                    data["language"] = whisper_lang
 
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.post(

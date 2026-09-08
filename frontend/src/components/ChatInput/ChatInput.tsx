@@ -42,6 +42,25 @@ const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as a
 
 type DictationState = 'idle' | 'recording' | 'transcribing';
 
+export interface VoiceLanguageOption {
+  code: string;
+  name: string;
+  flag: string;
+  speechLang: string;
+}
+
+export const VOICE_LANGUAGES: VoiceLanguageOption[] = [
+  { code: 'auto', name: 'Auto Detect', flag: '🌐', speechLang: '' },
+  { code: 'ur', name: 'Urdu (اردو)', flag: '🇵🇰', speechLang: 'ur-PK' },
+  { code: 'en', name: 'English (US)', flag: '🇬🇧', speechLang: 'en-US' },
+  { code: 'hi', name: 'Hindi (हिंदी)', flag: '🇮🇳', speechLang: 'hi-IN' },
+  { code: 'ar', name: 'Arabic (العربية)', flag: '🇸🇦', speechLang: 'ar-SA' },
+  { code: 'es', name: 'Spanish (Español)', flag: '🇪🇸', speechLang: 'es-ES' },
+  { code: 'fr', name: 'French (Français)', flag: '🇫🇷', speechLang: 'fr-FR' },
+  { code: 'de', name: 'German (Deutsch)', flag: '🇩🇪', speechLang: 'de-DE' },
+  { code: 'zh', name: 'Chinese (中文)', flag: '🇨🇳', speechLang: 'zh-CN' },
+];
+
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
   disabled = false,
@@ -55,6 +74,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [value, setValue] = useState('');
   const [dictationState, setDictationState] = useState<DictationState>('idle');
+  const [voiceLang, setVoiceLang] = useState<string>(() => {
+    return localStorage.getItem('roxy_voice_lang') || 'auto';
+  });
   const [audioLevels, setAudioLevels] = useState<number[]>([12, 18, 14, 24, 16, 28, 20, 32, 18, 22, 16, 26, 14, 20, 15, 24]);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [thinkMode, setThinkMode] = useState(false);
@@ -205,7 +227,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       const recognition = new SpeechRecognitionClass();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = navigator.language || 'en-US';
+      const activeLangObj = VOICE_LANGUAGES.find((l) => l.code === voiceLang);
+      recognition.lang = (activeLangObj && activeLangObj.speechLang) ? activeLangObj.speechLang : (navigator.language || 'en-US');
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recognition.onresult = (event: any) => {
@@ -810,6 +833,31 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </svg>
           </button>
 
+          {/* Language Selector in Dictation Bar */}
+          <div className="chat-input__dictate-lang-picker">
+            <select
+              className="chat-input__dictate-lang-select"
+              value={voiceLang}
+              onChange={(e) => {
+                const nextLang = e.target.value;
+                setVoiceLang(nextLang);
+                localStorage.setItem('roxy_voice_lang', nextLang);
+                if (recognitionRef.current) {
+                  const active = VOICE_LANGUAGES.find((l) => l.code === nextLang);
+                  recognitionRef.current.lang = active?.speechLang || (navigator.language || 'en-US');
+                }
+              }}
+              title="Select speech recognition language"
+              aria-label="Speech recognition language"
+            >
+              {VOICE_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.flag} {l.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Center Dynamic Audio Waveform */}
           <div className="chat-input__dictate-waveform" aria-label="Recording audio">
             {audioLevels.map((lvl, idx) => (
@@ -933,6 +981,26 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 <line x1="8" y1="23" x2="16" y2="23" />
               </svg>
             </button>
+
+            {/* Voice Language Selector Pill */}
+            <select
+              className="chat-input__lang-pill"
+              value={voiceLang}
+              onChange={(e) => {
+                const nextLang = e.target.value;
+                setVoiceLang(nextLang);
+                localStorage.setItem('roxy_voice_lang', nextLang);
+              }}
+              title="Select speech language (English, Urdu, etc.)"
+              aria-label="Speech recognition language"
+              disabled={disabled || isStreaming || disabledNoModel}
+            >
+              {VOICE_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.flag} {l.code === 'auto' ? 'AUTO' : l.code.toUpperCase()}
+                </option>
+              ))}
+            </select>
 
             {/* If there is content: show Send (↑) button. If empty and onVoiceClick provided: show interactive Voice button */}
             {hasContent || isStreaming || !onVoiceClick ? (

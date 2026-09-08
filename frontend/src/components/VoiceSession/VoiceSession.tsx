@@ -2,6 +2,7 @@
 // Records audio, transcribes via speech_to_text skill, speaks response via text_to_speech skill.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { VOICE_LANGUAGES } from '../ChatInput/ChatInput';
 import './VoiceSession.css';
 
 const rawApiBase =
@@ -79,6 +80,9 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [micPermission, setMicPermission] = useState<boolean | null>(null);
+  const [voiceLang, setVoiceLang] = useState<string>(() => {
+    return localStorage.getItem('roxy_voice_lang') || 'auto';
+  });
   const [liveCaption, setLiveCaption] = useState<string>('');
   const [audioLevels, setAudioLevels] = useState<number[]>([15, 25, 35, 20, 12]);
 
@@ -199,7 +203,8 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         const recognition = new SpeechRecognitionClass();
         recognition.continuous = true;
         recognition.interimResults = true;
-        recognition.lang = navigator.language || 'en-US';
+        const activeLangObj = VOICE_LANGUAGES.find((l) => l.code === voiceLang);
+        recognition.lang = (activeLangObj && activeLangObj.speechLang) ? activeLangObj.speechLang : (navigator.language || 'en-US');
 
         recognition.onresult = (e: any) => {
           let finalTranscript = '';
@@ -323,6 +328,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       if (audioBlob.size > 200) {
         try {
           const base64Audio = await audioToBase64(audioBlob);
+          const whisperLang = voiceLang && voiceLang !== 'auto' ? voiceLang : null;
           const sttResp = await fetchJSON<SpeechToTextResponse>(
             `${API_BASE}/skills/speech_to_text`,
             accessToken,
@@ -330,7 +336,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
               method: 'POST',
               body: JSON.stringify({
                 audio_data: base64Audio,
-                language: null,
+                language: whisperLang,
                 model: 'whisper',
               }),
             },
@@ -411,6 +417,30 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
           window.speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(cleanText);
           utterance.rate = 1.0;
+
+          // Detect language to set proper voice
+          if (/[\u0600-\u06FF]/.test(cleanText)) {
+            utterance.lang = 'ur-PK';
+          } else if (/[\u0900-\u097F]/.test(cleanText)) {
+            utterance.lang = 'hi-IN';
+          } else if (/[\u4e00-\u9fff]/.test(cleanText)) {
+            utterance.lang = 'zh-CN';
+          } else if (/[\u3040-\u30ff]/.test(cleanText)) {
+            utterance.lang = 'ja-JP';
+          } else if (/[\u0400-\u04FF]/.test(cleanText)) {
+            utterance.lang = 'ru-RU';
+          } else if (voiceLang && voiceLang !== 'auto') {
+            const active = VOICE_LANGUAGES.find((l) => l.code === voiceLang);
+            if (active?.speechLang) utterance.lang = active.speechLang;
+          }
+
+          const voices = window.speechSynthesis.getVoices();
+          const prefix = utterance.lang.split('-')[0].toLowerCase();
+          const matchedVoice = voices.find((v) => v.lang.toLowerCase().startsWith(prefix));
+          if (matchedVoice) {
+            utterance.voice = matchedVoice;
+          }
+
           utterance.onstart = () => setIsSpeaking(true);
           utterance.onend = () => setIsSpeaking(false);
           utterance.onerror = () => setIsSpeaking(false);
@@ -505,15 +535,39 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
           )}
           <h2 className="vs__title">🎙️ <span>Voice Session</span></h2>
         </div>
-        {transcripts.length > 0 && (
-          <button
-            className="vs__clear"
-            onClick={clearTranscripts}
-            title="Clear transcripts"
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          <select
+            className="vs__lang-select"
+            value={voiceLang}
+            onChange={(e) => {
+              const nextLang = e.target.value;
+              setVoiceLang(nextLang);
+              localStorage.setItem('roxy_voice_lang', nextLang);
+              if (speechRecognitionRef.current) {
+                const active = VOICE_LANGUAGES.find((l) => l.code === nextLang);
+                speechRecognitionRef.current.lang = active?.speechLang || (navigator.language || 'en-US');
+              }
+            }}
+            title="Speech recognition & voice language"
+            aria-label="Speech recognition & voice language"
           >
-            Clear
-          </button>
-        )}
+            {VOICE_LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.flag} {l.name}
+              </option>
+            ))}
+          </select>
+
+          {transcripts.length > 0 && (
+            <button
+              className="vs__clear"
+              onClick={clearTranscripts}
+              title="Clear transcripts"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Mic permission warning */}

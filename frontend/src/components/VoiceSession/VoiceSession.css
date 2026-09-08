@@ -45,6 +45,29 @@
   border-color: var(--color-accent);
 }
 
+.vs__lang-select {
+  background: var(--color-input-bg, #181825);
+  border: 1px solid var(--color-border, #313244);
+  color: var(--color-text, #cdd6f4);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.3rem 0.65rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.vs__lang-select:hover {
+  border-color: var(--color-accent, #89b4fa);
+  background: var(--color-surface, #1e1e2e);
+}
+
+.vs__lang-select option {
+  background: #1e1e2e;
+  color: #cdd6f4;
+}
+
 /* Warning */
 .vs__warning {
   background: color-mix(in srgb, var(--color-error) 15%, transparent);
