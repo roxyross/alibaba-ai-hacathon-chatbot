@@ -68,7 +68,7 @@ class MagicLinkService:
             )
             self._mem_tokens[token_value] = link
             await send_magic_link(email, build_magic_link(token_value))
-            return
+            return token_value
 
         async with factory() as session:
             existing = (
@@ -87,6 +87,7 @@ class MagicLinkService:
             await session.commit()
 
         await send_magic_link(email, build_magic_link(token_value))
+        return token_value
 
     async def verify(self, token_value: str) -> tuple[User, str, int] | None:
         """Consume a magic-link token and issue a JWT. Returns (user, jwt, ttl)."""

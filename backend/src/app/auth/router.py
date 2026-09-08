@@ -35,9 +35,13 @@ IMPLEMENTED_PROVIDERS = ("google", "github")
 
 @router.post("/request-link", response_model=RequestLinkResponse, status_code=status.HTTP_200_OK)
 async def request_link(payload: RequestLinkRequest) -> RequestLinkResponse:
-    """Send a magic link to the given email. Always 200 to avoid enumeration."""
-    await _service.request_link(str(payload.email).lower().strip())
-    return RequestLinkResponse(ok=True)
+    """Send a magic link to the given email. Returns dev_token when SMTP is not configured."""
+    token = await _service.request_link(str(payload.email).lower().strip())
+    smtp_configured = bool(os.environ.get("SMTP_HOST"))
+    return RequestLinkResponse(
+        ok=True,
+        dev_token=token if not smtp_configured else None,
+    )
 
 
 @router.post("/verify", response_model=SessionResponse)

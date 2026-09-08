@@ -22,6 +22,7 @@ export interface AuthUser {
 
 export interface RequestLinkResponse {
   ok: boolean;
+  dev_token?: string | null;
 }
 
 export interface VerifyResponse {

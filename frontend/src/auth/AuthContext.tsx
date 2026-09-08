@@ -17,7 +17,7 @@ interface AuthContextValue {
   accessToken: string | null;
   loading: boolean;
   error: string | null;
-  requestLink: (email: string) => Promise<void>;
+  requestLink: (email: string) => Promise<import('./api').RequestLinkResponse>;
   verify: (token: string) => Promise<void>;
   completeOAuth: (accessToken: string) => Promise<void>;
   signOut: () => void;
@@ -69,7 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const requestLink = useCallback(async (email: string) => {
     setError(null);
     try {
-      await authApi.requestLink(email);
+      return await authApi.requestLink(email);
     } catch (err) {
       setError((err as Error).message);
       throw err;

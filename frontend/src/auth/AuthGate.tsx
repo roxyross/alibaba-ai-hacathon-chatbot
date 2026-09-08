@@ -55,6 +55,7 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
     'request',
   );
   const [manualToken, setManualToken] = useState('');
+  const [devToken, setDevToken] = useState<string | null>(null);
   const [oauthErrorMessage, setOauthErrorMessage] = useState<string | null>(null);
 
   // Handle deep links from both auth flows on initial render:
@@ -140,7 +141,11 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
                 e.preventDefault();
                 if (!email) return;
                 try {
-                  await requestLink(email);
+                  const res = await requestLink(email);
+                  if (res?.dev_token) {
+                    setDevToken(res.dev_token);
+                    setManualToken(res.dev_token);
+                  }
                   setPhase('pending');
                 } catch {
                   /* error already in context */
@@ -211,10 +216,42 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
               We sent a sign-in link to <strong>{email}</strong>. Check your
               inbox.
             </p>
-            <p className="auth-gate__hint">
-              For local dev with no SMTP configured, the link is also printed
-              in the backend server log.
-            </p>
+            {devToken ? (
+              <div
+                style={{
+                  margin: '1rem 0',
+                  padding: '1rem',
+                  background: 'rgba(59, 130, 246, 0.12)',
+                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  borderRadius: '8px',
+                  textAlign: 'center',
+                }}
+              >
+                <p
+                  style={{
+                    margin: '0 0 0.75rem 0',
+                    fontSize: '0.88rem',
+                    color: '#93c5fd',
+                    lineHeight: 1.4,
+                  }}
+                >
+                  ⚡ <strong>Direct Access Token Ready:</strong> Since SMTP is unconfigured, you can sign in directly with 1 click:
+                </p>
+                <button
+                  type="button"
+                  className="auth-gate__submit"
+                  style={{ background: '#2563eb', width: '100%', padding: '0.65rem' }}
+                  onClick={() => verify(devToken)}
+                >
+                  ⚡ Click to Sign In Instantly
+                </button>
+              </div>
+            ) : (
+              <p className="auth-gate__hint">
+                For local dev with no SMTP configured, the link is also printed
+                in the backend server log.
+              </p>
+            )}
             <details className="auth-gate__manual">
               <summary>Have a token already? Paste it here</summary>
               <form

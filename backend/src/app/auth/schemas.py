@@ -27,6 +27,7 @@ class RequestLinkResponse(BaseModel):
     """Always 200 to avoid email-enumeration leakage."""
 
     ok: bool = True
+    dev_token: str | None = None
 
 
 class VerifyTokenRequest(BaseModel):
