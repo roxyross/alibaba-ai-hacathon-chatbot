@@ -9,12 +9,15 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import structlog
+from sqlalchemy import delete, select, update
 
+from app.db import get_session_factory
+from app.models.scheduled_job import ScheduledJob
 from app.skills.base import SkillExecutor
 from app.skills.schemas import (
     JobAction,
@@ -23,10 +26,6 @@ from app.skills.schemas import (
     ScheduleJobRequest,
     ScheduleJobResponse,
 )
-from sqlalchemy import delete, select, update
-from app.db import get_session_factory
-from app.models.scheduled_job import ScheduledJob
-
 
 log = structlog.get_logger()
 
@@ -245,7 +244,7 @@ def normalize_timezone(tz: str | None) -> str:
         # Bangladesh, Sri Lanka, Nepal
         "dhaka": "Asia/Dhaka",
         "bangladesh": "Asia/Dhaka",
-        "bst": "Asia/Dhaka",
+        "bdst": "Asia/Dhaka",
         "colombo": "Asia/Colombo",
         "sri lanka": "Asia/Colombo",
         "kathmandu": "Asia/Kathmandu",
@@ -474,17 +473,16 @@ class JobStore:
             p = Path("/tmp") / "job_store.json"
         else:
             p = Path(__file__).resolve().parents[3] / "data" / "job_store.json"
-        try:
+        import contextlib
+        with contextlib.suppress(Exception):
             p.parent.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
         return p
 
     def _load(self) -> None:
         if not self._path.exists():
             return
         try:
-            with open(self._path, "r", encoding="utf-8") as f:
+            with open(self._path, encoding="utf-8") as f:
                 raw = json.load(f)
             for user_id, jobs in raw.items():
                 self._jobs[user_id] = {}
@@ -542,7 +540,7 @@ class JobStore:
             return "", f"Job action uses a sensitive skill ('{action.skill_slug}'). Set confirm_on_fire: true to allow."
 
         job_id = str(uuid.uuid4())
-        now = datetime.now(dt_timezone.utc)
+        now = datetime.now(UTC)
         job = {
             "name": name,
             "schedule": resolved_schedule,
@@ -587,7 +585,7 @@ class JobStore:
         job = self._jobs.get(user_id, {}).get(job_id)
         if job is None:
             # Cross-partition search
-            for uid, user_jobs in self._jobs.items():
+            for _uid, user_jobs in self._jobs.items():
                 if job_id in user_jobs:
                     job = user_jobs[job_id]
                     break
@@ -602,7 +600,7 @@ class JobStore:
         job = self._jobs.get(user_id, {}).get(job_id)
         if job is None:
             # Cross-partition search
-            for uid, user_jobs in self._jobs.items():
+            for _uid, user_jobs in self._jobs.items():
                 if job_id in user_jobs:
                     job = user_jobs[job_id]
                     break
@@ -699,20 +697,20 @@ class JobStore:
     def _parse_schedule(cls, schedule: str, timezone_str: str = "UTC") -> tuple[datetime | None, str]:
         """Parse natural language, cron, or ISO-8601. Returns (next_fire, resolved_schedule)."""
         schedule = schedule.strip()
-        from datetime import timedelta
         import zoneinfo
+        from datetime import timedelta
 
         tz: Any
         try:
             tz = zoneinfo.ZoneInfo(timezone_str)
         except Exception:
-            tz = dt_timezone.utc
+            tz = UTC
 
         # ISO-8601 datetime
         if re.match(r"^\d{4}-\d{2}-\d{2}", schedule):
             try:
                 dt = datetime.fromisoformat(schedule.replace("Z", "+00:00"))
-                return (dt.astimezone(dt_timezone.utc) if dt.tzinfo is None else dt, schedule)
+                return (dt.astimezone(UTC) if dt.tzinfo is None else dt, schedule)
             except Exception:
                 return (None, schedule)
 
@@ -722,13 +720,13 @@ class JobStore:
         )
         if cron_pattern.match(schedule):
             now_tz = datetime.now(tz)
-            return ((now_tz + timedelta(days=1)).astimezone(dt_timezone.utc), schedule)
+            return ((now_tz + timedelta(days=1)).astimezone(UTC), schedule)
 
         # Natural Language Cron resolution
         resolved = cls._natural_to_cron(schedule)
         if resolved:
             now_tz = datetime.now(tz)
-            return ((now_tz + timedelta(days=1)).astimezone(dt_timezone.utc), resolved)
+            return ((now_tz + timedelta(days=1)).astimezone(UTC), resolved)
 
         return (None, schedule)
 
@@ -777,7 +775,7 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
             if session_factory:
                 try:
                     async with session_factory() as session:
-                        now = datetime.now(dt_timezone.utc)
+                        now = datetime.now(UTC)
                         next_fire = (
                             datetime.fromisoformat(job_record["next_fire_at"])
                             if job_record and job_record.get("next_fire_at")
@@ -852,10 +850,11 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
             if session_factory:
                 try:
                     async with session_factory() as session:
-                        stmt = delete(ScheduledJob).where(ScheduledJob.id == input_data.job_id)
-                        res = await session.execute(stmt)
+                        del_stmt = delete(ScheduledJob).where(ScheduledJob.id == input_data.job_id)
+                        del_res: Any = await session.execute(del_stmt)
                         await session.commit()
-                        if res.rowcount and res.rowcount > 0:
+                        rowcount = getattr(del_res, "rowcount", 0) or 0
+                        if rowcount > 0:
                             db_deleted = True
                 except Exception as exc:
                     log.warning("schedule_job.db_cancel_failed", error=str(exc))
@@ -874,14 +873,15 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
             if session_factory:
                 try:
                     async with session_factory() as session:
-                        stmt = (
+                        pause_stmt = (
                             update(ScheduledJob)
                             .where(ScheduledJob.id == input_data.job_id)
                             .values(status="paused")
                         )
-                        res = await session.execute(stmt)
+                        pause_res: Any = await session.execute(pause_stmt)
                         await session.commit()
-                        if res.rowcount and res.rowcount > 0:
+                        rowcount = getattr(pause_res, "rowcount", 0) or 0
+                        if rowcount > 0:
                             db_paused = True
                 except Exception as exc:
                     log.warning("schedule_job.db_pause_failed", error=str(exc))
@@ -901,17 +901,18 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
             if session_factory:
                 try:
                     async with session_factory() as session:
-                        stmt = (
+                        resume_stmt = (
                             update(ScheduledJob)
                             .where(ScheduledJob.id == input_data.job_id)
                             .values(status="active")
                         )
-                        res = await session.execute(stmt)
+                        resume_res: Any = await session.execute(resume_stmt)
                         await session.commit()
-                        if res.rowcount and res.rowcount > 0:
+                        rowcount = getattr(resume_res, "rowcount", 0) or 0
+                        if rowcount > 0:
                             db_resumed = True
-                            q = select(ScheduledJob).where(ScheduledJob.id == input_data.job_id)
-                            res_job = await session.execute(q)
+                            q_find = select(ScheduledJob).where(ScheduledJob.id == input_data.job_id)
+                            res_job = await session.execute(q_find)
                             db_job = res_job.scalar_one_or_none()
                 except Exception as exc:
                     log.warning("schedule_job.db_resume_failed", error=str(exc))
@@ -919,7 +920,7 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
             ok, err = store.resume(user_id=user_id, job_id=input_data.job_id)
             if ok or db_resumed:
                 job = None
-                for uid, user_jobs in store._jobs.items():
+                for _uid, user_jobs in store._jobs.items():
                     if input_data.job_id in user_jobs:
                         job = user_jobs[input_data.job_id]
                         break
@@ -967,14 +968,15 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
                             values_to_update["tag"] = input_data.tag
 
                         if values_to_update:
-                            stmt = (
+                            upd_stmt = (
                                 update(ScheduledJob)
                                 .where(ScheduledJob.id == input_data.job_id)
                                 .values(**values_to_update)
                             )
-                            res = await session.execute(stmt)
+                            upd_res: Any = await session.execute(upd_stmt)
                             await session.commit()
-                            if res.rowcount and res.rowcount > 0:
+                            rowcount = getattr(upd_res, "rowcount", 0) or 0
+                            if rowcount > 0:
                                 db_updated = True
                 except Exception as exc:
                     log.warning("schedule_job.db_update_failed", error=str(exc))
@@ -1030,7 +1032,7 @@ def _reschedule_if_running(
 ) -> None:
     """If APScheduler is running, update the scheduled firing."""
     try:
-        from app.job_scheduler import reschedule_job, cancel_scheduled_job
+        from app.job_scheduler import cancel_scheduled_job, reschedule_job
         cancel_scheduled_job(job_id)
         reschedule_job(
             job_id=job_id,
