@@ -549,29 +549,35 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                   </svg>
                   <span>Edit</span>
                 </button>
-              </div>
 
-              <div className="chat-message__topbar-right">
                 <button
                   type="button"
-                  className={`chat-message__icon-btn ${isSpeaking ? 'chat-message__icon-btn--speaking' : ''}`}
+                  className={`chat-message__read-aloud-btn ${isSpeaking ? 'chat-message__read-aloud-btn--speaking' : ''}`}
                   onClick={handleReadAloud}
                   title={isSpeaking ? "Stop reading aloud" : "Read aloud (text-to-speech)"}
                   aria-label={isSpeaking ? "Stop reading aloud" : "Read aloud"}
                 >
                   {isSpeaking ? (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                      <rect x="6" y="6" width="12" height="12" rx="2" />
-                    </svg>
+                    <>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                        <rect x="6" y="6" width="12" height="12" rx="2" />
+                      </svg>
+                      <span>Stop</span>
+                    </>
                   ) : (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                    </svg>
+                    <>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                      </svg>
+                      <span>Read aloud</span>
+                    </>
                   )}
                 </button>
+              </div>
 
+              <div className="chat-message__topbar-right">
                 <button
                   type="button"
                   className="chat-message__icon-btn"
