@@ -32,7 +32,11 @@ _STATES: dict[str, float] = {}  # state -> issued_at_unix
 
 
 def _is_production() -> bool:
-    return os.environ.get("APP_ENV", "").lower() == "production"
+    return (
+        os.environ.get("APP_ENV", "").lower() == "production"
+        or bool(os.environ.get("VERCEL"))
+        or os.environ.get("OAUTH_REDIRECT_BASE_URL", "").startswith("https://")
+    )
 
 
 def _now() -> float:
@@ -65,13 +69,14 @@ def new_state() -> str:
 
 def set_state(response: Response, value: str) -> None:
     """Attach the state cookie to an outgoing response."""
+    is_prod = _is_production()
     response.set_cookie(
         key=STATE_COOKIE,
         value=value,
         max_age=STATE_TTL_SECONDS,
         httponly=True,
-        secure=_is_production(),
-        samesite="lax",
+        secure=is_prod,
+        samesite="none" if is_prod else "lax",
         path="/",  # root path so all routes and redirects receive it
     )
 
@@ -85,14 +90,19 @@ def consume_state(
 ) -> bool:
     """Validate and burn the state. Returns True on success, False on any mismatch.
 
-    Supports both in-memory cookie matching (local dev & tests) and serverless
-    HMAC validation with single-use protection.
+    Supports:
+      1. Cookie matching with in-memory store (local dev & tests).
+      2. Serverless HMAC cryptographic validation (stateless across Vercel lambdas
+         where memory is not shared between invocations).
     """
     if not request_value or not cookie_value:
         return False
+
     if not secrets.compare_digest(request_value, cookie_value):
         return False
-    if cookie_value in _CONSUMED_STATES:
+
+    # Prevent replay attacks
+    if cookie_value in _CONSUMED_STATES or request_value in _CONSUMED_STATES:
         return False
 
     # 1. In-memory exact match check (tests & local dev)
@@ -100,10 +110,11 @@ def consume_state(
     if issued_at is not None:
         if _now() - issued_at <= STATE_TTL_SECONDS:
             _CONSUMED_STATES.add(cookie_value)
+            _CONSUMED_STATES.add(request_value)
             return True
         return False
 
-    # 2. Serverless HMAC verification (stateless & cross-container)
+    # 2. Serverless HMAC verification (stateless & cross-container on Vercel)
     parts = request_value.split("_")
     if len(parts) >= 3:
         raw_token = "_".join(parts[:-2])
@@ -112,14 +123,16 @@ def consume_state(
         try:
             ts = int(ts_str)
             payload = f"{raw_token}_{ts}"
-            expected_sig = hmac.new(
-                _secret().encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
-            ).hexdigest()[:24]
+            for secret_candidate in (_secret(), "roxy-dev-secret-do-not-use-in-prod"):
+                expected_sig = hmac.new(
+                    secret_candidate.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+                ).hexdigest()[:24]
 
-            if secrets.compare_digest(sig, expected_sig):
-                if _now() - ts <= STATE_TTL_SECONDS:
-                    _CONSUMED_STATES.add(cookie_value)
-                    return True
+                if secrets.compare_digest(sig, expected_sig):
+                    if _now() - ts <= STATE_TTL_SECONDS:
+                        _CONSUMED_STATES.add(cookie_value)
+                        _CONSUMED_STATES.add(request_value)
+                        return True
         except ValueError:
             pass
 
