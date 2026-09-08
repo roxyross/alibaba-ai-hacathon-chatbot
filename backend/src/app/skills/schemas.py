@@ -360,6 +360,7 @@ class ScheduleJobOp(str, Enum):
     CANCEL = "cancel"
     PAUSE = "pause"
     RESUME = "resume"
+    TIMEZONES = "timezones"
 
 
 class JobAction(BaseModel):
@@ -369,7 +370,7 @@ class JobAction(BaseModel):
 
 
 class ScheduleJobRequest(BaseModel):
-    op: ScheduleJobOp = Field(..., description="Operation: create, update, list, cancel, pause, resume")
+    op: ScheduleJobOp = Field(..., description="Operation: create, update, list, cancel, pause, resume, timezones")
     job_id: str | None = Field(default=None, description="Required for cancel/pause/resume/update ops")
     name: str | None = Field(default=None, description="Job name (required for create/update)")
     schedule: str | None = Field(default=None, description="Cron expression or ISO-8601 timestamp")
@@ -399,6 +400,7 @@ class ScheduleJobResponse(BaseModel):
     success: bool
     job_id: str | None = None
     jobs: list[JobEntry] | None = None
+    timezones: list[dict[str, Any]] | None = None
     message: str | None = None
     error: str | None = None
 

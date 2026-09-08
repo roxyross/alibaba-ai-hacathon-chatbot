@@ -39,6 +39,170 @@ VALID_SKILLS = {
 }
 
 
+GLOBAL_TIMEZONES: list[dict[str, Any]] = [
+    # --- South Asia & Gulf ---
+    {"value": "Asia/Karachi", "label": "🇵🇰 Asia/Karachi (PKT - UTC+5)", "region": "South Asia & Gulf", "offset": "UTC+5", "country": "Pakistan"},
+    {"value": "Asia/Kolkata", "label": "🇮🇳 Asia/Kolkata (IST - UTC+5:30)", "region": "South Asia & Gulf", "offset": "UTC+5:30", "country": "India"},
+    {"value": "Asia/Dhaka", "label": "🇧🇩 Asia/Dhaka (BST - UTC+6)", "region": "South Asia & Gulf", "offset": "UTC+6", "country": "Bangladesh"},
+    {"value": "Asia/Colombo", "label": "🇱🇰 Asia/Colombo (SLST - UTC+5:30)", "region": "South Asia & Gulf", "offset": "UTC+5:30", "country": "Sri Lanka"},
+    {"value": "Asia/Kathmandu", "label": "🇳🇵 Asia/Kathmandu (NPT - UTC+5:45)", "region": "South Asia & Gulf", "offset": "UTC+5:45", "country": "Nepal"},
+    {"value": "Asia/Dubai", "label": "🇦🇪 Asia/Dubai (GST - UTC+4)", "region": "South Asia & Gulf", "offset": "UTC+4", "country": "United Arab Emirates"},
+    {"value": "Asia/Riyadh", "label": "🇸🇦 Asia/Riyadh (AST - UTC+3)", "region": "South Asia & Gulf", "offset": "UTC+3", "country": "Saudi Arabia"},
+    {"value": "Asia/Qatar", "label": "🇶🇦 Asia/Qatar (AST - UTC+3)", "region": "South Asia & Gulf", "offset": "UTC+3", "country": "Qatar"},
+    {"value": "Asia/Kuwait", "label": "🇰🇼 Asia/Kuwait (AST - UTC+3)", "region": "South Asia & Gulf", "offset": "UTC+3", "country": "Kuwait"},
+    {"value": "Asia/Muscat", "label": "🇴🇲 Asia/Muscat (GST - UTC+4)", "region": "South Asia & Gulf", "offset": "UTC+4", "country": "Oman"},
+    {"value": "Asia/Bahrain", "label": "🇧🇭 Asia/Bahrain (AST - UTC+3)", "region": "South Asia & Gulf", "offset": "UTC+3", "country": "Bahrain"},
+
+    # --- East & Southeast Asia ---
+    {"value": "Asia/Singapore", "label": "🇸🇬 Asia/Singapore (SGT - UTC+8)", "region": "East & Southeast Asia", "offset": "UTC+8", "country": "Singapore"},
+    {"value": "Asia/Kuala_Lumpur", "label": "🇲🇾 Asia/Kuala_Lumpur (MYT - UTC+8)", "region": "East & Southeast Asia", "offset": "UTC+8", "country": "Malaysia"},
+    {"value": "Asia/Bangkok", "label": "🇹🇭 Asia/Bangkok (ICT - UTC+7)", "region": "East & Southeast Asia", "offset": "UTC+7", "country": "Thailand"},
+    {"value": "Asia/Jakarta", "label": "🇮🇩 Asia/Jakarta (WIB - UTC+7)", "region": "East & Southeast Asia", "offset": "UTC+7", "country": "Indonesia"},
+    {"value": "Asia/Makassar", "label": "🇮🇩 Asia/Makassar (WITA - UTC+8)", "region": "East & Southeast Asia", "offset": "UTC+8", "country": "Indonesia"},
+    {"value": "Asia/Manila", "label": "🇵🇭 Asia/Manila (PST/PHT - UTC+8)", "region": "East & Southeast Asia", "offset": "UTC+8", "country": "Philippines"},
+    {"value": "Asia/Ho_Chi_Minh", "label": "🇻🇳 Asia/Ho_Chi_Minh (ICT - UTC+7)", "region": "East & Southeast Asia", "offset": "UTC+7", "country": "Vietnam"},
+    {"value": "Asia/Shanghai", "label": "🇨🇳 Asia/Shanghai (CST - UTC+8)", "region": "East & Southeast Asia", "offset": "UTC+8", "country": "China"},
+    {"value": "Asia/Hong_Kong", "label": "🇭🇰 Asia/Hong_Kong (HKT - UTC+8)", "region": "East & Southeast Asia", "offset": "UTC+8", "country": "Hong Kong"},
+    {"value": "Asia/Taipei", "label": "🇹🇼 Asia/Taipei (CST - UTC+8)", "region": "East & Southeast Asia", "offset": "UTC+8", "country": "Taiwan"},
+    {"value": "Asia/Tokyo", "label": "🇯🇵 Asia/Tokyo (JST - UTC+9)", "region": "East & Southeast Asia", "offset": "UTC+9", "country": "Japan"},
+    {"value": "Asia/Seoul", "label": "🇰🇷 Asia/Seoul (KST - UTC+9)", "region": "East & Southeast Asia", "offset": "UTC+9", "country": "South Korea"},
+
+    # --- Central & West Asia ---
+    {"value": "Asia/Baku", "label": "🇦🇿 Asia/Baku (AZT - UTC+4)", "region": "Central & West Asia", "offset": "UTC+4", "country": "Azerbaijan"},
+    {"value": "Asia/Tashkent", "label": "🇺🇿 Asia/Tashkent (UZT - UTC+5)", "region": "Central & West Asia", "offset": "UTC+5", "country": "Uzbekistan"},
+    {"value": "Asia/Almaty", "label": "🇰🇿 Asia/Almaty (ALMT - UTC+5)", "region": "Central & West Asia", "offset": "UTC+5", "country": "Kazakhstan"},
+    {"value": "Europe/Istanbul", "label": "🇹🇷 Europe/Istanbul (TRT - UTC+3)", "region": "Central & West Asia", "offset": "UTC+3", "country": "Turkey"},
+    {"value": "Asia/Jerusalem", "label": "🇮🇱 Asia/Jerusalem (IST/IDT - UTC+2/+3)", "region": "Central & West Asia", "offset": "UTC+2", "country": "Israel"},
+    {"value": "Asia/Beirut", "label": "🇱🇧 Asia/Beirut (EET/EEST - UTC+2/+3)", "region": "Central & West Asia", "offset": "UTC+2", "country": "Lebanon"},
+
+    # --- Europe & United Kingdom ---
+    {"value": "Europe/London", "label": "🇬🇧 Europe/London (GMT/BST - UTC+0/+1)", "region": "Europe & UK", "offset": "UTC+0", "country": "United Kingdom"},
+    {"value": "Europe/Dublin", "label": "🇮🇪 Europe/Dublin (IST/GMT - UTC+0/+1)", "region": "Europe & UK", "offset": "UTC+0", "country": "Ireland"},
+    {"value": "Europe/Paris", "label": "🇫🇷 Europe/Paris (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "France"},
+    {"value": "Europe/Berlin", "label": "🇩🇪 Europe/Berlin (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Germany"},
+    {"value": "Europe/Rome", "label": "🇮🇹 Europe/Rome (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Italy"},
+    {"value": "Europe/Madrid", "label": "🇪🇸 Europe/Madrid (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Spain"},
+    {"value": "Europe/Amsterdam", "label": "🇳🇱 Europe/Amsterdam (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Netherlands"},
+    {"value": "Europe/Brussels", "label": "🇧🇪 Europe/Brussels (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Belgium"},
+    {"value": "Europe/Zurich", "label": "🇨🇭 Europe/Zurich (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Switzerland"},
+    {"value": "Europe/Vienna", "label": "🇦🇹 Europe/Vienna (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Austria"},
+    {"value": "Europe/Stockholm", "label": "🇸🇪 Europe/Stockholm (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Sweden"},
+    {"value": "Europe/Oslo", "label": "🇳🇴 Europe/Oslo (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Norway"},
+    {"value": "Europe/Copenhagen", "label": "🇩🇰 Europe/Copenhagen (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Denmark"},
+    {"value": "Europe/Helsinki", "label": "🇫🇮 Europe/Helsinki (EET/EEST - UTC+2/+3)", "region": "Europe & UK", "offset": "UTC+2", "country": "Finland"},
+    {"value": "Europe/Warsaw", "label": "🇵🇱 Europe/Warsaw (CET/CEST - UTC+1/+2)", "region": "Europe & UK", "offset": "UTC+1", "country": "Poland"},
+    {"value": "Europe/Athens", "label": "🇬🇷 Europe/Athens (EET/EEST - UTC+2/+3)", "region": "Europe & UK", "offset": "UTC+2", "country": "Greece"},
+    {"value": "Europe/Lisbon", "label": "🇵🇹 Europe/Lisbon (WET/WEST - UTC+0/+1)", "region": "Europe & UK", "offset": "UTC+0", "country": "Portugal"},
+    {"value": "Europe/Moscow", "label": "🇷🇺 Europe/Moscow (MSK - UTC+3)", "region": "Europe & UK", "offset": "UTC+3", "country": "Russia"},
+
+    # --- Americas (North, Central & South) ---
+    {"value": "America/New_York", "label": "🇺🇸 America/New_York (EST/EDT - UTC-5/-4)", "region": "Americas", "offset": "UTC-5", "country": "United States"},
+    {"value": "America/Chicago", "label": "🇺🇸 America/Chicago (CST/CDT - UTC-6/-5)", "region": "Americas", "offset": "UTC-6", "country": "United States"},
+    {"value": "America/Denver", "label": "🇺🇸 America/Denver (MST/MDT - UTC-7/-6)", "region": "Americas", "offset": "UTC-7", "country": "United States"},
+    {"value": "America/Phoenix", "label": "🇺🇸 America/Phoenix (MST - UTC-7)", "region": "Americas", "offset": "UTC-7", "country": "United States"},
+    {"value": "America/Los_Angeles", "label": "🇺🇸 America/Los_Angeles (PST/PDT - UTC-8/-7)", "region": "Americas", "offset": "UTC-8", "country": "United States"},
+    {"value": "America/Anchorage", "label": "🇺🇸 America/Anchorage (AKST/AKDT - UTC-9/-8)", "region": "Americas", "offset": "UTC-9", "country": "United States"},
+    {"value": "Pacific/Honolulu", "label": "🇺🇸 Pacific/Honolulu (HST - UTC-10)", "region": "Americas", "offset": "UTC-10", "country": "United States"},
+    {"value": "America/Toronto", "label": "🇨🇦 America/Toronto (EST/EDT - UTC-5/-4)", "region": "Americas", "offset": "UTC-5", "country": "Canada"},
+    {"value": "America/Vancouver", "label": "🇨🇦 America/Vancouver (PST/PDT - UTC-8/-7)", "region": "Americas", "offset": "UTC-8", "country": "Canada"},
+    {"value": "America/Edmonton", "label": "🇨🇦 America/Edmonton (MST/MDT - UTC-7/-6)", "region": "Americas", "offset": "UTC-7", "country": "Canada"},
+    {"value": "America/Halifax", "label": "🇨🇦 America/Halifax (AST/ADT - UTC-4/-3)", "region": "Americas", "offset": "UTC-4", "country": "Canada"},
+    {"value": "America/Mexico_City", "label": "🇲🇽 America/Mexico_City (CST - UTC-6)", "region": "Americas", "offset": "UTC-6", "country": "Mexico"},
+    {"value": "America/Bogota", "label": "🇨🇴 America/Bogota (COT - UTC-5)", "region": "Americas", "offset": "UTC-5", "country": "Colombia"},
+    {"value": "America/Lima", "label": "🇵🇪 America/Lima (PET - UTC-5)", "region": "Americas", "offset": "UTC-5", "country": "Peru"},
+    {"value": "America/Sao_Paulo", "label": "🇧🇷 America/Sao_Paulo (BRT - UTC-3)", "region": "Americas", "offset": "UTC-3", "country": "Brazil"},
+    {"value": "America/Buenos_Aires", "label": "🇦🇷 America/Buenos_Aires (ART - UTC-3)", "region": "Americas", "offset": "UTC-3", "country": "Argentina"},
+    {"value": "America/Santiago", "label": "🇨🇱 America/Santiago (CLT/CLST - UTC-4/-3)", "region": "Americas", "offset": "UTC-4", "country": "Chile"},
+
+    # --- Africa ---
+    {"value": "Africa/Cairo", "label": "🇪🇬 Africa/Cairo (EET/EEST - UTC+2/+3)", "region": "Africa", "offset": "UTC+2", "country": "Egypt"},
+    {"value": "Africa/Johannesburg", "label": "🇿🇦 Africa/Johannesburg (SAST - UTC+2)", "region": "Africa", "offset": "UTC+2", "country": "South Africa"},
+    {"value": "Africa/Lagos", "label": "🇳🇬 Africa/Lagos (WAT - UTC+1)", "region": "Africa", "offset": "UTC+1", "country": "Nigeria"},
+    {"value": "Africa/Nairobi", "label": "🇰🇪 Africa/Nairobi (EAT - UTC+3)", "region": "Africa", "offset": "UTC+3", "country": "Kenya"},
+    {"value": "Africa/Casablanca", "label": "🇲🇦 Africa/Casablanca (WET/WEST - UTC+1)", "region": "Africa", "offset": "UTC+1", "country": "Morocco"},
+    {"value": "Africa/Accra", "label": "🇬🇭 Africa/Accra (GMT - UTC+0)", "region": "Africa", "offset": "UTC+0", "country": "Ghana"},
+    {"value": "Africa/Addis_Ababa", "label": "🇪🇹 Africa/Addis_Ababa (EAT - UTC+3)", "region": "Africa", "offset": "UTC+3", "country": "Ethiopia"},
+
+    # --- Australia, New Zealand & Pacific ---
+    {"value": "Australia/Sydney", "label": "🇦🇺 Australia/Sydney (AEST/AEDT - UTC+10/+11)", "region": "Australia & Pacific", "offset": "UTC+10", "country": "Australia"},
+    {"value": "Australia/Melbourne", "label": "🇦🇺 Australia/Melbourne (AEST/AEDT - UTC+10/+11)", "region": "Australia & Pacific", "offset": "UTC+10", "country": "Australia"},
+    {"value": "Australia/Brisbane", "label": "🇦🇺 Australia/Brisbane (AEST - UTC+10)", "region": "Australia & Pacific", "offset": "UTC+10", "country": "Australia"},
+    {"value": "Australia/Adelaide", "label": "🇦🇺 Australia/Adelaide (ACST/ACDT - UTC+9:30/+10:30)", "region": "Australia & Pacific", "offset": "UTC+9:30", "country": "Australia"},
+    {"value": "Australia/Perth", "label": "🇦🇺 Australia/Perth (AWST - UTC+8)", "region": "Australia & Pacific", "offset": "UTC+8", "country": "Australia"},
+    {"value": "Pacific/Auckland", "label": "🇳🇿 Pacific/Auckland (NZST/NZDT - UTC+12/+13)", "region": "Australia & Pacific", "offset": "UTC+12", "country": "New Zealand"},
+    {"value": "Pacific/Fiji", "label": "🇫🇯 Pacific/Fiji (FJT - UTC+12)", "region": "Australia & Pacific", "offset": "UTC+12", "country": "Fiji"},
+
+    # --- UTC & Global ---
+    {"value": "UTC", "label": "🌐 UTC (Coordinated Universal Time - UTC+0)", "region": "UTC / Universal", "offset": "UTC+0", "country": "Global"},
+]
+
+
+def get_supported_timezones(
+    query: str | None = None,
+    region: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return list of supported global timezones for scheduled jobs, with optional search & region filtering."""
+    results = GLOBAL_TIMEZONES
+    if region:
+        reg_lower = region.strip().lower()
+        results = [t for t in results if reg_lower in t.get("region", "").lower()]
+    if query:
+        q = query.strip().lower()
+        results = [
+            t for t in results
+            if q in t["value"].lower()
+            or q in t["label"].lower()
+            or q in t.get("country", "").lower()
+            or q in t.get("region", "").lower()
+            or q in t.get("offset", "").lower()
+        ]
+    return results
+
+
+def get_timezone_regions() -> list[dict[str, Any]]:
+    """Return list of unique regions and count of timezones in each."""
+    region_counts: dict[str, int] = {}
+    for tz in GLOBAL_TIMEZONES:
+        reg = tz.get("region", "Other")
+        region_counts[reg] = region_counts.get(reg, 0) + 1
+    return [{"name": reg, "count": count} for reg, count in region_counts.items()]
+
+
+def validate_timezone(tz: str | None) -> dict[str, Any]:
+    """Validate and resolve a user-supplied timezone string or alias."""
+    import zoneinfo
+    if not tz or not tz.strip():
+        return {
+            "input": tz,
+            "normalized": "UTC",
+            "valid": True,
+            "is_alias": False,
+            "metadata": next((t for t in GLOBAL_TIMEZONES if t["value"] == "UTC"), None),
+        }
+    raw = tz.strip()
+    normalized = normalize_timezone(raw)
+    is_valid = False
+    try:
+        zoneinfo.ZoneInfo(normalized)
+        is_valid = True
+    except Exception:
+        try:
+            zoneinfo.ZoneInfo(raw)
+            normalized = raw
+            is_valid = True
+        except Exception:
+            is_valid = False
+
+    meta = next((t for t in GLOBAL_TIMEZONES if t["value"].lower() == normalized.lower()), None)
+    return {
+        "input": tz,
+        "normalized": normalized,
+        "valid": is_valid,
+        "is_alias": normalized.lower() != raw.lower(),
+        "metadata": meta,
+    }
+
+
 def normalize_timezone(tz: str | None) -> str:
     """Safely normalizes user-provided timezone strings to standard IANA identifiers."""
     if not tz or not tz.strip():
@@ -46,48 +210,232 @@ def normalize_timezone(tz: str | None) -> str:
     raw = tz.strip()
     lower = raw.lower()
     mapping = {
+        # Pakistan
         "karachi": "Asia/Karachi",
         "islamabad": "Asia/Karachi",
         "lahore": "Asia/Karachi",
+        "rawalpindi": "Asia/Karachi",
+        "faisalabad": "Asia/Karachi",
+        "peshawar": "Asia/Karachi",
+        "quetta": "Asia/Karachi",
+        "multan": "Asia/Karachi",
         "pakistan": "Asia/Karachi",
         "pkt": "Asia/Karachi",
         "gmt+5": "Asia/Karachi",
         "utc+5": "Asia/Karachi",
+
+        # India
         "india": "Asia/Kolkata",
         "delhi": "Asia/Kolkata",
+        "new delhi": "Asia/Kolkata",
         "mumbai": "Asia/Kolkata",
         "kolkata": "Asia/Kolkata",
+        "calcutta": "Asia/Kolkata",
+        "bangalore": "Asia/Kolkata",
+        "bengaluru": "Asia/Kolkata",
+        "chennai": "Asia/Kolkata",
+        "hyderabad": "Asia/Kolkata",
         "ist": "Asia/Kolkata",
         "gmt+5:30": "Asia/Kolkata",
         "utc+5:30": "Asia/Kolkata",
+
+        # Bangladesh, Sri Lanka, Nepal
+        "dhaka": "Asia/Dhaka",
+        "bangladesh": "Asia/Dhaka",
+        "bst": "Asia/Dhaka",
+        "colombo": "Asia/Colombo",
+        "sri lanka": "Asia/Colombo",
+        "kathmandu": "Asia/Kathmandu",
+        "nepal": "Asia/Kathmandu",
+
+        # Gulf & Middle East
         "dubai": "Asia/Dubai",
+        "abu dhabi": "Asia/Dubai",
         "uae": "Asia/Dubai",
         "gst": "Asia/Dubai",
-        "est": "America/New_York",
-        "edt": "America/New_York",
-        "new york": "America/New_York",
-        "new_york": "America/New_York",
-        "eastern": "America/New_York",
-        "cst": "America/Chicago",
-        "cdt": "America/Chicago",
-        "chicago": "America/Chicago",
-        "central": "America/Chicago",
-        "pst": "America/Los_Angeles",
-        "pdt": "America/Los_Angeles",
-        "los angeles": "America/Los_Angeles",
-        "pacific": "America/Los_Angeles",
+        "riyadh": "Asia/Riyadh",
+        "jeddah": "Asia/Riyadh",
+        "saudi": "Asia/Riyadh",
+        "saudi arabia": "Asia/Riyadh",
+        "ast": "Asia/Riyadh",
+        "doha": "Asia/Qatar",
+        "qatar": "Asia/Qatar",
+        "kuwait": "Asia/Kuwait",
+        "muscat": "Asia/Muscat",
+        "oman": "Asia/Muscat",
+        "bahrain": "Asia/Bahrain",
+        "manama": "Asia/Bahrain",
+        "baku": "Asia/Baku",
+        "tashkent": "Asia/Tashkent",
+        "almaty": "Asia/Almaty",
+        "istanbul": "Europe/Istanbul",
+        "turkey": "Europe/Istanbul",
+        "ankara": "Europe/Istanbul",
+        "jerusalem": "Asia/Jerusalem",
+        "tel aviv": "Asia/Jerusalem",
+        "israel": "Asia/Jerusalem",
+        "beirut": "Asia/Beirut",
+        "lebanon": "Asia/Beirut",
+
+        # East & Southeast Asia
+        "singapore": "Asia/Singapore",
+        "sgt": "Asia/Singapore",
+        "kuala lumpur": "Asia/Kuala_Lumpur",
+        "malaysia": "Asia/Kuala_Lumpur",
+        "myt": "Asia/Kuala_Lumpur",
+        "bangkok": "Asia/Bangkok",
+        "thailand": "Asia/Bangkok",
+        "jakarta": "Asia/Jakarta",
+        "indonesia": "Asia/Jakarta",
+        "manila": "Asia/Manila",
+        "philippines": "Asia/Manila",
+        "vietnam": "Asia/Ho_Chi_Minh",
+        "ho chi minh": "Asia/Ho_Chi_Minh",
+        "hanoi": "Asia/Ho_Chi_Minh",
+        "tokyo": "Asia/Tokyo",
+        "japan": "Asia/Tokyo",
+        "jst": "Asia/Tokyo",
+        "seoul": "Asia/Seoul",
+        "korea": "Asia/Seoul",
+        "south korea": "Asia/Seoul",
+        "kst": "Asia/Seoul",
+        "shanghai": "Asia/Shanghai",
+        "beijing": "Asia/Shanghai",
+        "china": "Asia/Shanghai",
+        "hong kong": "Asia/Hong_Kong",
+        "taipei": "Asia/Taipei",
+        "taiwan": "Asia/Taipei",
+
+        # Europe & UK
+        "london": "Europe/London",
+        "uk": "Europe/London",
+        "united kingdom": "Europe/London",
+        "britain": "Europe/London",
         "gmt": "Europe/London",
         "bst": "Europe/London",
-        "london": "Europe/London",
+        "dublin": "Europe/Dublin",
+        "ireland": "Europe/Dublin",
+        "paris": "Europe/Paris",
+        "france": "Europe/Paris",
+        "berlin": "Europe/Berlin",
+        "germany": "Europe/Berlin",
+        "frankfurt": "Europe/Berlin",
+        "munich": "Europe/Berlin",
+        "rome": "Europe/Rome",
+        "italy": "Europe/Rome",
+        "milan": "Europe/Rome",
+        "madrid": "Europe/Madrid",
+        "spain": "Europe/Madrid",
+        "barcelona": "Europe/Madrid",
+        "amsterdam": "Europe/Amsterdam",
+        "netherlands": "Europe/Amsterdam",
+        "brussels": "Europe/Brussels",
+        "belgium": "Europe/Brussels",
+        "zurich": "Europe/Zurich",
+        "switzerland": "Europe/Zurich",
+        "geneva": "Europe/Zurich",
+        "vienna": "Europe/Vienna",
+        "austria": "Europe/Vienna",
+        "stockholm": "Europe/Stockholm",
+        "sweden": "Europe/Stockholm",
+        "oslo": "Europe/Oslo",
+        "norway": "Europe/Oslo",
+        "copenhagen": "Europe/Copenhagen",
+        "denmark": "Europe/Copenhagen",
+        "helsinki": "Europe/Helsinki",
+        "finland": "Europe/Helsinki",
+        "warsaw": "Europe/Warsaw",
+        "poland": "Europe/Warsaw",
+        "athens": "Europe/Athens",
+        "greece": "Europe/Athens",
+        "lisbon": "Europe/Lisbon",
+        "portugal": "Europe/Lisbon",
+        "moscow": "Europe/Moscow",
+        "russia": "Europe/Moscow",
         "cet": "Europe/Paris",
         "cest": "Europe/Paris",
-        "paris": "Europe/Paris",
-        "berlin": "Europe/Berlin",
-        "tokyo": "Asia/Tokyo",
-        "jst": "Asia/Tokyo",
-        "japan": "Asia/Tokyo",
+
+        # Americas
+        "new york": "America/New_York",
+        "new_york": "America/New_York",
+        "nyc": "America/New_York",
+        "eastern": "America/New_York",
+        "est": "America/New_York",
+        "edt": "America/New_York",
+        "chicago": "America/Chicago",
+        "central": "America/Chicago",
+        "cst": "America/Chicago",
+        "cdt": "America/Chicago",
+        "dallas": "America/Chicago",
+        "houston": "America/Chicago",
+        "denver": "America/Denver",
+        "mountain": "America/Denver",
+        "mst": "America/Denver",
+        "mdt": "America/Denver",
+        "phoenix": "America/Phoenix",
+        "arizona": "America/Phoenix",
+        "los angeles": "America/Los_Angeles",
+        "pacific": "America/Los_Angeles",
+        "pst": "America/Los_Angeles",
+        "pdt": "America/Los_Angeles",
+        "san francisco": "America/Los_Angeles",
+        "seattle": "America/Los_Angeles",
+        "anchorage": "America/Anchorage",
+        "alaska": "America/Anchorage",
+        "honolulu": "Pacific/Honolulu",
+        "hawaii": "Pacific/Honolulu",
+        "toronto": "America/Toronto",
+        "canada": "America/Toronto",
+        "montreal": "America/Toronto",
+        "vancouver": "America/Vancouver",
+        "edmonton": "America/Edmonton",
+        "calgary": "America/Edmonton",
+        "halifax": "America/Halifax",
+        "mexico city": "America/Mexico_City",
+        "mexico": "America/Mexico_City",
+        "bogota": "America/Bogota",
+        "colombia": "America/Bogota",
+        "lima": "America/Lima",
+        "peru": "America/Lima",
+        "sao paulo": "America/Sao_Paulo",
+        "brazil": "America/Sao_Paulo",
+        "buenos aires": "America/Buenos_Aires",
+        "argentina": "America/Buenos_Aires",
+        "santiago": "America/Santiago",
+        "chile": "America/Santiago",
+
+        # Africa
+        "cairo": "Africa/Cairo",
+        "egypt": "Africa/Cairo",
+        "johannesburg": "Africa/Johannesburg",
+        "south africa": "Africa/Johannesburg",
+        "cape town": "Africa/Johannesburg",
+        "lagos": "Africa/Lagos",
+        "nigeria": "Africa/Lagos",
+        "nairobi": "Africa/Nairobi",
+        "kenya": "Africa/Nairobi",
+        "casablanca": "Africa/Casablanca",
+        "morocco": "Africa/Casablanca",
+        "accra": "Africa/Accra",
+        "ghana": "Africa/Accra",
+        "addis ababa": "Africa/Addis_Ababa",
+        "ethiopia": "Africa/Addis_Ababa",
+
+        # Australia & Pacific
         "sydney": "Australia/Sydney",
+        "australia": "Australia/Sydney",
         "aest": "Australia/Sydney",
+        "aedt": "Australia/Sydney",
+        "melbourne": "Australia/Melbourne",
+        "brisbane": "Australia/Brisbane",
+        "adelaide": "Australia/Adelaide",
+        "perth": "Australia/Perth",
+        "auckland": "Pacific/Auckland",
+        "new zealand": "Pacific/Auckland",
+        "wellington": "Pacific/Auckland",
+        "fiji": "Pacific/Fiji",
+
+        # UTC
         "utc": "UTC",
     }
     if lower in mapping:
@@ -97,7 +445,7 @@ def normalize_timezone(tz: str | None) -> str:
         zoneinfo.ZoneInfo(raw)
         return raw
     except Exception:
-        for candidate in (raw.title(), f"America/{raw.title()}", f"Europe/{raw.title()}", f"Asia/{raw.title()}"):
+        for candidate in (raw.title(), f"America/{raw.title()}", f"Europe/{raw.title()}", f"Asia/{raw.title()}", f"Africa/{raw.title()}", f"Australia/{raw.title()}"):
             try:
                 import zoneinfo
                 zoneinfo.ZoneInfo(candidate)
@@ -354,6 +702,7 @@ class JobStore:
         from datetime import timedelta
         import zoneinfo
 
+        tz: Any
         try:
             tz = zoneinfo.ZoneInfo(timezone_str)
         except Exception:
@@ -420,15 +769,15 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
                 return ScheduleJobResponse(op="create", success=False, error=err)
             # Wire into APScheduler using resolved schedule and normalized timezone
             job_record = store._jobs.get(user_id, {}).get(job_id)
-            effective_schedule = job_record.get("schedule") if job_record else input_data.schedule
-            effective_tz = job_record.get("timezone") if job_record else input_data.timezone
+            effective_schedule = str(job_record.get("schedule")) if job_record and job_record.get("schedule") else str(input_data.schedule)
+            effective_tz = str(job_record.get("timezone")) if job_record and job_record.get("timezone") else input_data.timezone
             _reschedule_if_running(
                 job_id=job_id,
                 user_id=user_id,
                 schedule=effective_schedule,
                 timezone=effective_tz,
                 action=input_data.action,
-                confirm_on_fire=input_data.confirm_on_fire,
+                confirm_on_fire=input_data.confirm_on_fire or False,
             )
             return ScheduleJobResponse(op="create", success=True, job_id=job_id)
 
@@ -467,7 +816,7 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
                     _reschedule_if_running(
                         job_id=input_data.job_id,
                         user_id=user_id,
-                        schedule=job["schedule"],
+                        schedule=str(job["schedule"]),
                         timezone=job.get("timezone"),
                         action=JobAction(**job["action"]),
                         confirm_on_fire=job.get("confirm_on_fire", False),
@@ -496,12 +845,17 @@ class ScheduleJobSkill(SkillExecutor[ScheduleJobRequest, ScheduleJobResponse]):
                     action=input_data.action,
                     confirm_on_fire=input_data.confirm_on_fire or False,
                 )
-            return ScheduleJobResponse(op="update", success=ok, error=err, job_id=input_data.job_id)
+        elif op == ScheduleJobOp.TIMEZONES:
+            return ScheduleJobResponse(
+                op="timezones",
+                success=True,
+                timezones=get_supported_timezones(),
+            )
 
         return ScheduleJobResponse(op=op.value, success=False, error=f"Unknown op: {op}")
 
 
-def _cancel_if_running(job_id: str):
+def _cancel_if_running(job_id: str) -> None:
     """Remove a job from APScheduler if it is running."""
     try:
         from app.job_scheduler import cancel_scheduled_job
@@ -510,7 +864,14 @@ def _cancel_if_running(job_id: str):
         pass  # Scheduler may not be running
 
 
-def _reschedule_if_running(job_id: str, user_id: str, schedule: str, timezone: str | None, action: JobAction, confirm_on_fire: bool):
+def _reschedule_if_running(
+    job_id: str,
+    user_id: str,
+    schedule: str,
+    timezone: str | None,
+    action: JobAction,
+    confirm_on_fire: bool,
+) -> None:
     """If APScheduler is running, update the scheduled firing."""
     try:
         from app.job_scheduler import reschedule_job, cancel_scheduled_job

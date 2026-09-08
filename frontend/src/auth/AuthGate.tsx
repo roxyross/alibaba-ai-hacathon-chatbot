@@ -144,8 +144,9 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
                   const res = await requestLink(email);
                   if (res?.dev_token) {
                     setDevToken(res.dev_token);
-                    setManualToken(res.dev_token);
                   }
+                  // Keep verification input empty so user enters the code received in their mail
+                  setManualToken('');
                   setPhase('pending');
                 } catch {
                   /* error already in context */
@@ -242,6 +243,37 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
               <span>⚡ Enter Instantly (Demo Access)</span>
             </button>
 
+            <details
+              style={{
+                marginTop: '0.85rem',
+                padding: '0.6rem 0.85rem',
+                background: 'rgba(30, 41, 59, 0.6)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                color: '#94a3b8',
+                textAlign: 'left',
+              }}
+            >
+              <summary style={{ cursor: 'pointer', color: '#93c5fd', fontWeight: 500 }}>
+                ℹ️ Google / GitHub access blocked? Read how to configure
+              </summary>
+              <ul style={{ margin: '0.5rem 0 0 0', paddingLeft: '1.2rem', lineHeight: 1.5 }}>
+                <li>
+                  <strong>Google (Error 400: redirect_uri_mismatch):</strong> Add <code style={{ color: '#60a5fa' }}>http://localhost:8000/api/v1/auth/oauth/google/callback</code> to Authorized Redirect URIs in your Google Cloud Console.
+                </li>
+                <li>
+                  <strong>Google ("Access blocked: app in testing"):</strong> Add your Gmail address under "Test Users" in Google OAuth Consent Screen.
+                </li>
+                <li>
+                  <strong>GitHub ("redirect_uri mismatch"):</strong> Set Authorization callback URL to <code style={{ color: '#60a5fa' }}>http://localhost:8000/api/v1/auth/oauth/github/callback</code> in GitHub Developer Settings.
+                </li>
+                <li>
+                  <strong>Instant Demo:</strong> Use <strong>⚡ Enter Instantly</strong> above to bypass OAuth setup completely.
+                </li>
+              </ul>
+            </details>
+
             {(oauthErrorMessage || error) && (
               <p className="auth-gate__error">{oauthErrorMessage || error}</p>
             )}
@@ -300,39 +332,40 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
             </form>
 
             {devToken && (
-              <div
+              <details
                 style={{
                   marginTop: '1rem',
-                  padding: '0.75rem 1rem',
-                  background: 'rgba(37, 99, 235, 0.1)',
-                  border: '1px dashed rgba(59, 130, 246, 0.4)',
+                  padding: '0.6rem 0.85rem',
+                  background: 'rgba(30, 41, 59, 0.6)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
                   borderRadius: '8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '0.5rem',
+                  fontSize: '0.8rem',
+                  color: '#94a3b8',
                 }}
               >
-                <span style={{ fontSize: '0.82rem', color: '#93c5fd' }}>
-                  ⚡ Quick dev link ready:
-                </span>
-                <button
-                  type="button"
-                  style={{
-                    background: '#2563eb',
-                    border: 'none',
-                    color: '#fff',
-                    borderRadius: '6px',
-                    padding: '0.35rem 0.75rem',
-                    fontSize: '0.8rem',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                  onClick={() => verify(devToken)}
-                >
-                  Auto-Fill
-                </button>
-              </div>
+                <summary style={{ cursor: 'pointer', color: '#60a5fa', fontWeight: 500 }}>
+                  🔧 Local Dev: show console token
+                </summary>
+                <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                  <code style={{ fontSize: '0.75rem', color: '#cbd5e1', wordBreak: 'break-all' }}>{devToken}</code>
+                  <button
+                    type="button"
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      border: 'none',
+                      color: '#fff',
+                      borderRadius: '4px',
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                    onClick={() => setManualToken(devToken)}
+                  >
+                    Paste to input
+                  </button>
+                </div>
+              </details>
             )}
             <button
               type="button"

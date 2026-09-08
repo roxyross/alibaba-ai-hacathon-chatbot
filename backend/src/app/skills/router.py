@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from fastapi import APIRouter, Depends, HTTPException, Request as StarletteRequest, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request as StarletteRequest, status
 from fastapi.responses import JSONResponse
 
 from app.auth.dependencies import get_current_user
@@ -72,7 +72,12 @@ from app.skills.browser_navigate import get_executor as browser_navigate_executo
 from app.skills.browser_fill_form import get_executor as browser_fill_form_executor
 from app.skills.bank_connect import get_executor as bank_connect_executor
 from app.skills.critic_review import get_executor as critic_review_executor
-from app.skills.schedule_job import get_executor as schedule_job_executor
+from app.skills.schedule_job import (
+    get_executor as schedule_job_executor,
+    get_supported_timezones,
+    get_timezone_regions,
+    validate_timezone,
+)
 from app.skills.email_send import get_executor as email_send_executor
 from app.skills.document_rag_query import get_executor as document_rag_query_executor
 from app.skills.document_ingest import get_executor as document_ingest_executor
@@ -122,8 +127,9 @@ async def _run_skill(
         except Exception:
             pass
 
-    # Read-only operations on schedule_job (like list) do not require confirmation
-    is_read_only = skill_slug == "schedule_job" and getattr(input_data, "op", None) in ("list", "LIST")
+    # Read-only operations on schedule_job (like list or timezones) do not require confirmation
+    op_str = str(getattr(input_data, "op", "")).lower()
+    is_read_only = skill_slug == "schedule_job" and (op_str in ("list", "timezones") or getattr(input_data, "op", None) in ("list", "LIST"))
     # Security-privacy gate for sensitive skills (unless already explicitly confirmed or read-only)
     if skill_slug in SENSITIVE_SKILLS and not is_read_only and not getattr(input_data, "confirm", False):
         import secrets
@@ -412,6 +418,94 @@ async def skill_schedule_job(
     """Create, list, update, or cancel scheduled jobs (Automation Agent)."""
     executor = schedule_job_executor()
     return await _run_skill(executor, req, current_user, skill_slug="schedule_job")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/skills/schedule_job/timezones
+# ---------------------------------------------------------------------------
+
+@router.get("/schedule_job/timezones")
+async def get_schedule_job_timezones(
+    q: str | None = Query(default=None, description="Search term for city, country, or code"),
+    region: str | None = Query(default=None, description="Filter by geographical region"),
+) -> dict[str, Any]:
+    """Return supported global timezones for scheduled jobs, with optional search and region filter."""
+    timezones = get_supported_timezones(query=q, region=region)
+    regions = get_timezone_regions()
+    return {
+        "success": True,
+        "timezones": timezones,
+        "total": len(timezones),
+        "regions": regions,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/skills/schedule_job/timezones/regions
+# ---------------------------------------------------------------------------
+
+@router.get("/schedule_job/timezones/regions")
+async def get_schedule_job_timezone_regions() -> dict[str, Any]:
+    """Return all geographical timezone regions with counts."""
+    regions = get_timezone_regions()
+    return {"success": True, "regions": regions, "total": len(regions)}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/skills/schedule_job/timezones/search
+# ---------------------------------------------------------------------------
+
+@router.get("/schedule_job/timezones/search")
+async def search_schedule_job_timezones(
+    q: str = Query(..., min_length=1, description="Search query"),
+) -> dict[str, Any]:
+    """Search timezones by query (city, country, abbreviation, or UTC offset)."""
+    matches = get_supported_timezones(query=q)
+    return {"success": True, "query": q, "timezones": matches, "total": len(matches)}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/skills/schedule_job/timezones/validate
+# ---------------------------------------------------------------------------
+
+@router.get("/schedule_job/timezones/validate")
+async def validate_schedule_job_timezone(
+    tz: str = Query(..., min_length=1, description="Timezone name or alias to validate"),
+) -> dict[str, Any]:
+    """Validate a timezone string and return its canonical IANA identifier and metadata."""
+    result = validate_timezone(tz)
+    return {"success": True, **result}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/skills/timezones (Global aliases)
+# ---------------------------------------------------------------------------
+
+@router.get("/timezones")
+async def get_timezones_alias(
+    q: str | None = Query(default=None),
+    region: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Alias route to retrieve supported world timezones."""
+    return await get_schedule_job_timezones(q=q, region=region)
+
+
+@router.get("/timezones/regions")
+async def get_timezones_regions_alias() -> dict[str, Any]:
+    """Alias route to retrieve timezone regions."""
+    return await get_schedule_job_timezone_regions()
+
+
+@router.get("/timezones/search")
+async def search_timezones_alias(q: str = Query(..., min_length=1)) -> dict[str, Any]:
+    """Alias route to search timezones."""
+    return await search_schedule_job_timezones(q=q)
+
+
+@router.get("/timezones/validate")
+async def validate_timezone_alias(tz: str = Query(..., min_length=1)) -> dict[str, Any]:
+    """Alias route to validate a timezone."""
+    return await validate_schedule_job_timezone(tz=tz)
 
 
 # ---------------------------------------------------------------------------

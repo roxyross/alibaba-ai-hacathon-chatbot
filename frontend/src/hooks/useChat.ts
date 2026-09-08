@@ -246,7 +246,7 @@ export function useChat(options: UseChatOptions = {}) {
             assistantContent = data.next_actions.join('\n\n');
           }
           if (!assistantContent) {
-            assistantContent = "Hello! I received your message. How can I assist you today?";
+            assistantContent = "I've received your request. How can I help you further?";
           }
 
           setState((prev) => ({

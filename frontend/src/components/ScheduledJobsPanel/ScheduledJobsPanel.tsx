@@ -1,7 +1,7 @@
 // ScheduledJobsPanel — list, create, cancel, pause, resume scheduled jobs
 // Uses GET/POST /api/v1/skills/schedule_job
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { parseNaturalSchedule, formatHumanSchedule } from '../../utils/naturalCron';
 import './ScheduledJobsPanel.css';
 
@@ -69,21 +69,109 @@ const SCHEDULE_PRESETS = [
   { label: 'Every Friday at 5pm', value: 'Every Friday at 5pm' },
 ];
 
-const TIMEZONE_OPTIONS = [
-  { value: 'Asia/Karachi', label: '🇵🇰 Asia/Karachi (PKT - UTC+5)' },
-  { value: 'Asia/Kolkata', label: '🇮🇳 Asia/Kolkata (IST - UTC+5:30)' },
-  { value: 'Asia/Dubai', label: '🇦🇪 Asia/Dubai (GST - UTC+4)' },
-  { value: 'UTC', label: '🌐 UTC (Coordinated Universal Time)' },
-  { value: 'Europe/London', label: '🇬🇧 Europe/London (GMT/BST - UTC+0/+1)' },
-  { value: 'Europe/Paris', label: '🇫🇷 Europe/Paris (CET/CEST - UTC+1/+2)' },
-  { value: 'Europe/Berlin', label: '🇩🇪 Europe/Berlin (CET/CEST - UTC+1/+2)' },
-  { value: 'America/New_York', label: '🇺🇸 America/New_York (EST/EDT - UTC-5/-4)' },
-  { value: 'America/Chicago', label: '🇺🇸 America/Chicago (CST/CDT - UTC-6/-5)' },
-  { value: 'America/Denver', label: '🇺🇸 America/Denver (MST/MDT - UTC-7/-6)' },
-  { value: 'America/Los_Angeles', label: '🇺🇸 America/Los_Angeles (PST/PDT - UTC-8/-7)' },
-  { value: 'Asia/Tokyo', label: '🇯🇵 Asia/Tokyo (JST - UTC+9)' },
-  { value: 'Asia/Singapore', label: '🇸🇬 Asia/Singapore (SGT - UTC+8)' },
-  { value: 'Australia/Sydney', label: '🇦🇺 Australia/Sydney (AEST/AEDT - UTC+10/+11)' },
+export interface TimezoneOption {
+  value: string;
+  label: string;
+  region: string;
+  offset?: string;
+  country?: string;
+}
+
+const DEFAULT_TIMEZONE_OPTIONS: TimezoneOption[] = [
+  // South Asia & Gulf
+  { value: 'Asia/Karachi', label: '🇵🇰 Asia/Karachi (PKT - UTC+5)', region: 'South Asia & Gulf', offset: 'UTC+5', country: 'Pakistan' },
+  { value: 'Asia/Kolkata', label: '🇮🇳 Asia/Kolkata (IST - UTC+5:30)', region: 'South Asia & Gulf', offset: 'UTC+5:30', country: 'India' },
+  { value: 'Asia/Dhaka', label: '🇧🇩 Asia/Dhaka (BST - UTC+6)', region: 'South Asia & Gulf', offset: 'UTC+6', country: 'Bangladesh' },
+  { value: 'Asia/Colombo', label: '🇱🇰 Asia/Colombo (SLST - UTC+5:30)', region: 'South Asia & Gulf', offset: 'UTC+5:30', country: 'Sri Lanka' },
+  { value: 'Asia/Kathmandu', label: '🇳🇵 Asia/Kathmandu (NPT - UTC+5:45)', region: 'South Asia & Gulf', offset: 'UTC+5:45', country: 'Nepal' },
+  { value: 'Asia/Dubai', label: '🇦🇪 Asia/Dubai (GST - UTC+4)', region: 'South Asia & Gulf', offset: 'UTC+4', country: 'United Arab Emirates' },
+  { value: 'Asia/Riyadh', label: '🇸🇦 Asia/Riyadh (AST - UTC+3)', region: 'South Asia & Gulf', offset: 'UTC+3', country: 'Saudi Arabia' },
+  { value: 'Asia/Qatar', label: '🇶🇦 Asia/Qatar (AST - UTC+3)', region: 'South Asia & Gulf', offset: 'UTC+3', country: 'Qatar' },
+  { value: 'Asia/Kuwait', label: '🇰🇼 Asia/Kuwait (AST - UTC+3)', region: 'South Asia & Gulf', offset: 'UTC+3', country: 'Kuwait' },
+  { value: 'Asia/Muscat', label: '🇴🇲 Asia/Muscat (GST - UTC+4)', region: 'South Asia & Gulf', offset: 'UTC+4', country: 'Oman' },
+  { value: 'Asia/Bahrain', label: '🇧🇭 Asia/Bahrain (AST - UTC+3)', region: 'South Asia & Gulf', offset: 'UTC+3', country: 'Bahrain' },
+
+  // East & Southeast Asia
+  { value: 'Asia/Singapore', label: '🇸🇬 Asia/Singapore (SGT - UTC+8)', region: 'East & Southeast Asia', offset: 'UTC+8', country: 'Singapore' },
+  { value: 'Asia/Kuala_Lumpur', label: '🇲🇾 Asia/Kuala_Lumpur (MYT - UTC+8)', region: 'East & Southeast Asia', offset: 'UTC+8', country: 'Malaysia' },
+  { value: 'Asia/Bangkok', label: '🇹🇭 Asia/Bangkok (ICT - UTC+7)', region: 'East & Southeast Asia', offset: 'UTC+7', country: 'Thailand' },
+  { value: 'Asia/Jakarta', label: '🇮🇩 Asia/Jakarta (WIB - UTC+7)', region: 'East & Southeast Asia', offset: 'UTC+7', country: 'Indonesia' },
+  { value: 'Asia/Makassar', label: '🇮🇩 Asia/Makassar (WITA - UTC+8)', region: 'East & Southeast Asia', offset: 'UTC+8', country: 'Indonesia' },
+  { value: 'Asia/Manila', label: '🇵🇭 Asia/Manila (PST/PHT - UTC+8)', region: 'East & Southeast Asia', offset: 'UTC+8', country: 'Philippines' },
+  { value: 'Asia/Ho_Chi_Minh', label: '🇻🇳 Asia/Ho_Chi_Minh (ICT - UTC+7)', region: 'East & Southeast Asia', offset: 'UTC+7', country: 'Vietnam' },
+  { value: 'Asia/Shanghai', label: '🇨🇳 Asia/Shanghai (CST - UTC+8)', region: 'East & Southeast Asia', offset: 'UTC+8', country: 'China' },
+  { value: 'Asia/Hong_Kong', label: '🇭🇰 Asia/Hong_Kong (HKT - UTC+8)', region: 'East & Southeast Asia', offset: 'UTC+8', country: 'Hong Kong' },
+  { value: 'Asia/Taipei', label: '🇹🇼 Asia/Taipei (CST - UTC+8)', region: 'East & Southeast Asia', offset: 'UTC+8', country: 'Taiwan' },
+  { value: 'Asia/Tokyo', label: '🇯🇵 Asia/Tokyo (JST - UTC+9)', region: 'East & Southeast Asia', offset: 'UTC+9', country: 'Japan' },
+  { value: 'Asia/Seoul', label: '🇰🇷 Asia/Seoul (KST - UTC+9)', region: 'East & Southeast Asia', offset: 'UTC+9', country: 'South Korea' },
+
+  // Central & West Asia
+  { value: 'Asia/Baku', label: '🇦🇿 Asia/Baku (AZT - UTC+4)', region: 'Central & West Asia', offset: 'UTC+4', country: 'Azerbaijan' },
+  { value: 'Asia/Tashkent', label: '🇺🇿 Asia/Tashkent (UZT - UTC+5)', region: 'Central & West Asia', offset: 'UTC+5', country: 'Uzbekistan' },
+  { value: 'Asia/Almaty', label: '🇰🇿 Asia/Almaty (ALMT - UTC+5)', region: 'Central & West Asia', offset: 'UTC+5', country: 'Kazakhstan' },
+  { value: 'Europe/Istanbul', label: '🇹🇷 Europe/Istanbul (TRT - UTC+3)', region: 'Central & West Asia', offset: 'UTC+3', country: 'Turkey' },
+  { value: 'Asia/Jerusalem', label: '🇮🇱 Asia/Jerusalem (IST/IDT - UTC+2/+3)', region: 'Central & West Asia', offset: 'UTC+2', country: 'Israel' },
+  { value: 'Asia/Beirut', label: '🇱🇧 Asia/Beirut (EET/EEST - UTC+2/+3)', region: 'Central & West Asia', offset: 'UTC+2', country: 'Lebanon' },
+
+  // Europe & UK
+  { value: 'Europe/London', label: '🇬🇧 Europe/London (GMT/BST - UTC+0/+1)', region: 'Europe & UK', offset: 'UTC+0', country: 'United Kingdom' },
+  { value: 'Europe/Dublin', label: '🇮🇪 Europe/Dublin (IST/GMT - UTC+0/+1)', region: 'Europe & UK', offset: 'UTC+0', country: 'Ireland' },
+  { value: 'Europe/Paris', label: '🇫🇷 Europe/Paris (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'France' },
+  { value: 'Europe/Berlin', label: '🇩🇪 Europe/Berlin (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Germany' },
+  { value: 'Europe/Rome', label: '🇮🇹 Europe/Rome (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Italy' },
+  { value: 'Europe/Madrid', label: '🇪🇸 Europe/Madrid (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Spain' },
+  { value: 'Europe/Amsterdam', label: '🇳🇱 Europe/Amsterdam (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Netherlands' },
+  { value: 'Europe/Brussels', label: '🇧🇪 Europe/Brussels (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Belgium' },
+  { value: 'Europe/Zurich', label: '🇨🇭 Europe/Zurich (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Switzerland' },
+  { value: 'Europe/Vienna', label: '🇦🇹 Europe/Vienna (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Austria' },
+  { value: 'Europe/Stockholm', label: '🇸🇪 Europe/Stockholm (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Sweden' },
+  { value: 'Europe/Oslo', label: '🇳🇴 Europe/Oslo (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Norway' },
+  { value: 'Europe/Copenhagen', label: '🇩🇰 Europe/Copenhagen (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Denmark' },
+  { value: 'Europe/Helsinki', label: '🇫🇮 Europe/Helsinki (EET/EEST - UTC+2/+3)', region: 'Europe & UK', offset: 'UTC+2', country: 'Finland' },
+  { value: 'Europe/Warsaw', label: '🇵🇱 Europe/Warsaw (CET/CEST - UTC+1/+2)', region: 'Europe & UK', offset: 'UTC+1', country: 'Poland' },
+  { value: 'Europe/Athens', label: '🇬🇷 Europe/Athens (EET/EEST - UTC+2/+3)', region: 'Europe & UK', offset: 'UTC+2', country: 'Greece' },
+  { value: 'Europe/Lisbon', label: '🇵🇹 Europe/Lisbon (WET/WEST - UTC+0/+1)', region: 'Europe & UK', offset: 'UTC+0', country: 'Portugal' },
+  { value: 'Europe/Moscow', label: '🇷🇺 Europe/Moscow (MSK - UTC+3)', region: 'Europe & UK', offset: 'UTC+3', country: 'Russia' },
+
+  // Americas
+  { value: 'America/New_York', label: '🇺🇸 America/New_York (EST/EDT - UTC-5/-4)', region: 'Americas', offset: 'UTC-5', country: 'United States' },
+  { value: 'America/Chicago', label: '🇺🇸 America/Chicago (CST/CDT - UTC-6/-5)', region: 'Americas', offset: 'UTC-6', country: 'United States' },
+  { value: 'America/Denver', label: '🇺🇸 America/Denver (MST/MDT - UTC-7/-6)', region: 'Americas', offset: 'UTC-7', country: 'United States' },
+  { value: 'America/Phoenix', label: '🇺🇸 America/Phoenix (MST - UTC-7)', region: 'Americas', offset: 'UTC-7', country: 'United States' },
+  { value: 'America/Los_Angeles', label: '🇺🇸 America/Los_Angeles (PST/PDT - UTC-8/-7)', region: 'Americas', offset: 'UTC-8', country: 'United States' },
+  { value: 'America/Anchorage', label: '🇺🇸 America/Anchorage (AKST/AKDT - UTC-9/-8)', region: 'Americas', offset: 'UTC-9', country: 'United States' },
+  { value: 'Pacific/Honolulu', label: '🇺🇸 Pacific/Honolulu (HST - UTC-10)', region: 'Americas', offset: 'UTC-10', country: 'United States' },
+  { value: 'America/Toronto', label: '🇨🇦 America/Toronto (EST/EDT - UTC-5/-4)', region: 'Americas', offset: 'UTC-5', country: 'Canada' },
+  { value: 'America/Vancouver', label: '🇨🇦 America/Vancouver (PST/PDT - UTC-8/-7)', region: 'Americas', offset: 'UTC-8', country: 'Canada' },
+  { value: 'America/Edmonton', label: '🇨🇦 America/Edmonton (MST/MDT - UTC-7/-6)', region: 'Americas', offset: 'UTC-7', country: 'Canada' },
+  { value: 'America/Halifax', label: '🇨🇦 America/Halifax (AST/ADT - UTC-4/-3)', region: 'Americas', offset: 'UTC-4', country: 'Canada' },
+  { value: 'America/Mexico_City', label: '🇲🇽 America/Mexico_City (CST - UTC-6)', region: 'Americas', offset: 'UTC-6', country: 'Mexico' },
+  { value: 'America/Bogota', label: '🇨🇴 America/Bogota (COT - UTC-5)', region: 'Americas', offset: 'UTC-5', country: 'Colombia' },
+  { value: 'America/Lima', label: '🇵🇪 America/Lima (PET - UTC-5)', region: 'Americas', offset: 'UTC-5', country: 'Peru' },
+  { value: 'America/Sao_Paulo', label: '🇧🇷 America/Sao_Paulo (BRT - UTC-3)', region: 'Americas', offset: 'UTC-3', country: 'Brazil' },
+  { value: 'America/Buenos_Aires', label: '🇦🇷 America/Buenos_Aires (ART - UTC-3)', region: 'Americas', offset: 'UTC-3', country: 'Argentina' },
+  { value: 'America/Santiago', label: '🇨🇱 America/Santiago (CLT/CLST - UTC-4/-3)', region: 'Americas', offset: 'UTC-4', country: 'Chile' },
+
+  // Africa
+  { value: 'Africa/Cairo', label: '🇪🇬 Africa/Cairo (EET/EEST - UTC+2/+3)', region: 'Africa', offset: 'UTC+2', country: 'Egypt' },
+  { value: 'Africa/Johannesburg', label: '🇿🇦 Africa/Johannesburg (SAST - UTC+2)', region: 'Africa', offset: 'UTC+2', country: 'South Africa' },
+  { value: 'Africa/Lagos', label: '🇳🇬 Africa/Lagos (WAT - UTC+1)', region: 'Africa', offset: 'UTC+1', country: 'Nigeria' },
+  { value: 'Africa/Nairobi', label: '🇰🇪 Africa/Nairobi (EAT - UTC+3)', region: 'Africa', offset: 'UTC+3', country: 'Kenya' },
+  { value: 'Africa/Casablanca', label: '🇲🇦 Africa/Casablanca (WET/WEST - UTC+1)', region: 'Africa', offset: 'UTC+1', country: 'Morocco' },
+  { value: 'Africa/Accra', label: '🇬🇭 Africa/Accra (GMT - UTC+0)', region: 'Africa', offset: 'UTC+0', country: 'Ghana' },
+  { value: 'Africa/Addis_Ababa', label: '🇪🇹 Africa/Addis_Ababa (EAT - UTC+3)', region: 'Africa', offset: 'UTC+3', country: 'Ethiopia' },
+
+  // Australia & Pacific
+  { value: 'Australia/Sydney', label: '🇦🇺 Australia/Sydney (AEST/AEDT - UTC+10/+11)', region: 'Australia & Pacific', offset: 'UTC+10', country: 'Australia' },
+  { value: 'Australia/Melbourne', label: '🇦🇺 Australia/Melbourne (AEST/AEDT - UTC+10/+11)', region: 'Australia & Pacific', offset: 'UTC+10', country: 'Australia' },
+  { value: 'Australia/Brisbane', label: '🇦🇺 Australia/Brisbane (AEST - UTC+10)', region: 'Australia & Pacific', offset: 'UTC+10', country: 'Australia' },
+  { value: 'Australia/Adelaide', label: '🇦🇺 Australia/Adelaide (ACST/ACDT - UTC+9:30/+10:30)', region: 'Australia & Pacific', offset: 'UTC+9:30', country: 'Australia' },
+  { value: 'Australia/Perth', label: '🇦🇺 Australia/Perth (AWST - UTC+8)', region: 'Australia & Pacific', offset: 'UTC+8', country: 'Australia' },
+  { value: 'Pacific/Auckland', label: '🇳🇿 Pacific/Auckland (NZST/NZDT - UTC+12/+13)', region: 'Australia & Pacific', offset: 'UTC+12', country: 'New Zealand' },
+  { value: 'Pacific/Fiji', label: '🇫🇯 Pacific/Fiji (FJT - UTC+12)', region: 'Australia & Pacific', offset: 'UTC+12', country: 'Fiji' },
+
+  // UTC / Universal
+  { value: 'UTC', label: '🌐 UTC (Coordinated Universal Time - UTC+0)', region: 'UTC / Universal', offset: 'UTC+0', country: 'Global' },
 ];
 
 // ─── Create job form ──────────────────────────────────────────────
@@ -98,13 +186,57 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
   const [schedule, setSchedule] = useState('');
   const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Karachi');
   const [isCustomTz, setIsCustomTz] = useState(false);
+  const [timezoneOptions, setTimezoneOptions] = useState<TimezoneOption[]>(DEFAULT_TIMEZONE_OPTIONS);
+  const [tzFilter, setTzFilter] = useState('');
   const [message, setMessage] = useState('');
   const [confirmOnFire, setConfirmOnFire] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // Dynamic timezone discovery from backend
+  useEffect(() => {
+    let unmounted = false;
+    fetch(`${API_BASE}/skills/schedule_job/timezones`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!unmounted && data.success && Array.isArray(data.timezones) && data.timezones.length > 0) {
+          setTimezoneOptions(data.timezones);
+        }
+      })
+      .catch(() => {
+        // Fallback already pre-set to DEFAULT_TIMEZONE_OPTIONS
+      });
+    return () => {
+      unmounted = true;
+    };
+  }, []);
+
   const parsedSchedule = parseNaturalSchedule(schedule);
+
+  // Filtered and grouped timezones
+  const filteredTzOptions = useMemo(() => {
+    if (!tzFilter.trim()) return timezoneOptions;
+    const q = tzFilter.trim().toLowerCase();
+    return timezoneOptions.filter(
+      (opt) =>
+        opt.value.toLowerCase().includes(q) ||
+        opt.label.toLowerCase().includes(q) ||
+        (opt.region && opt.region.toLowerCase().includes(q)) ||
+        (opt.country && opt.country.toLowerCase().includes(q)) ||
+        (opt.offset && opt.offset.toLowerCase().includes(q))
+    );
+  }, [timezoneOptions, tzFilter]);
+
+  const groupedTimezones = useMemo(() => {
+    const groups: Record<string, TimezoneOption[]> = {};
+    for (const opt of filteredTzOptions) {
+      const reg = opt.region || 'Other';
+      if (!groups[reg]) groups[reg] = [];
+      groups[reg].push(opt);
+    }
+    return groups;
+  }, [filteredTzOptions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,7 +308,7 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
         </label>
         <label className="sjp-create-form__label">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Timezone *</span>
+            <span>Timezone ({timezoneOptions.length} routes) *</span>
             <button
               type="button"
               onClick={() => setIsCustomTz((c) => !c)}
@@ -203,21 +335,35 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
               required
             />
           ) : (
-            <select
-              className="sjp-create-form__input"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              required
-            >
-              {!TIMEZONE_OPTIONS.some((o) => o.value === timezone) && (
-                <option value={timezone}>{timezone} (Detected Local)</option>
-              )}
-              {TIMEZONE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <input
+                type="text"
+                className="sjp-create-form__input"
+                style={{ fontSize: '0.8rem', padding: '0.35rem 0.6rem' }}
+                placeholder="🔍 Search city, country, or code…"
+                value={tzFilter}
+                onChange={(e) => setTzFilter(e.target.value)}
+              />
+              <select
+                className="sjp-create-form__input"
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                required
+              >
+                {!timezoneOptions.some((o) => o.value === timezone) && (
+                  <option value={timezone}>{timezone} (Detected Local)</option>
+                )}
+                {(Object.entries(groupedTimezones) as [string, TimezoneOption[]][]).map(([region, opts]) => (
+                  <optgroup key={region} label={`🌍 ${region} (${opts.length})`}>
+                    {opts.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
           )}
         </label>
       </div>

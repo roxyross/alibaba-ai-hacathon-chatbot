@@ -424,6 +424,67 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     setDraftContent(content);
   }, [content]);
 
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  React.useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const handleReadAloud = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      alert('Text-to-speech is not supported in this browser.');
+      return;
+    }
+
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    // Clean text of markdown formatting for natural, fluent speech
+    const textToSpeak = displayContent
+      .replace(/```[\s\S]*?```/g, 'Code block omitted.')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/[*#_~>\[\]]/g, '')
+      .replace(/\(http[^\)]+\)/g, '')
+      .trim();
+
+    if (!textToSpeak) return;
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+
+    // Language awareness: Urdu, Hindi, Arabic, or default voice
+    const voices = window.speechSynthesis.getVoices();
+    const hasUrdu = /[\u0600-\u06FF]/.test(textToSpeak);
+    const hasHindi = /[\u0900-\u097F]/.test(textToSpeak);
+
+    if (hasUrdu) {
+      const urVoice = voices.find((v) => v.lang.startsWith('ur') || v.lang.startsWith('ar'));
+      if (urVoice) utterance.voice = urVoice;
+      utterance.lang = 'ur-PK';
+    } else if (hasHindi) {
+      const hiVoice = voices.find((v) => v.lang.startsWith('hi'));
+      if (hiVoice) utterance.voice = hiVoice;
+      utterance.lang = 'hi-IN';
+    }
+
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(displayContent);
@@ -491,6 +552,26 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               </div>
 
               <div className="chat-message__topbar-right">
+                <button
+                  type="button"
+                  className={`chat-message__icon-btn ${isSpeaking ? 'chat-message__icon-btn--speaking' : ''}`}
+                  onClick={handleReadAloud}
+                  title={isSpeaking ? "Stop reading aloud" : "Read aloud (text-to-speech)"}
+                  aria-label={isSpeaking ? "Stop reading aloud" : "Read aloud"}
+                >
+                  {isSpeaking ? (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                      <rect x="6" y="6" width="12" height="12" rx="2" />
+                    </svg>
+                  ) : (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                    </svg>
+                  )}
+                </button>
+
                 <button
                   type="button"
                   className="chat-message__icon-btn"
@@ -601,6 +682,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
             <div className="chat-message__modal-header">
               <span className="chat-message__modal-title">Expanded Response</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <button type="button" className="chat-message__modal-action-btn" onClick={handleReadAloud}>
+                  {isSpeaking ? '⏹ Stop' : '🔊 Read aloud'}
+                </button>
                 <button type="button" className="chat-message__modal-action-btn" onClick={handleCopy}>
                   {copied ? '✓ Copied' : 'Copy'}
                 </button>
