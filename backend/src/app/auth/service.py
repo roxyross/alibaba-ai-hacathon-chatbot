@@ -43,8 +43,8 @@ class MagicLinkService:
         self._mem_users = _MEM_USERS
         self._mem_tokens = _MEM_TOKENS
 
-    async def request_link(self, email: str) -> None:
-        """Create-or-fetch user, mint a magic link token, email it."""
+    async def request_link(self, email: str) -> str:
+        """Create-or-fetch user, mint a magic link token, email it. Returns the token."""
         factory = get_session_factory()
         token_value = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(
