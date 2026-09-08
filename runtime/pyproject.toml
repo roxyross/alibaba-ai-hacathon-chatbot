@@ -1,0 +1,94 @@
+[project]
+name = "roxy-runtime"
+version = "0.1.0"
+description = "ROXY JARVIS multi-agent runtime coordinator"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "ROXY JARVIS Team" }]
+edition = "2025"
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+    "httpx>=0.27.0",
+    "python-frontmatter>=1.1.0",
+    "structlog>=24.0.0",
+    "pyjwt>=2.9.0",
+    "apscheduler>=3.10.0",
+    # Voice — pinned to 2.x series for Python 3.12–3.14 compatibility;
+    # 6.x of speech and 3.x of texttospeech require Python 3.15+.
+    # Re-enable 6.x/3.x when the runtime ships on Python 3.15+.
+    "google-cloud-speech>=2.25.0,<3.0.0",
+    "google-cloud-texttospeech>=2.7.0,<3.0.0",
+    # RAG
+    "pgvector>=0.3.0",
+    "google-genai>=0.8.0",
+    # Email
+    "google-api-python-client>=2.100.0",
+    # Document parsing
+    "pypdf>=5.0.0",
+    "python-docx>=1.0.0",
+    "python-pptx>=1.0.0",
+    "unstructured>=0.16.0",
+    "pillow>=10.0.0",
+    "pytesseract>=0.3.10",
+    # Media processing
+    "moviepy>=1.0.3",
+    "aiofiles>=23.0.0",
+    # Async
+    "asyncpg>=0.29.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "colorama>=0.4.0",
+    "chardet>=5.0.0",
+    # Browser automation
+    "playwright>=1.40.0",
+    "markdown>=3.0",
+    "email-validator>=2.0",
+    "python-multipart>=0.0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-mock>=3.14.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+    "respx>=0.21.0",
+    "httpx>=0.27.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/runtime"]
+
+[tool.hatch.build.targets.wheel.scripts]
+roxy-runtime = "runtime.main:run"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]

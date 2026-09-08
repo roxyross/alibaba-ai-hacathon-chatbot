@@ -70,7 +70,8 @@ frontend/node_modules/
 runtime/.venv/
 
 # Separate runtime package (runs on :8001, different FastAPI app)
-runtime/
+# runtime/ source is tracked; its venv and caches are ignored
+runtime/.venv/
 
 # Test artifacts and stray files
 chat_result.json
