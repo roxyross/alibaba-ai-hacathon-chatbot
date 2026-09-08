@@ -71,10 +71,18 @@ export function useSessions() {
 
   const remove = useCallback(
     async (id: string): Promise<void> => {
-      await authedFetch<void>(`/sessions/${id}`, { method: 'DELETE' });
+      // Optimistic update: remove immediately so UI updates in 0ms
       setSessions((prev) => prev.filter((s) => s.id !== id));
+      try {
+        await authedFetch<void>(`/sessions/${id}`, { method: 'DELETE' });
+      } catch (err) {
+        console.error('Failed to delete session on server:', err);
+        // Rollback/refresh on error
+        void refresh();
+        throw err;
+      }
     },
-    [authedFetch],
+    [authedFetch, refresh],
   );
 
   return { sessions, loading, error, refresh, create, rename, remove };

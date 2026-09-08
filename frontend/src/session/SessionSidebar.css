@@ -232,14 +232,9 @@
   background: var(--color-border);
 }
 
-.session-sidebar__icon--confirm-delete {
-  color: #ff5555 !important;
-  font-weight: 700;
-  font-size: 0.75rem;
-  background: rgba(255, 85, 85, 0.2) !important;
-  border: 1px solid rgba(255, 85, 85, 0.4);
-  border-radius: 0.35rem;
-  padding: 0.2rem 0.45rem;
+.session-sidebar__icon--delete:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
 }
 
 .session-sidebar__rename {

@@ -28,7 +28,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const { sessions, loading, error, rename, remove } = useSessions();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Filter sessions strictly by selected mode (chat vs task)
   const filteredSessions = sessions.filter((s) => {
@@ -170,7 +169,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         {filteredSessions.map((s) => {
           const isActive = s.id === activeSessionId;
           const isRenaming = renamingId === s.id;
-          const isConfirmingDelete = confirmDeleteId === s.id;
 
           return (
             <li
@@ -234,26 +232,22 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                 )}
                 <button
                   type="button"
-                  className={`session-sidebar__icon${isConfirmingDelete ? ' session-sidebar__icon--confirm-delete' : ''}`}
-                  title={isConfirmingDelete ? 'Click again to confirm deletion' : 'Delete session'}
-                  aria-label={isConfirmingDelete ? 'Confirm delete' : 'Delete session'}
+                  className="session-sidebar__icon session-sidebar__icon--delete"
+                  title="Delete session"
+                  aria-label="Delete session"
                   onClick={async (e) => {
                     e.stopPropagation();
-                    if (!isConfirmingDelete) {
-                      setConfirmDeleteId(s.id);
-                      setTimeout(() => setConfirmDeleteId((prev) => (prev === s.id ? null : prev)), 3500);
-                      return;
+                    if (isActive) {
+                      onNewChat();
                     }
                     try {
                       await remove(s.id);
-                      setConfirmDeleteId(null);
-                      if (isActive) onNewChat();
                     } catch (err) {
                       console.error('Failed to delete session:', err);
                     }
                   }}
                 >
-                  {isConfirmingDelete ? 'Delete?' : '✕'}
+                  ✕
                 </button>
               </div>
             </li>

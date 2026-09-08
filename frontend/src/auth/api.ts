@@ -37,7 +37,18 @@ async function readJson<T>(res: Response): Promise<T> {
     const text = await res.text().catch(() => '');
     throw new Error(`${res.status} ${res.statusText || ''} ${text}`.trim());
   }
-  return (await res.json()) as T;
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as unknown as T;
+  }
+  const text = await res.text();
+  if (!text || !text.trim()) {
+    return undefined as unknown as T;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return undefined as unknown as T;
+  }
 }
 
 export async function fetchWithToken<T>(
