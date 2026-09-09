@@ -18,6 +18,8 @@ GitHub's token endpoint, /user, and /user/emails are mocked via respx.
 
 from __future__ import annotations
 
+import base64
+import json
 import sys
 from typing import Any
 
@@ -232,9 +234,6 @@ async def test_callback_rejects_when_user_emails_empty(async_client) -> None:
 
 async def test_repeated_github_login_reuses_same_user(async_client) -> None:
     """Same email via GitHub twice → same user_id. Account linking by email."""
-    import base64
-    import json
-
     with respx.mock(assert_all_called=False) as mock:
         _stub_github(
             mock,
@@ -262,7 +261,8 @@ async def test_repeated_github_login_reuses_same_user(async_client) -> None:
             )["access_token"]
             payload_b64 = tok.split(".")[1]
             payload_b64 += "=" * (-len(payload_b64) % 4)
-            return json.loads(base64.urlsafe_b64decode(payload_b64))["sub"]
+            payload_data = json.loads(base64.urlsafe_b64decode(payload_b64))
+            return str(payload_data["sub"])
 
         sub_1 = _sub_from_frag(await _one_login())
         sub_2 = _sub_from_frag(await _one_login())

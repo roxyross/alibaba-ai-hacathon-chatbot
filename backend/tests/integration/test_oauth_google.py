@@ -22,15 +22,17 @@ end-to-end (i.e., not stubbed).
 
 from __future__ import annotations
 
+import base64
+import json
 import sys
 import time
 from typing import Any
 
+import jwt
 import pytest
 import respx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import jwt
 
 # Make `app` importable when running from backend/ root.
 sys.path.insert(0, "src")
@@ -53,7 +55,6 @@ def rsa_keypair() -> tuple[rsa.RSAPrivateKey, dict[str, Any]]:
     public_numbers = private_key.public_key().public_numbers()
 
     def _b64uint(value: int) -> str:
-        import base64
         byte_length = (value.bit_length() + 7) // 8
         return base64.urlsafe_b64encode(value.to_bytes(byte_length, "big")).rstrip(b"=").decode()
 
@@ -297,9 +298,6 @@ async def test_repeated_oauth_login_reuses_same_user(
     async_client, rsa_keypair
 ) -> None:
     """Same email via OAuth twice → same user_id. Account linking by email."""
-    import base64
-    import json
-
     private_key, jwks = rsa_keypair
     id_token = _sign_id_token(private_key, email="carol@example.com")
     with respx.mock(assert_all_called=False) as mock:
@@ -327,7 +325,8 @@ async def test_repeated_oauth_login_reuses_same_user(
             )["access_token"]
             payload_b64 = tok.split(".")[1]
             payload_b64 += "=" * (-len(payload_b64) % 4)
-            return json.loads(base64.urlsafe_b64decode(payload_b64))["sub"]
+            payload_data = json.loads(base64.urlsafe_b64decode(payload_b64))
+            return str(payload_data["sub"])
 
         sub_1 = _sub_from_frag(await _one_login())
         sub_2 = _sub_from_frag(await _one_login())
