@@ -476,6 +476,7 @@ async def _github_fetch_verified_primary_email(
     emails = resp.json()
     if not isinstance(emails, list):
         raise OAuthError("user_emails_unexpected", "/user/emails did not return a list")
+    # 1. Look for primary AND verified email
     for entry in emails:
         if (
             isinstance(entry, dict)
@@ -485,8 +486,20 @@ async def _github_fetch_verified_primary_email(
             email = entry.get("email")
             if isinstance(email, str) and "@" in email:
                 return email
+
+    # 2. Fallback: check any verified email on the GitHub account
+    for entry in emails:
+        if (
+            isinstance(entry, dict)
+            and entry.get("verified") is True
+        ):
+            email = entry.get("email")
+            if isinstance(email, str) and "@" in email:
+                return email
+
     log.warning("auth.oauth.github.email_unverified")
     raise OAuthError("email_unverified", "No primary+verified email on GitHub account")
+
 
 
 async def complete_github_callback(
