@@ -1,7 +1,7 @@
 // EmailSendPanel — compose and send emails via the email_send skill
 
 import React, { useState } from 'react';
-import { VoiceInputControl } from '../common/VoiceInputControl';
+import { VoiceInputControl, speakVoiceText } from '../common/VoiceInputControl';
 import './EmailSendPanel.css';
 
 
@@ -121,8 +121,10 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           sentAt: result.sent_at ?? new Date().toISOString(),
           to: to.trim(),
         });
+        void speakVoiceText(`Email dispatched successfully to ${to.trim()}`);
       } else if (result.error) {
         setError(result.error);
+        void speakVoiceText(`Email send failed: ${result.error}`);
       }
     } catch (err: unknown) {
       const error = err as { data?: { detail?: string }; message?: string };
@@ -134,9 +136,11 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           `Send email to "${to.trim()}": "${subject.trim()}"`
         );
         setError('Confirmation required — please confirm in the dialog.');
+        void speakVoiceText('Confirmation required before sending this email.');
       } else {
         const msg = (err as Error).message ?? 'Failed to send email';
         setError(msg);
+        void speakVoiceText(`Email failed: ${msg}`);
       }
     } finally {
       setSubmitting(false);
@@ -159,8 +163,12 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           <VoiceInputControl
             size="sm"
             showLangPicker={true}
-            showReadAloud={Boolean(body || subject)}
-            readAloudText={subject ? `Subject: ${subject}. Message: ${body}` : body}
+            showReadAloud={true}
+            readAloudText={
+              subject || body
+                ? (subject ? `Subject: ${subject}. Message: ${body}` : body)
+                : 'Compose an email or click the microphone to dictate.'
+            }
             onTranscript={(spoken) => {
               if (!subject) setSubject(spoken);
               else setBody((prev) => (prev ? `${prev}\n${spoken}` : spoken));

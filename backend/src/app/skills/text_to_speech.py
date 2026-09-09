@@ -8,6 +8,8 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
+import wave
 import structlog
 
 from app.skills.base import SkillExecutor
@@ -15,6 +17,21 @@ from app.skills.schemas import TextToSpeechRequest, TextToSpeechResponse
 
 
 log = structlog.get_logger()
+
+
+def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 24000, channels: int = 1, sample_width: int = 2) -> bytes:
+    """Wrap raw 16-bit linear PCM audio into a standard RIFF/WAV container."""
+    if pcm_bytes.startswith(b"RIFF"):
+        return pcm_bytes
+    if pcm_bytes.startswith(b"ID3") or (len(pcm_bytes) > 2 and pcm_bytes[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")):
+        return pcm_bytes
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(sample_width)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm_bytes)
+    return buf.getvalue()
 
 
 class TextToSpeechSkill(SkillExecutor[TextToSpeechRequest, TextToSpeechResponse]):
@@ -85,8 +102,7 @@ class TextToSpeechSkill(SkillExecutor[TextToSpeechRequest, TextToSpeechResponse]
         models_to_try = [
             "gemini-2.5-flash-preview-tts",
             "gemini-3.1-flash-tts-preview",
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
+            "gemini-2.5-pro-preview-tts",
         ]
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -119,10 +135,15 @@ class TextToSpeechSkill(SkillExecutor[TextToSpeechRequest, TextToSpeechResponse]
                                 inline_data = part.get("inlineData", {})
                                 if inline_data and "data" in inline_data:
                                     raw_b64 = inline_data["data"]
-                                    mime = inline_data.get("mimeType", "audio/mp3")
-                                    fmt = "wav" if "wav" in mime else "mp3"
-                                    duration = len(raw_b64) / (16_000 * 2) * 0.75
-                                    return raw_b64, fmt, round(duration, 1)
+                                    mime = inline_data.get("mimeType", "audio/pcm;rate=24000")
+                                    rate_match = re.search(r"rate=(\d+)", mime)
+                                    sample_rate = int(rate_match.group(1)) if rate_match else 24000
+
+                                    pcm_bytes = base64.b64decode(raw_b64)
+                                    wav_bytes = _pcm_to_wav(pcm_bytes, sample_rate=sample_rate)
+                                    wav_b64 = base64.b64encode(wav_bytes).decode("utf-8")
+                                    duration = len(pcm_bytes) / (sample_rate * 2)
+                                    return wav_b64, "wav", round(duration, 1)
                 except Exception as exc:
                     log.warning("gemini_tts.model_attempt_failed", model=gemini_model, error=str(exc))
                     continue

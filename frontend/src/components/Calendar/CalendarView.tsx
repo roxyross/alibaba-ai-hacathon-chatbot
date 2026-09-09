@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { VoiceInputControl } from '../common/VoiceInputControl';
+import { VoiceInputControl, speakVoiceText } from '../common/VoiceInputControl';
 import './CalendarView.css';
 
 
@@ -188,6 +188,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     setNewEventSummary('');
     setNewEventDescription('');
     setShowAddModal(false);
+    void speakVoiceText(`Event added: ${newEvt.summary} on ${newEventDate}`);
   };
 
   const handleDeleteEvent = (id: string) => {
@@ -202,6 +203,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       }
       return next;
     });
+    void speakVoiceText('Event removed from calendar');
   };
 
   // Events on the currently selected date
@@ -252,7 +254,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <VoiceInputControl
             size="sm"
             showLangPicker={true}
-            showReadAloud={selectedDateEvents.length > 0}
+            showReadAloud={true}
             readAloudText={
               selectedDateEvents.length > 0
                 ? `Events for ${selectedDate}: ${selectedDateEvents

@@ -1,21 +1,115 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { VoiceInputControl } from '../common/VoiceInputControl';
+import { VoiceInputControl, speakVoiceText } from '../common/VoiceInputControl';
 import './Calculator.css';
 
-function parseSpokenMath(spoken: string): string {
-  let s = spoken.toLowerCase()
-    .replace(/what is|calculate|solve/g, '')
-    .replace(/plus/g, '+')
-    .replace(/minus/g, '-')
-    .replace(/times|multiplied by/g, '*')
-    .replace(/divided by|over/g, '/')
-    .replace(/to the power of/g, '^')
-    .replace(/square root of/g, '√')
-    .replace(/percent of/g, '% *')
-    .replace(/percentage of/g, '% *')
-    .replace(/x/g, '*')
-    .replace(/[=?]/g, '')
+export function parseSpokenMath(spoken: string): string {
+  if (!spoken) return '';
+  let s = spoken.trim();
+
+  // 1. Convert Persian / Urdu / Arabic digits (۰-۹) to standard (0-9)
+  s = s.replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
+  s = s.replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+
+  // 2. Convert Devanagari / Hindi digits (०-९) to standard (0-9)
+  s = s.replace(/[\u0966-\u096F]/g, (d) => String(d.charCodeAt(0) - 0x0966));
+
+  // 3. Lowercase for word matching
+  s = s.toLowerCase();
+
+  // 4. Normalize English / Roman Urdu / Hindi spoken number words to digits
+  const wordToNumber: Record<string, string> = {
+    zero: '0', sifar: '0', shunya: '0',
+    one: '1', ek: '1',
+    two: '2', do: '2',
+    three: '3', teen: '3',
+    four: '4', char: '4', chaar: '4',
+    five: '5', paanch: '5', panch: '5',
+    six: '6', chhe: '6', che: '6',
+    seven: '7', saat: '7',
+    eight: '8', aath: '8',
+    nine: '9', nau: '9', no: '9',
+    ten: '10', das: '10',
+    eleven: '11', gyarah: '11',
+    twelve: '12', barah: '12',
+    thirteen: '13', terah: '13',
+    fourteen: '14', chaudah: '14',
+    fifteen: '15', pandrah: '15',
+    sixteen: '16', solah: '16',
+    seventeen: '17', satrah: '17',
+    eighteen: '18', atharah: '18',
+    nineteen: '19', unnis: '19',
+    twenty: '20', bees: '20',
+    thirty: '30', tees: '30',
+    forty: '40', chalis: '40',
+    fifty: '50', pachas: '50', pachaas: '50',
+    sixty: '60', saath: '60',
+    seventy: '70', sattar: '70',
+    eighty: '80', assi: '80',
+    ninety: '90', nabbe: '90',
+    hundred: '100', sau: '100',
+    thousand: '1000', hazar: '1000', hazaar: '1000',
+  };
+
+  for (const [w, num] of Object.entries(wordToNumber)) {
+    const reg = new RegExp(`\\b${w}\\b`, 'gi');
+    s = s.replace(reg, num);
+  }
+
+  // 5. Replace mathematical operation phrases (English, Urdu, Hindi, Scripts)
+  s = s
+    // Addition
+    .replace(/\b(plus|jamah|jod|dhan|aur)\b/gi, '+')
+    .replace(/[جمع\u091C\u094B\u095C\u0927\u0928\u0914\u0930]/g, (match) => {
+      if (match === 'جمع' || match === 'اور') return '+';
+      return match;
+    })
+    .replace(/(जोड़|धन|और)/g, '+')
+
+    // Subtraction
+    .replace(/\b(minus|manfi|ghatana|ghatao|rin)\b/gi, '-')
+    .replace(/(منفی|घटाना|घटाव|ऋण)/g, '-')
+
+    // Multiplication
+    .replace(/\b(times|multiplied by|into|zarab|guna)\b/gi, '*')
+    .replace(/\bx\b/gi, '*')
+    .replace(/(ضرب|गुणा)/g, '*')
+
+    // Division
+    .replace(/\b(divided by|divide|over|taqseem|bhaag|bhag)\b/gi, '/')
+    .replace(/(تقسیم|भाग)/g, '/')
+
+    // Power
+    .replace(/\b(to the power of|power|ki taqat|ki ghaat)\b/gi, '^')
+    .replace(/(کی طاقت|की घात)/g, '^')
+
+    // Square root
+    .replace(/\b(square root of|sqrt|root of|jazar|vargmool)\b/gi, '√')
+    .replace(/(جذر|वर्गमूल)/g, '√')
+
+    // Percentage
+    .replace(/\b(percent of|percentage of|percent|percentage|feesad|pratishat)\b/gi, '% *')
+    .replace(/(فیصد|प्रतिशत)/g, '% *');
+
+  // 6. Strip filler / equality / query phrases that speech recognizers append:
+  // e.g. "equals to", "equal to", "equals", "equal", "= to", "=is", "is to", "is", "to", "total", etc.
+  s = s
+    .replace(/\b(what is|calculate|solve|batao|bataiye|kya hai|kya hoga|kitna hai|kitna hoga|kitna hua|kitna)\b/gi, '')
+    .replace(/(کیا ہے|کتنا ہوگا|کتنا ہوا|کتنا ہے|بتاؤ|बताओ|क्या है|कितना होगा|कितना हुआ|कितना है)/g, '')
+    .replace(/\b(is equal to|equals to|equal to|equals|equal|is to|=to|=is|total of|sum of|result of|total|result|answer)\b/gi, '')
+    .replace(/\b(barabar hai|barabar)\b/gi, '')
+    .replace(/(برابر ہے|برابر|बराबर है|बराबर)/g, '')
+    // Also remove trailing or stray words "is", "to", "ka", etc.
+    .replace(/\b(is|to|ka|ki|ke|ko|se)\b/gi, '')
+    .replace(/(کا|کی|کے|کو|سے|का|की|के|को|से)/g, '')
+    .replace(/[=?:\!]/g, '')
     .trim();
+
+  // 7. Clean up double spaces or spaces around operators
+  s = s.replace(/\s*([+\-*/^√%])\s*/g, ' $1 ').replace(/\s+/g, ' ').trim();
+
+  // If square root has space, e.g. "√ 25" -> "√25"
+  s = s.replace(/√\s+/g, '√');
+
   return s;
 }
 
@@ -172,6 +266,88 @@ export const Calculator: React.FC<CalculatorProps> = ({
     }
   };
 
+  // Automatically parse, evaluate, and speak math results aloud
+  const evaluateAndSpeak = async (rawSpoken: string) => {
+    const parsed = parseSpokenMath(rawSpoken);
+    if (!parsed) return;
+    setExpression(parsed);
+    setErrorMessage(null);
+
+    // 1. Try client-side evaluation first
+    try {
+      const computed = calculateClient(parsed);
+      const resStr = Number.isInteger(computed)
+        ? computed.toString()
+        : computed.toFixed(6).replace(/\.?0+$/, '');
+
+      setResult(resStr);
+      setLastSource('client');
+
+      const newItem: HistoryItem = {
+        id: Date.now().toString(),
+        expression: parsed,
+        result: resStr,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        source: 'client',
+      };
+      setHistory((prev) => [newItem, ...prev.filter((h) => h.expression !== parsed)]);
+
+      // Speak answer aloud
+      void speakVoiceText(`${parsed} equals ${resStr}`);
+      return;
+    } catch {
+      // Proceed to backend Python evaluation
+    }
+
+    // 2. Backend Python AST evaluation
+    setIsLoadingBackend(true);
+    try {
+      const pythonExpr = parsed
+        .replace(/×/g, '*')
+        .replace(/÷/g, '/')
+        .replace(/π/g, '3.1415926535')
+        .replace(/\^/g, '**');
+
+      const res = await fetch(`${API_BASE}/skills/calculator`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ expression: pythonExpr }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Backend returned HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const resVal = data.result !== null ? String(data.result) : '0';
+      setResult(resVal);
+      setLastSource('backend');
+
+      const newItem: HistoryItem = {
+        id: Date.now().toString(),
+        expression: parsed,
+        result: resVal,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        source: 'backend',
+      };
+      setHistory((prev) => [newItem, ...prev.filter((h) => h.expression !== parsed)]);
+
+      // Speak answer aloud
+      void speakVoiceText(`${parsed} equals ${resVal}`);
+    } catch (err) {
+      setErrorMessage(`Evaluation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsLoadingBackend(false);
+    }
+  };
+
   const handleKeyClick = (val: string) => {
     setErrorMessage(null);
     if (val === 'C') {
@@ -262,20 +438,7 @@ export const Calculator: React.FC<CalculatorProps> = ({
             showReadAloud={Boolean(result)}
             readAloudText={result ? `${expression} equals ${result}` : ''}
             onTranscript={(text) => {
-              const parsed = parseSpokenMath(text);
-              setExpression(parsed);
-              setTimeout(() => {
-                try {
-                  const val = calculateClient(parsed);
-                  const resStr = Number.isInteger(val)
-                    ? val.toString()
-                    : val.toFixed(6).replace(/\.?0+$/, '');
-                  setResult(resStr);
-                  setLastSource('client');
-                } catch {
-                  // user can hit equal button
-                }
-              }, 150);
+              void evaluateAndSpeak(text);
             }}
             label="Speak math expression"
           />
@@ -315,10 +478,10 @@ export const Calculator: React.FC<CalculatorProps> = ({
               />
               <VoiceInputControl
                 size="sm"
-                showReadAloud={false}
+                showReadAloud={Boolean(result)}
+                readAloudText={result ? `${expression} equals ${result}` : ''}
                 onTranscript={(text) => {
-                  const parsed = parseSpokenMath(text);
-                  setExpression(parsed);
+                  void evaluateAndSpeak(text);
                 }}
                 label="Voice math input"
               />

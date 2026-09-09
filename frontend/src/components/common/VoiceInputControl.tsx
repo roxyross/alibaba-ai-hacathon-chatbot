@@ -39,6 +39,55 @@ const API_BASE = rawApiBase.endsWith('/api/v1')
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
+/**
+ * Ensures an audio byte array has a valid container header (WAV or MP3).
+ * If raw PCM is detected, wraps it into a standard 44-byte RIFF/WAV container.
+ */
+export function ensureWavHeader(bytes: Uint8Array, sampleRate: number = 24000): { data: Uint8Array; mime: string } {
+  // Check for RIFF header (WAV)
+  if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+    return { data: bytes, mime: 'audio/wav' };
+  }
+  // Check for ID3 header (MP3)
+  if (bytes.length >= 3 && bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) {
+    return { data: bytes, mime: 'audio/mp3' };
+  }
+  // Check for MPEG sync word (MP3 frame header: 0xFF 0xE0-0xFF)
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) {
+    return { data: bytes, mime: 'audio/mp3' };
+  }
+
+  // Raw 16-bit linear PCM — synthesize standard 44-byte WAV header
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const dataSize = bytes.length;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  // RIFF identifier: "RIFF"
+  view.setUint8(0, 0x52); view.setUint8(1, 0x49); view.setUint8(2, 0x46); view.setUint8(3, 0x46);
+  view.setUint32(4, 36 + dataSize, true);
+  // WAVE identifier: "WAVE"
+  view.setUint8(8, 0x57); view.setUint8(9, 0x41); view.setUint8(10, 0x56); view.setUint8(11, 0x45);
+  // 'fmt ' chunk
+  view.setUint8(12, 0x66); view.setUint8(13, 0x6d); view.setUint8(14, 0x74); view.setUint8(15, 0x20);
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  // 'data' chunk
+  view.setUint8(36, 0x64); view.setUint8(37, 0x61); view.setUint8(38, 0x74); view.setUint8(39, 0x61);
+  view.setUint32(40, dataSize, true);
+
+  new Uint8Array(buffer, 44).set(bytes);
+  return { data: new Uint8Array(buffer), mime: 'audio/wav' };
+}
+
 export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
   onTranscript,
   readAloudText,
@@ -248,19 +297,33 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
         setIsPlayingAudio(false);
         return;
       }
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(textToSpeak.replace(/[*#`_\[\]()]/g, ''));
-      if (/[\u0600-\u06FF]/.test(textToSpeak)) {
-        utterance.lang = 'ur-PK';
-      } else if (/[\u0900-\u097F]/.test(textToSpeak)) {
-        utterance.lang = 'hi-IN';
-      } else if (lang !== 'auto') {
-        const active = VOICE_LANGS.find((l) => l.code === lang);
-        if (active?.speechLang) utterance.lang = active.speechLang;
+      try {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.resume();
+        const utterance = new SpeechSynthesisUtterance(textToSpeak.replace(/[*#`_\[\]()]/g, ''));
+        utterance.rate = 1.0;
+        if (/[\u0600-\u06FF]/.test(textToSpeak)) {
+          utterance.lang = 'ur-PK';
+        } else if (/[\u0900-\u097F]/.test(textToSpeak)) {
+          utterance.lang = 'hi-IN';
+        } else if (lang !== 'auto') {
+          const active = VOICE_LANGS.find((l) => l.code === lang);
+          if (active?.speechLang) utterance.lang = active.speechLang;
+        }
+
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          const prefix = utterance.lang.split('-')[0].toLowerCase();
+          const matched = voices.find((v) => v.lang.toLowerCase().startsWith(prefix));
+          if (matched) utterance.voice = matched;
+        }
+
+        utterance.onend = () => setIsPlayingAudio(false);
+        utterance.onerror = () => setIsPlayingAudio(false);
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        setIsPlayingAudio(false);
       }
-      utterance.onend = () => setIsPlayingAudio(false);
-      utterance.onerror = () => setIsPlayingAudio(false);
-      window.speechSynthesis.speak(utterance);
     };
 
     try {
@@ -274,7 +337,7 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
         body: JSON.stringify({
           text: textToSpeak,
           speed: 1.0,
-          model: 'gemini-3.8-flash',
+          model: 'gemini',
           voice: 'Kore',
           voice_modulation: voiceModulation !== 'normal' ? voiceModulation : undefined,
         }),
@@ -289,8 +352,9 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
       for (let i = 0; i < byteChars.length; i++) {
         byteNumbers[i] = byteChars.charCodeAt(i);
       }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: `audio/${data.format || 'mp3'}` });
+      const rawArray = new Uint8Array(byteNumbers);
+      const { data: audioArray, mime } = ensureWavHeader(rawArray, 24000);
+      const blob = new Blob([audioArray as unknown as BlobPart], { type: mime });
       const url = URL.createObjectURL(blob);
 
       const audio = new Audio(url);
@@ -371,3 +435,86 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
     </div>
   );
 };
+
+/**
+ * Speaks text aloud using backend Gemini TTS with standard WAV wrapping,
+ * falling back seamlessly to browser SpeechSynthesis.
+ */
+export async function speakVoiceText(
+  textToSpeak: string,
+  lang = 'auto',
+  voiceModulation = 'normal'
+): Promise<void> {
+  const trimmed = (textToSpeak || '').trim();
+  if (!trimmed) return;
+
+  const fallbackBrowserSpeech = () => {
+    if (!('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      const utterance = new SpeechSynthesisUtterance(trimmed.replace(/[*#`_\[\]()]/g, ''));
+      utterance.rate = 1.0;
+      if (/[\u0600-\u06FF]/.test(trimmed)) {
+        utterance.lang = 'ur-PK';
+      } else if (/[\u0900-\u097F]/.test(trimmed)) {
+        utterance.lang = 'hi-IN';
+      } else if (lang !== 'auto') {
+        const active = VOICE_LANGS.find((l) => l.code === lang);
+        if (active?.speechLang) utterance.lang = active.speechLang;
+      }
+
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        const prefix = utterance.lang.split('-')[0].toLowerCase();
+        const matched = voices.find((v) => v.lang.toLowerCase().startsWith(prefix));
+        if (matched) utterance.voice = matched;
+      }
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      // ignore
+    }
+  };
+
+  try {
+    const token = localStorage.getItem('roxy.access_token');
+    const resp = await fetch(`${API_BASE}/skills/text_to_speech`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        text: trimmed,
+        speed: 1.0,
+        model: 'gemini',
+        voice: 'Kore',
+        voice_modulation: voiceModulation !== 'normal' ? voiceModulation : undefined,
+      }),
+    });
+
+    if (!resp.ok) throw new Error('TTS failed');
+    const data = await resp.json();
+    if (!data.audio_data) throw new Error('No audio returned');
+
+    const byteChars = atob(data.audio_data);
+    const byteNumbers = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+      byteNumbers[i] = byteChars.charCodeAt(i);
+    }
+    const rawArray = new Uint8Array(byteNumbers);
+    const { data: audioArray, mime } = ensureWavHeader(rawArray, 24000);
+    const blob = new Blob([audioArray as unknown as BlobPart], { type: mime });
+    const url = URL.createObjectURL(blob);
+
+    const audio = new Audio(url);
+    audio.onended = () => URL.revokeObjectURL(url);
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      fallbackBrowserSpeech();
+    };
+    await audio.play();
+  } catch {
+    fallbackBrowserSpeech();
+  }
+}

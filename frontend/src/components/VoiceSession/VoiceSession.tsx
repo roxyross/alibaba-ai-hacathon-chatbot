@@ -3,6 +3,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { VOICE_LANGUAGES } from '../ChatInput/ChatInput';
+import { ensureWavHeader } from '../common/VoiceInputControl';
 import './VoiceSession.css';
 
 const rawApiBase =
@@ -420,6 +421,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       if ('speechSynthesis' in window) {
         try {
           window.speechSynthesis.cancel();
+          window.speechSynthesis.resume();
           const utterance = new SpeechSynthesisUtterance(cleanText);
           utterance.rate = 1.0;
 
@@ -440,10 +442,12 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
           }
 
           const voices = window.speechSynthesis.getVoices();
-          const prefix = utterance.lang.split('-')[0].toLowerCase();
-          const matchedVoice = voices.find((v) => v.lang.toLowerCase().startsWith(prefix));
-          if (matchedVoice) {
-            utterance.voice = matchedVoice;
+          if (voices.length > 0) {
+            const prefix = utterance.lang.split('-')[0].toLowerCase();
+            const matchedVoice = voices.find((v) => v.lang.toLowerCase().startsWith(prefix));
+            if (matchedVoice) {
+              utterance.voice = matchedVoice;
+            }
           }
 
           utterance.onstart = () => setIsSpeaking(true);
@@ -468,20 +472,25 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
           body: JSON.stringify({
             text,
             speed: 1.0,
-            model: voiceModel,
+            model: voiceModel || 'gemini',
             voice: geminiVoice,
             voice_modulation: voiceModulation !== 'normal' ? voiceModulation : undefined,
           }),
         },
       );
 
+      if (!ttsResp.audio_data || ttsResp.audio_data.length < 50) {
+        throw new Error('Empty audio returned by TTS');
+      }
 
-      // Decode base64 audio and play it
-      const audioBytes = Uint8Array.from(
-        atob(ttsResp.audio_data),
-        (c) => c.charCodeAt(0),
-      );
-      const audioBlob = new Blob([audioBytes], { type: `audio/${ttsResp.format}` });
+      // Decode base64 audio and ensure valid WAV header if raw PCM
+      const byteChars = atob(ttsResp.audio_data);
+      const rawBytes = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        rawBytes[i] = byteChars.charCodeAt(i);
+      }
+      const { data: audioBytes, mime } = ensureWavHeader(rawBytes, 24000);
+      const audioBlob = new Blob([audioBytes as unknown as BlobPart], { type: mime });
       const audioUrl = URL.createObjectURL(audioBlob);
 
       speakingAudioRef.current?.pause();
