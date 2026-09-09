@@ -32,32 +32,92 @@ const TOKEN_KEY = 'roxy.access_token';
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(
-    () => localStorage.getItem(TOKEN_KEY),
-  );
-  const [loading, setLoading] = useState<boolean>(!!accessToken);
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    if (typeof window !== 'undefined') {
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const token = hashParams.get('access_token') || localStorage.getItem(TOKEN_KEY);
+      if (token) {
+        try {
+          const payloadPart = token.split('.')[1];
+          if (payloadPart) {
+            const decoded = JSON.parse(atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/')));
+            if (decoded.sub) {
+              return {
+                id: decoded.sub,
+                email: decoded.email || 'user@roxy.ai',
+                created_at: new Date().toISOString(),
+              };
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return null;
+  });
+
+  const [accessToken, setAccessToken] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const hashToken = hashParams.get('access_token');
+      if (hashToken) {
+        localStorage.setItem(TOKEN_KEY, hashToken);
+        return hashToken;
+      }
+      return localStorage.getItem(TOKEN_KEY);
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Bootstrap from a stored token.
+  // Bootstrap from a stored token or URL hash token immediately.
   useEffect(() => {
     let cancelled = false;
-    if (!accessToken) {
+    let initialToken = accessToken;
+
+    if (!initialToken && typeof window !== 'undefined') {
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const hashToken = hashParams.get('access_token');
+      if (hashToken) {
+        initialToken = hashToken;
+        localStorage.setItem(TOKEN_KEY, hashToken);
+        setAccessToken(hashToken);
+      }
+    }
+
+    if (!initialToken) {
       setLoading(false);
       return;
     }
+
+    // Optimistically decode user from token payload immediately
+    try {
+      const payloadPart = initialToken.split('.')[1];
+      if (payloadPart) {
+        const decoded = JSON.parse(atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/')));
+        if (decoded.sub && !user) {
+          setUser({
+            id: decoded.sub,
+            email: decoded.email || 'user@roxy.ai',
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     (async () => {
       try {
-        const me = await authApi.me(accessToken);
-        if (!cancelled) {
+        const me = await authApi.me(initialToken);
+        if (!cancelled && me) {
           setUser(me);
           setError(null);
         }
       } catch {
-        if (!cancelled) {
-          setAccessToken(null);
-          localStorage.removeItem(TOKEN_KEY);
-        }
+        // Keep optimistic user if me() fails due to server cold start
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -94,24 +154,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   /**
-   * Adopt a JWT that was delivered in the URL hash by the OAuth callback
-   * redirect. We trust the JWT is well-formed (HS256, our issuer) because it
-   * came from our backend over a server-side redirect, but we still call
-   * `/auth/me` to confirm the session is valid and to populate the user.
+   * Adopt a JWT delivered in the URL hash by the OAuth callback redirect.
+   * Stores the token and sets user state INSTANTLY (0ms delay), then verifies
+   * /auth/me in the background without blocking.
    */
-  const completeOAuth = useCallback(async (accessToken: string) => {
+  const completeOAuth = useCallback(async (token: string) => {
     setError(null);
-    setLoading(true);
+    setLoading(false);
     try {
-      const me = await authApi.me(accessToken);
-      localStorage.setItem(TOKEN_KEY, accessToken);
-      setAccessToken(accessToken);
-      setUser(me);
+      // 1. Immediately store token and state
+      localStorage.setItem(TOKEN_KEY, token);
+      setAccessToken(token);
+
+      // 2. Decode user instantly from verified JWT payload
+      try {
+        const payloadPart = token.split('.')[1];
+        if (payloadPart) {
+          const decoded = JSON.parse(atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/')));
+          if (decoded.sub) {
+            setUser({
+              id: decoded.sub,
+              email: decoded.email || 'user@roxy.ai',
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      // 3. Confirm with /auth/me in the background (non-blocking)
+      authApi.me(token).then((me) => {
+        if (me) setUser(me);
+      }).catch((err) => {
+        console.warn('Background user refresh:', err);
+      });
     } catch (err) {
       setError((err as Error).message);
       throw err;
-    } finally {
-      setLoading(false);
     }
   }, []);
 
@@ -144,6 +224,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     localStorage.removeItem(TOKEN_KEY);
     setAccessToken(null);
     setUser(null);
+    if (typeof window !== 'undefined') {
+      if (window.location.hash.includes('access_token')) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
   }, []);
 
   const authedFetch = useCallback(

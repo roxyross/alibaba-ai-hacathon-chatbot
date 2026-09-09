@@ -111,8 +111,19 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
   const transcriptBufferRef = useRef<string>('');
   const audioElemRef = useRef<HTMLAudioElement | null>(null);
 
+  const silenceTimerRef = useRef<any>(null);
+  const vadAnimRef = useRef<number | null>(null);
+
   // Stop recording cleanup
   const stopAll = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (vadAnimRef.current) {
+      cancelAnimationFrame(vadAnimRef.current);
+      vadAnimRef.current = null;
+    }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -195,10 +206,58 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
       audioChunksRef.current = [];
       const recorder = new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
+
+      // Acoustic VAD for MediaRecorder: auto-stop 700ms after user finishes speaking
+      let silenceStart = 0;
+      let userSpeaking = false;
+      let audioCtx: AudioContext | null = null;
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          audioCtx = new AudioCtx();
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 32;
+          const source = audioCtx.createMediaStreamSource(stream);
+          source.connect(analyser);
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const checkVad = () => {
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+            const avg = sum / dataArray.length;
+            if (avg > 14) {
+              userSpeaking = true;
+              silenceStart = 0;
+            } else if (userSpeaking) {
+              const now = Date.now();
+              if (!silenceStart) {
+                silenceStart = now;
+              } else if (now - silenceStart > 700) {
+                if (recorder.state !== 'inactive') {
+                  recorder.stop();
+                }
+                return;
+              }
+            }
+            vadAnimRef.current = requestAnimationFrame(checkVad);
+          };
+          vadAnimRef.current = requestAnimationFrame(checkVad);
+        }
+      } catch {
+        // ignore VAD failure
+      }
+
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
+        if (vadAnimRef.current) {
+          cancelAnimationFrame(vadAnimRef.current);
+          vadAnimRef.current = null;
+        }
+        if (audioCtx && audioCtx.state !== 'closed') {
+          audioCtx.close().catch(() => {});
+        }
         stream.getTracks().forEach((t) => t.stop());
         const finalBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         sendAudioToBackendSTT(finalBlob);
@@ -219,7 +278,7 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
     if (SpeechRecognitionClass) {
       try {
         const recognition = new SpeechRecognitionClass();
-        recognition.continuous = false;
+        recognition.continuous = true;
         recognition.interimResults = true;
         const activeOpt = VOICE_LANGS.find((l) => l.code === lang);
         recognition.lang = activeOpt?.speechLang || navigator.language || 'en-US';
@@ -232,10 +291,25 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
           }
           if (full) {
             transcriptBufferRef.current = full;
+            // Auto-stop within 700ms of silence when user stops speaking
+            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = setTimeout(() => {
+              if (recognitionRef.current) {
+                try {
+                  recognitionRef.current.stop();
+                } catch {
+                  // ignore
+                }
+              }
+            }, 700);
           }
         };
 
         recognition.onend = () => {
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+          }
           setIsRecording(false);
           const finalTranscript = transcriptBufferRef.current.trim();
           if (finalTranscript) {
@@ -245,6 +319,10 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         recognition.onerror = (event: any) => {
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+          }
           setIsRecording(false);
           // If network or permission error, try MediaRecorder fallback
           if (event?.error === 'network' || event?.error === 'service-not-allowed') {

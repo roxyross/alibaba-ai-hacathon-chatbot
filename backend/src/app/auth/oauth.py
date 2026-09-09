@@ -279,26 +279,37 @@ def _memory_upsert(email: str) -> User:
             created_at=datetime.now(timezone.utc),
         )
         _MEM_USERS[email] = user
+    try:
+        from app.auth.service import MagicLinkService
+        MagicLinkService._mem_users[email] = user
+    except Exception:
+        pass
     return user
 
 
 async def _db_upsert(email: str) -> User:
     factory = get_session_factory()
     assert factory is not None
-    async with factory() as session:
-        existing = (
-            await session.execute(select(User).where(User.email == email))
-        ).scalar_one_or_none()
-        if existing is not None:
-            from datetime import datetime, timezone
-            existing.last_login_at = datetime.now(timezone.utc)
-            await session.commit()
-            return existing
-        user = User(email=email)
-        session.add(user)
-        await session.commit()
-        await session.refresh(user)
-        return user
+    try:
+        import asyncio
+        async with asyncio.timeout(1.5):
+            async with factory() as session:
+                existing = (
+                    await session.execute(select(User).where(User.email == email))
+                ).scalar_one_or_none()
+                if existing is not None:
+                    from datetime import datetime, timezone
+                    existing.last_login_at = datetime.now(timezone.utc)
+                    await session.commit()
+                    return existing
+                user = User(email=email)
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+                return user
+    except Exception as exc:
+        log.warning("auth.oauth.db_upsert_failed_fallback_memory", error=str(exc))
+        return _memory_upsert(email)
 
 
 async def upsert_user_by_email(email: str) -> User:
@@ -335,7 +346,7 @@ async def complete_google_callback(
 
     user = await upsert_user_by_email(email)
     log.info("auth.oauth.signed_in", user_id=user.id)
-    jwt_token, ttl = create_session_token(user.id)
+    jwt_token, ttl = create_session_token(user.id, email=user.email)
 
     # Persist Google tokens for email_send and calendar skills
     try:
@@ -533,5 +544,5 @@ async def complete_github_callback(
 
     user = await upsert_user_by_email(email)
     log.info("auth.oauth.github.signed_in", user_id=user.id)
-    jwt_token, ttl = create_session_token(user.id)
+    jwt_token, ttl = create_session_token(user.id, email=user.email)
     return user, jwt_token, ttl

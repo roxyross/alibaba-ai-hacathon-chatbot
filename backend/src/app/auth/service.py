@@ -133,13 +133,22 @@ class MagicLinkService:
         return user, jwt, ttl
 
     async def get_user(self, user_id: str) -> User | None:
+        # Check in-memory registry first for 0ms resolution
+        for u in self._mem_users.values():
+            if str(u.id) == str(user_id):
+                return u
+
         factory = get_session_factory()
         if factory is None:
-            for u in self._mem_users.values():
-                if u.id == user_id:
-                    return u
             return None
-        async with factory() as session:
-            return (
-                await session.execute(select(User).where(User.id == user_id))
-            ).scalar_one_or_none()
+
+        try:
+            import asyncio
+            async with asyncio.timeout(1.5):
+                async with factory() as session:
+                    return (
+                        await session.execute(select(User).where(User.id == user_id))
+                    ).scalar_one_or_none()
+        except Exception:
+            return None
+

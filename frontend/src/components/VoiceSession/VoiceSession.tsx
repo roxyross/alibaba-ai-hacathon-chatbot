@@ -100,6 +100,11 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
+  const silenceTimerRef = useRef<any>(null);
+  const hasSpokenRef = useRef<boolean>(false);
+  const isTranscribingRef = useRef<boolean>(false);
+  const vadActiveRef = useRef<boolean>(false);
+  const vadSilenceStartRef = useRef<number>(0);
 
   // Request mic permission on mount
   useEffect(() => {
@@ -135,7 +140,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
     };
   }, []);
 
-  // Audio level visualizer loop
+  // Audio level visualizer loop + Acoustic Voice Activity Detection (VAD)
   const startAudioVisualizer = (stream: MediaStream) => {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -149,9 +154,37 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       source.connect(analyser);
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      vadActiveRef.current = false;
+      vadSilenceStartRef.current = 0;
+
       const updateVisualizer = () => {
         analyser.getByteFrequencyData(dataArray);
-        // Pick 5 frequency bands
+
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i];
+        }
+        const avg = sum / dataArray.length;
+
+        // Acoustic VAD: detects voice energy vs silence directly from mic input
+        if (avg > 14) {
+          vadActiveRef.current = true;
+          hasSpokenRef.current = true;
+          vadSilenceStartRef.current = 0;
+        } else if (vadActiveRef.current) {
+          const now = Date.now();
+          if (!vadSilenceStartRef.current) {
+            vadSilenceStartRef.current = now;
+          } else if (now - vadSilenceStartRef.current > 700) {
+            // User finished speaking! Stop recording immediately.
+            vadActiveRef.current = false;
+            vadSilenceStartRef.current = 0;
+            stopRecording();
+            return;
+          }
+        }
+
+        // Pick 5 frequency bands for UI wave visualizer
         const levels = [
           Math.max(12, (dataArray[1] || 0) * 0.4),
           Math.max(16, (dataArray[3] || 0) * 0.48),
@@ -191,12 +224,85 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
     setIsSpeaking(false);
   }, []);
 
+  // ─── Spoken text dispatch (Instant 0ms path) ─────────────────────────
+  const processSpokenText = useCallback(
+    async (rawText: string) => {
+      if (isTranscribingRef.current) return;
+      const text = rawText.trim();
+      if (!text) return;
+
+      // Filter out silence hallucinations
+      const silencePhrases = [
+        'thank you',
+        'thank you.',
+        'thank you very much',
+        'thank you very much.',
+        'thanks for watching',
+        'thanks for watching.',
+        'thank you for watching',
+        'thank you for watching.',
+        'subtitles by',
+        'you',
+        'you.',
+        'bye',
+        'bye.',
+      ];
+      const norm = text.toLowerCase().replace(/[.,!?]/g, '').trim();
+      if (silencePhrases.includes(norm) || text.startsWith('[STT not configured')) {
+        setIsProcessing(false);
+        setLiveCaption('');
+        return;
+      }
+
+      isTranscribingRef.current = true;
+      setIsProcessing(true);
+      setLiveCaption('');
+      setError(null);
+      setTranscripts((prev) => [...prev, { role: 'user', text }]);
+
+      try {
+        const chatResp = await fetchJSON<{
+          response: string;
+          agent_slug: string;
+        }>(`${API_BASE}/runtime/chat`, accessToken, {
+          method: 'POST',
+          body: JSON.stringify({
+            message: text,
+            stream: false,
+          }),
+        });
+
+        const assistantText = chatResp.response;
+        setTranscripts((prev) => [
+          ...prev,
+          { role: 'assistant', text: assistantText },
+        ]);
+
+        await speakText(assistantText);
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
+        setIsProcessing(false);
+        isTranscribingRef.current = false;
+      }
+    },
+    [accessToken], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   // ─── Recording ──────────────────────────────────────────────────────
 
   const startRecording = useCallback(() => {
     if (isSpeaking) {
       stopSpeaking();
     }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    hasSpokenRef.current = false;
+    isTranscribingRef.current = false;
+    vadActiveRef.current = false;
+    vadSilenceStartRef.current = 0;
     audioChunksRef.current = [];
     recognizedSpeechRef.current = '';
     setLiveCaption('');
@@ -228,6 +334,23 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
           if (combined) {
             recognizedSpeechRef.current = combined;
             setLiveCaption(combined);
+            hasSpokenRef.current = true;
+
+            // Auto-detect end of speech: trigger stop & instant AI response after 700ms of silence
+            if (silenceTimerRef.current) {
+              clearTimeout(silenceTimerRef.current);
+            }
+            silenceTimerRef.current = setTimeout(() => {
+              if (recognizedSpeechRef.current.trim().length > 0) {
+                stopRecording();
+              }
+            }, 700);
+          }
+        };
+
+        recognition.onend = () => {
+          if (hasSpokenRef.current && recognizedSpeechRef.current.trim().length > 0) {
+            stopRecording();
           }
         };
 
@@ -242,7 +365,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       }
     }
 
-    // 2. MediaRecorder for backend STT
+    // 2. MediaRecorder for backend STT fallback
     navigator.mediaDevices
       .getUserMedia({ audio: true })
       .then((stream) => {
@@ -277,10 +400,13 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         recorder.onstop = async () => {
           stopAudioVisualizer();
           stream.getTracks().forEach((t) => t.stop());
-          const finalBlob = new Blob(audioChunksRef.current, {
-            type: mimeType || 'audio/webm',
-          });
-          await transcribeAndRespond(finalBlob);
+          // Only use backend STT fallback if text was not already processed
+          if (!isTranscribingRef.current) {
+            const finalBlob = new Blob(audioChunksRef.current, {
+              type: mimeType || 'audio/webm',
+            });
+            await transcribeAndRespond(finalBlob);
+          }
         };
 
         recorder.start(250);
@@ -293,6 +419,10 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   }, [isSpeaking]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopRecording = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     if (speechRecognitionRef.current) {
       try {
         speechRecognitionRef.current.stop();
@@ -308,8 +438,15 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       }
     }
     setIsRecording(false);
-    setIsProcessing(true);
-  }, []);
+
+    // Instant dispatch: if text was already transcribed by Web Speech, start AI call immediately!
+    const directText = recognizedSpeechRef.current ? recognizedSpeechRef.current.trim() : '';
+    if (directText && !isTranscribingRef.current) {
+      processSpokenText(directText);
+    } else if (!isTranscribingRef.current) {
+      setIsProcessing(true);
+    }
+  }, [processSpokenText]);
 
   const toggleRecording = useCallback(() => {
     if (isSpeaking) {
@@ -327,10 +464,11 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
 
   const transcribeAndRespond = async (audioBlob: Blob) => {
     try {
-      let userText = '';
+      // 1. FAST PATH: If browser already transcribed speech, use it directly (0ms delay)
+      let userText = recognizedSpeechRef.current ? recognizedSpeechRef.current.trim() : '';
 
-      // 1. If we have audio data, try backend Whisper STT
-      if (audioBlob.size > 200) {
+      // 2. FALLBACK PATH: If Web Speech was empty, send audio to backend STT
+      if (!userText && audioBlob.size > 200) {
         try {
           const base64Audio = await audioToBase64(audioBlob);
           const whisperLang = voiceLang && voiceLang !== 'auto' ? voiceLang : null;
@@ -349,7 +487,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
 
           userText = (sttResp.text || '').trim();
         } catch {
-          // Backend STT error; fall back to Web Speech recognition
+          // Backend STT error
         }
       }
 

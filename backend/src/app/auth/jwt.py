@@ -22,16 +22,18 @@ def _expiry_seconds() -> int:
     return hours * 3600
 
 
-def create_session_token(user_id: str) -> tuple[str, int]:
+def create_session_token(user_id: str, email: str | None = None) -> tuple[str, int]:
     """Create a signed JWT for the given user. Returns (token, expires_in_seconds)."""
     exp = int(time.time()) + _expiry_seconds()
     payload: dict[str, Any] = {"sub": user_id, "exp": exp, "iat": int(time.time())}
+    if email:
+        payload["email"] = email
     token = jwt.encode(payload, _secret(), algorithm="HS256")
     return token, _expiry_seconds()
 
 
-def decode_session_token(token: str) -> str | None:
-    """Decode and validate a session token. Returns the user_id, or None on failure."""
+def decode_session_payload(token: str) -> dict[str, Any] | None:
+    """Decode and validate a session token. Returns the claims dict, or None on failure."""
     try:
         payload = jwt.decode(token, _secret(), algorithms=["HS256"])
     except jwt.InvalidSignatureError:
@@ -40,6 +42,14 @@ def decode_session_token(token: str) -> str | None:
         except jwt.PyJWTError:
             return None
     except jwt.PyJWTError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def decode_session_token(token: str) -> str | None:
+    """Decode and validate a session token. Returns the user_id, or None on failure."""
+    payload = decode_session_payload(token)
+    if not payload:
         return None
     sub = payload.get("sub")
     if not isinstance(sub, str):
