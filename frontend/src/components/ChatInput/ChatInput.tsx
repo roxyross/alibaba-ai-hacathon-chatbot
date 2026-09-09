@@ -91,6 +91,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [value, setValue] = useState('');
   const [dictationState, setDictationState] = useState<DictationState>('idle');
+  const [liveTranscript, setLiveTranscript] = useState<string>('');
   const [audioLevels, setAudioLevels] = useState<number[]>([12, 18, 14, 24, 16, 28, 20, 32, 18, 22, 16, 26, 14, 20, 15, 24]);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [thinkMode, setThinkMode] = useState(false);
@@ -210,10 +211,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         headers,
         body: JSON.stringify({
           audio_data: base64Audio,
-          model: 'gemini',
+          model: 'whisper',
           // Omitted language triggers automatic multi-language detection for Urdu, Hindi, English, etc.
         }),
-
       });
 
       if (res.ok) {
@@ -225,7 +225,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     } catch {
       // Backend STT network error — fallback to browser transcript
     }
-    return dictationTranscriptRef.current.trim();
+    return (liveTranscript || dictationTranscriptRef.current).trim();
   };
 
   const startDictation = async () => {
@@ -233,6 +233,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
     baseValueRef.current = value;
     dictationTranscriptRef.current = '';
+    setLiveTranscript('');
     audioChunksRef.current = [];
     setDictationState('recording');
 
@@ -321,7 +322,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               interimChunk += res[0].transcript;
             }
           }
-          dictationTranscriptRef.current = (finalChunk + interimChunk).trim();
+          const combined = (finalChunk + interimChunk).trim();
+          dictationTranscriptRef.current = combined;
+          setLiveTranscript(combined);
         };
 
         recognition.onerror = () => {
@@ -364,14 +367,16 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     });
 
     const speech = await transcribeAudio(finalBlob);
+    const resolved = speech || liveTranscript || dictationTranscriptRef.current.trim();
 
-    if (speech) {
+    if (resolved) {
       const base = baseValueRef.current.trim();
-      const combined = base ? `${base} ${speech}` : speech;
+      const combined = base ? `${base} ${resolved}` : resolved;
       setValue(combined);
     }
 
     setDictationState('idle');
+    setLiveTranscript('');
     requestAnimationFrame(() => {
       adjustHeight();
       textareaRef.current?.focus();
@@ -380,6 +385,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const cancelDictation = () => {
     setDictationState('idle');
+    setLiveTranscript('');
     stopAudioAnalyser();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
@@ -429,10 +435,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     });
 
     const speech = await transcribeAudio(finalBlob);
+    const resolved = speech || liveTranscript || dictationTranscriptRef.current.trim();
     const base = baseValueRef.current.trim();
-    const combined = base ? (speech ? `${base} ${speech}` : base) : speech;
+    const combined = base ? (resolved ? `${base} ${resolved}` : base) : resolved;
 
     setDictationState('idle');
+    setLiveTranscript('');
 
     if (combined) {
       onSend(combined);
@@ -948,15 +956,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
 
 
-          {/* Center Dynamic Audio Waveform */}
-          <div className="chat-input__dictate-waveform" aria-label="Recording audio">
-            {audioLevels.map((lvl, idx) => (
-              <span
-                key={idx}
-                className="chat-input__dictate-bar"
-                style={{ height: `${lvl}px` }}
-              />
-            ))}
+          {/* Center Dynamic Audio Waveform & Live Transcription */}
+          <div className="chat-input__dictate-preview-box">
+            <div className="chat-input__dictate-waveform" aria-label="Recording audio">
+              {audioLevels.map((lvl, idx) => (
+                <span
+                  key={idx}
+                  className="chat-input__dictate-bar"
+                  style={{ height: `${lvl}px` }}
+                />
+              ))}
+            </div>
+            {liveTranscript ? (
+              <span className="chat-input__dictate-live-text">"{liveTranscript}"</span>
+            ) : (
+              <span className="chat-input__dictate-listening-text">Listening… say "hello"</span>
+            )}
           </div>
 
           {/* Right Action Buttons: Stop (■) and Send (↑) */}
@@ -965,7 +980,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               type="button"
               className="chat-input__dictate-stop-btn"
               onClick={finishDictation}
-              title="Done dictating — transcribe"
+              title="Insert into message box"
               aria-label="Stop dictation"
             >
               <span className="chat-input__dictate-stop-icon" />
@@ -975,7 +990,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               type="button"
               className="chat-input__dictate-send-btn"
               onClick={sendWhileDictating}
-              title="Send message"
+              title="Send to chat conversation immediately"
               aria-label="Send message"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

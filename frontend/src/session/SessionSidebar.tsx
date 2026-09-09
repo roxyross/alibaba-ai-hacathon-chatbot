@@ -13,6 +13,11 @@ interface SessionSidebarProps {
   onNewChat: () => void;
   onNewTask?: () => void;
   onViewChange?: (view: AppView) => void;
+  sessions?: ChatSession[];
+  loading?: boolean;
+  error?: string | null;
+  onRename?: (id: string, title: string) => Promise<ChatSession>;
+  onRemove?: (id: string) => Promise<void>;
 }
 
 export const SessionSidebar: React.FC<SessionSidebarProps> = ({
@@ -24,8 +29,18 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   onNewChat,
   onNewTask,
   onViewChange,
+  sessions: propSessions,
+  loading: propLoading,
+  error: propError,
+  onRename: propRename,
+  onRemove: propRemove,
 }) => {
-  const { sessions, loading, error, rename, remove } = useSessions();
+  const localHook = useSessions();
+  const sessions = propSessions !== undefined ? propSessions : localHook.sessions;
+  const loading = propLoading !== undefined ? propLoading : localHook.loading;
+  const error = propError !== undefined ? propError : localHook.error;
+  const rename = propRename || localHook.rename;
+  const remove = propRemove || localHook.remove;
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 

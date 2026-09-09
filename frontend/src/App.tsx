@@ -30,7 +30,15 @@ const RUNTIME_URL =
 
 export function ChatScreen() {
   const { accessToken, signOut, user } = useAuth();
-  const { create } = useSessions();
+  const {
+    sessions,
+    loading: sessionsLoading,
+    error: sessionsError,
+    refresh: refreshSessions,
+    create: createSession,
+    rename: renameSession,
+    remove: removeSession,
+  } = useSessions();
 
   const [activeSession, setActiveSession] = useState<ChatSession | null>(null);
   // Dual-mode workflow: 'chat' for general conversation/search, 'task' for coding tasks
@@ -103,8 +111,9 @@ export function ChatScreen() {
       setActiveSession(null);
       setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
       setActiveView('chat');
+      void refreshSessions();
     },
-    [chat],
+    [chat, refreshSessions],
   );
 
   // When the user clicks a past session, adopt its model and mode.
@@ -128,7 +137,8 @@ export function ChatScreen() {
     setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
     setActiveView('chat');
     void history.reload();
-  }, [chat, history]);
+    void refreshSessions();
+  }, [chat, history, refreshSessions]);
 
   // "New task" — clear active session, set mode to 'task' (for coding), and switch back to chat view.
   const handleNewTask = useCallback(() => {
@@ -142,7 +152,8 @@ export function ChatScreen() {
     setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
     setActiveView('chat');
     void history.reload();
-  }, [accessToken, user, openAuth, chat, history]);
+    void refreshSessions();
+  }, [accessToken, user, openAuth, chat, history, refreshSessions]);
 
   // After a turn completes in a brand-new session, adopt it
   // as the active session so the sidebar highlights it.
@@ -166,26 +177,31 @@ export function ChatScreen() {
       let session = activeSession;
       if (!session && (accessToken || user)) {
         try {
-          session = await create({
+          const initialTitle = mode === 'task'
+            ? `[Task] ${text.trim().slice(0, 32)}`
+            : (text.trim().slice(0, 36) || 'New chat');
+          session = await createSession({
             provider: activeModel.provider,
             model: activeModel.model,
             session_type: mode,
-            title: mode === 'task' ? `[Task] ${text.slice(0, 32)}` : undefined,
+            title: initialTitle,
           } satisfies CreateSessionInput);
           setActiveSession(session);
+          void refreshSessions();
         } catch {
           // If session creation fails, proceed with ephemeral chat
         }
       }
       await chat.sendMessage(text, session?.id);
-      // Refresh history once the server has persisted the turn.
+      // Refresh history and sessions once the server has persisted the turn.
       if (session?.id) {
         window.setTimeout(() => {
           void history.reload();
+          void refreshSessions();
         }, 500);
       }
     },
-    [activeSession, modelSelection, create, chat, history, mode, accessToken, user, openAuth],
+    [activeSession, modelSelection, createSession, chat, history, mode, accessToken, user, openAuth, refreshSessions],
   );
 
   // The messages the chat window renders: persisted history + the in-flight
@@ -220,6 +236,11 @@ export function ChatScreen() {
         activeSessionId={activeSession?.id ?? null}
         activeView={activeView}
         mode={mode}
+        sessions={sessions}
+        loading={sessionsLoading}
+        error={sessionsError}
+        onRename={renameSession}
+        onRemove={removeSession}
         onModeChange={handleModeChange}
         onSelect={(s) => { handleSelectSession(s); setSidebarOpen(false); }}
         onNewChat={() => { handleNewChat(); setSidebarOpen(false); }}

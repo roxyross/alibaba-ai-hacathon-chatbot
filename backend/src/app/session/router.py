@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_optional_current_user
 from app.auth.models import User
 from app.chat_history.repository import ChatMessageRepository
 from app.session.repository import ChatSessionRepository
@@ -37,9 +37,11 @@ _messages = ChatMessageRepository()
 @router.get("", response_model=list[SessionResponse])
 async def list_sessions(
     session_type: str | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ) -> list[SessionResponse]:
     """List the current user's chat sessions, newest first."""
+    if current_user is None:
+        return []
     rows = await _repo.list_for_user(current_user.id, session_type=session_type)
     out: list[SessionResponse] = []
     for r in rows:

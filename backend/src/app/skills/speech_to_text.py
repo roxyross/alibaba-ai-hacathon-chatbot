@@ -28,16 +28,13 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
             # Decode audio for processing
             audio_bytes = base64.b64decode(audio_b64)
 
-            # Route to appropriate STT backend
-            if model in ("gemini", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.1-flash"):
+            # Primary: Groq Whisper (sub-300ms latency, high accuracy)
+            text, confidence = await self._whisper(audio_bytes, language)
+            if not text:
+                # Fallback: Google Gemini 2.0 Flash multimodal audio
                 text, confidence = await self._gemini_transcribe(audio_bytes, language)
-                if not text:
-                    text, confidence = await self._whisper(audio_bytes, language)
-            elif model == "deepgram":
+            if not text and model == "deepgram":
                 text, confidence = await self._deepgram(audio_bytes, language)
-            else:
-                # Default: Groq / OpenAI Whisper with Gemini fallback
-                text, confidence = await self._whisper(audio_bytes, language)
 
             return SpeechToTextResponse(
                 text=text,
@@ -62,7 +59,7 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
         from pathlib import Path
 
         # Ensure .env is loaded if keys aren't in os.environ
-        if not os.environ.get("GROK_API_KEY") and not os.environ.get("GROQ_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
+        if not os.environ.get("GROQ_API_KEY") and not os.environ.get("GROK_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
             try:
                 import dotenv
                 env_path = Path(__file__).resolve().parents[3] / ".env"
@@ -71,10 +68,10 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
             except Exception:
                 pass
 
-        grok_key = (os.environ.get("GROK_API_KEY") or os.environ.get("GROQ_API_KEY", "")).strip()
+        groq_key = (os.environ.get("GROQ_API_KEY") or os.environ.get("GROK_API_KEY", "")).strip()
         openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
-        if not grok_key and not openai_key:
+        if not groq_key and not openai_key:
             return self._mock_transcribe(), None
 
         # Determine audio filename & mime type
@@ -106,7 +103,7 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
         whisper_lang = language.split("-")[0].lower() if language else None
 
         # 1. Try Groq Whisper (blazing fast, high accuracy, active key)
-        if grok_key:
+        if groq_key:
             try:
                 files = {"file": (filename, io.BytesIO(audio_bytes), mime_type)}
                 data = {
@@ -119,7 +116,7 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
                 async with httpx.AsyncClient(timeout=25.0) as client:
                     resp = await client.post(
                         "https://api.groq.com/openai/v1/audio/transcriptions",
-                        headers={"Authorization": f"Bearer {grok_key}"},
+                        headers={"Authorization": f"Bearer {groq_key}"},
                         files=files,
                         data=data,
                     )
@@ -197,9 +194,8 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
             prompt += f" The primary expected language or dialect is {language}."
 
         models_to_try = [
-            "gemini-2.5-flash",
-            "gemini-3.6-flash",
             "gemini-2.0-flash",
+            "gemini-1.5-flash",
         ]
 
         async with httpx.AsyncClient(timeout=30.0) as client:

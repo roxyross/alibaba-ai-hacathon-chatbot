@@ -19,6 +19,14 @@ export interface CreateSessionInput {
   session_type?: 'chat' | 'task';
 }
 
+export const SESSIONS_CHANGED_EVENT = 'roxy:sessions_changed';
+
+export function notifySessionsChanged() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(SESSIONS_CHANGED_EVENT));
+  }
+}
+
 export function useSessions() {
   const { authedFetch } = useAuth();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -31,7 +39,7 @@ export function useSessions() {
     try {
       const url = sessionType ? `/sessions?session_type=${sessionType}` : '/sessions';
       const data = await authedFetch<ChatSession[]>(url);
-      setSessions(data);
+      setSessions(data || []);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -43,13 +51,24 @@ export function useSessions() {
     void refresh();
   }, [refresh]);
 
+  // Listen to cross-component session mutations so all sidebar/app instances stay in sync
+  useEffect(() => {
+    const handler = () => {
+      void refresh();
+    };
+    window.addEventListener(SESSIONS_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(SESSIONS_CHANGED_EVENT, handler);
+  }, [refresh]);
+
   const create = useCallback(
     async (input: CreateSessionInput): Promise<ChatSession> => {
       const created = await authedFetch<ChatSession>('/sessions', {
         method: 'POST',
         body: JSON.stringify(input),
       });
-      setSessions((prev) => [created, ...prev]);
+      // Optimistic instant update
+      setSessions((prev) => [created, ...prev.filter((s) => s.id !== created.id)]);
+      notifySessionsChanged();
       return created;
     },
     [authedFetch],
@@ -64,6 +83,7 @@ export function useSessions() {
       setSessions((prev) =>
         prev.map((s) => (s.id === id ? { ...s, ...updated } : s)),
       );
+      notifySessionsChanged();
       return updated;
     },
     [authedFetch],
@@ -73,6 +93,7 @@ export function useSessions() {
     async (id: string): Promise<void> => {
       // Optimistic update: remove immediately so UI updates in 0ms
       setSessions((prev) => prev.filter((s) => s.id !== id));
+      notifySessionsChanged();
       try {
         await authedFetch<void>(`/sessions/${id}`, { method: 'DELETE' });
       } catch (err) {

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query, Request as StarletteRequest, status
 from fastapi.responses import JSONResponse
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_optional_current_user
 from app.auth.models import User
 
 from app.skills.schemas import (
@@ -558,7 +558,7 @@ async def skill_quiz_generate(
 @router.post("/speech_to_text", response_model=SpeechToTextResponse)
 async def skill_speech_to_text(
     req: SpeechToTextRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ) -> SpeechToTextResponse:
     """Transcribe audio to text using OpenAI Whisper or Deepgram (Voice Agent)."""
     executor = speech_to_text_executor()
@@ -572,7 +572,7 @@ async def skill_speech_to_text(
 @router.post("/text_to_speech", response_model=TextToSpeechResponse)
 async def skill_text_to_speech(
     req: TextToSpeechRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ) -> TextToSpeechResponse:
     """Synthesize speech from text using OpenAI TTS or ElevenLabs (Voice Agent)."""
     executor = text_to_speech_executor()

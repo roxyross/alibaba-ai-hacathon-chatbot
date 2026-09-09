@@ -327,16 +327,45 @@
   height: 1.15rem;
 }
 
+.chat-input__dictate-preview-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0 0.5rem;
+}
+
+.chat-input__dictate-live-text {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #89b4fa;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+
+.chat-input__dictate-listening-text {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #a6adc8);
+  font-style: italic;
+  opacity: 0.85;
+}
+
 /* Center Dynamic Audio Waveform */
 .chat-input__dictate-waveform {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3.5px;
-  height: 2.4rem;
+  gap: 3px;
+  height: 1.6rem;
   overflow: hidden;
-  padding: 0 0.5rem;
+  padding: 0;
 }
 
 .chat-input__dictate-bar {
