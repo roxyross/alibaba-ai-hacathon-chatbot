@@ -116,14 +116,15 @@ async def _run_skill(
     The caller must then POST /skills/confirm with the token to proceed.
     """
     # Stamp authenticated user id into input_data for per-user data isolation.
+    user_id = str(user.id) if (user is not None and hasattr(user, "id") and user.id) else "anonymous"
     if hasattr(input_data, "model_fields") and "user_id" in input_data.model_fields:
         try:
-            setattr(input_data, "user_id", str(user.id))
+            setattr(input_data, "user_id", user_id)
         except Exception:
             pass
     elif hasattr(input_data, "__dict__") and "user_id" in getattr(input_data, "__dict__", {}):
         try:
-            setattr(input_data, "user_id", str(user.id))
+            setattr(input_data, "user_id", user_id)
         except Exception:
             pass
 
@@ -134,9 +135,9 @@ async def _run_skill(
     if skill_slug in SENSITIVE_SKILLS and not is_read_only and not getattr(input_data, "confirm", False):
         import secrets
         token = secrets.token_urlsafe(16)
-        if user.id not in _pending_confirmations:
-            _pending_confirmations[user.id] = {}
-        _pending_confirmations[user.id][token] = (executor, input_data)
+        if user_id not in _pending_confirmations:
+            _pending_confirmations[user_id] = {}
+        _pending_confirmations[user_id][token] = (executor, input_data)
 
         action_desc = _describe_action(skill_slug, input_data)
         raise HTTPException(

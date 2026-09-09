@@ -51,6 +51,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     }
   });
 
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('roxy_deleted_calendar_event_ids');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
   const [loadingBackend, setLoadingBackend] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newEventSummary, setNewEventSummary] = useState('');
@@ -107,7 +116,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
             setEvents((prev) => {
               const existingIds = new Set(prev.map((item) => item.id));
-              const newItems = mapped.filter((item) => !existingIds.has(item.id));
+              const newItems = mapped.filter((item) => !existingIds.has(item.id) && !deletedIds.has(item.id));
               return [...prev, ...newItems];
             });
           }
@@ -183,6 +192,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   const handleDeleteEvent = (id: string) => {
     setEvents((prev) => prev.filter((e) => e.id !== id));
+    setDeletedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      try {
+        localStorage.setItem('roxy_deleted_calendar_event_ids', JSON.stringify(Array.from(next)));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
   };
 
   // Events on the currently selected date

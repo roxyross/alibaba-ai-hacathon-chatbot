@@ -109,9 +109,13 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
         reader.readAsDataURL(blob);
       });
       const audio_data = await base64Promise;
+      const token = localStorage.getItem('roxy.access_token');
       const resp = await fetch(`${API_BASE}/skills/speech_to_text`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           audio_data,
           language: lang !== 'auto' ? lang : null,
@@ -132,12 +136,37 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
     }
   };
 
+  const startMediaRecorder = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setIsRecording(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const finalBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        sendAudioToBackendSTT(finalBlob);
+      };
+      recorder.start();
+      setIsRecording(true);
+    } catch {
+      setIsRecording(false);
+    }
+  };
+
   const startListening = async () => {
     if (disabled || isRecording || isTranscribing) return;
     transcriptBufferRef.current = '';
     audioChunksRef.current = [];
 
-    // 1. Try Web Speech API if supported
+    // 1. Try Web Speech API first if supported
     if (SpeechRecognitionClass) {
       try {
         const recognition = new SpeechRecognitionClass();
@@ -159,45 +188,32 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
 
         recognition.onend = () => {
           setIsRecording(false);
-          if (transcriptBufferRef.current.trim()) {
-            onTranscript(transcriptBufferRef.current.trim());
+          const finalTranscript = transcriptBufferRef.current.trim();
+          if (finalTranscript) {
+            onTranscript(finalTranscript);
           }
         };
 
-        recognition.onerror = () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        recognition.onerror = (event: any) => {
           setIsRecording(false);
+          // If network or permission error, try MediaRecorder fallback
+          if (event?.error === 'network' || event?.error === 'service-not-allowed') {
+            startMediaRecorder();
+          }
         };
 
         recognitionRef.current = recognition;
         recognition.start();
         setIsRecording(true);
+        return;
       } catch {
-        // Fallback to MediaRecorder
+        // Fall through to MediaRecorder
       }
     }
 
-    // 2. Also record MediaRecorder as backup for multimodal STT
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const recorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = recorder;
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) audioChunksRef.current.push(e.data);
-        };
-        recorder.onstop = () => {
-          stream.getTracks().forEach((t) => t.stop());
-          const finalBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          if (!transcriptBufferRef.current.trim()) {
-            sendAudioToBackendSTT(finalBlob);
-          }
-        };
-        recorder.start();
-        setIsRecording(true);
-      } catch {
-        // mic permission denied
-      }
-    }
+    // 2. Fallback to MediaRecorder + Backend Gemini STT
+    await startMediaRecorder();
   };
 
   const toggleListen = () => {
@@ -248,9 +264,13 @@ export const VoiceInputControl: React.FC<VoiceInputControlProps> = ({
     };
 
     try {
+      const token = localStorage.getItem('roxy.access_token');
       const resp = await fetch(`${API_BASE}/skills/text_to_speech`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           text: textToSpeak,
           speed: 1.0,
