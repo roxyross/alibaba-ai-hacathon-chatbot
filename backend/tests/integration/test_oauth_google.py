@@ -317,7 +317,8 @@ async def test_repeated_oauth_login_reuses_same_user(
                 follow_redirects=False,
             )
             assert r2.status_code == 302, r2.text
-            return r2.headers["location"].split("#", 1)[1]
+            location = str(r2.headers["location"])
+            return str(location.split("#", 1)[1])
 
         def _sub_from_frag(frag: str) -> str:
             tok = dict(
