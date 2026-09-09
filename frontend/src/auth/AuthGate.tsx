@@ -62,7 +62,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
   bannerMessage,
   mode = 'signin',
 }) => {
-  const { user, accessToken, loading, error, requestLink, verify, completeOAuth } =
+  const { user, accessToken, loading, error, requestLink, verify, completeOAuth, demoLogin } =
     useAuth();
   const [email, setEmail] = useState('');
   const [phase, setPhase] = useState<'request' | 'pending' | 'verifying'>(
@@ -289,12 +289,20 @@ export const AuthGate: React.FC<AuthGateProps> = ({
               }}
               onClick={async () => {
                 try {
-                  const res = await requestLink('demo@roxy.ai');
-                  if (res?.dev_token) {
-                    await verify(res.dev_token);
+                  setPhase('verifying');
+                  setOauthErrorMessage(null);
+                  if (demoLogin) {
+                    await demoLogin();
+                  } else {
+                    const res = await requestLink('demo@roxy.ai');
+                    if (res?.dev_token) {
+                      await verify(res.dev_token);
+                    }
                   }
                 } catch (err) {
                   console.error('Instant access failed:', err);
+                  setOauthErrorMessage((err as Error).message || 'Instant access failed');
+                  setPhase('request');
                 }
               }}
               title="Sign in instantly without Google or GitHub"

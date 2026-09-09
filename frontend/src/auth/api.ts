@@ -100,4 +100,12 @@ export const authApi = {
   async me(token: string): Promise<AuthUser> {
     return fetchWithToken<AuthUser>('/auth/me', token);
   },
+
+  async demoLogin(): Promise<VerifyResponse> {
+    const res = await fetch(`${API_BASE}/auth/demo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return readJson<VerifyResponse>(res);
+  },
 };

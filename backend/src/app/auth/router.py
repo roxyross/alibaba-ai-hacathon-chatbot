@@ -35,12 +35,33 @@ IMPLEMENTED_PROVIDERS = ("google", "github")
 
 @router.post("/request-link", response_model=RequestLinkResponse, status_code=status.HTTP_200_OK)
 async def request_link(payload: RequestLinkRequest) -> RequestLinkResponse:
-    """Send a magic link to the given email. Returns dev_token when SMTP is not configured."""
-    token = await _service.request_link(str(payload.email).lower().strip())
+    """Send a magic link to the given email. Returns dev_token when SMTP is not configured or for demo access."""
+    email_clean = str(payload.email).lower().strip()
+    token = await _service.request_link(email_clean)
     smtp_configured = bool(os.environ.get("SMTP_HOST"))
+    is_demo = email_clean in ("demo@roxy.ai", "demo@roxy.com", "test@example.com")
     return RequestLinkResponse(
         ok=True,
-        dev_token=token if not smtp_configured else None,
+        dev_token=token if (not smtp_configured or is_demo) else None,
+    )
+
+
+@router.post("/demo", response_model=SessionResponse, status_code=status.HTTP_200_OK)
+async def demo_login() -> SessionResponse:
+    """Instant login endpoint for demo access, testing, and judges."""
+    token = await _service.request_link("demo@roxy.ai")
+    result = await _service.verify(token)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initialize demo session",
+        )
+    user, jwt_token, ttl = result
+    return SessionResponse(
+        user=UserResponse.model_validate(user),
+        access_token=jwt_token,
+        token_type="bearer",
+        expires_in=ttl,
     )
 
 

@@ -20,6 +20,7 @@ interface AuthContextValue {
   requestLink: (email: string) => Promise<import('./api').RequestLinkResponse>;
   verify: (token: string) => Promise<void>;
   completeOAuth: (accessToken: string) => Promise<void>;
+  demoLogin: () => Promise<void>;
   signOut: () => void;
   authedFetch: <T>(path: string, init?: RequestInit) => Promise<T>;
 }
@@ -114,6 +115,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
+  const demoLogin = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      let result;
+      try {
+        result = await authApi.demoLogin();
+      } catch {
+        const req = await authApi.requestLink('demo@roxy.ai');
+        if (!req.dev_token) {
+          throw new Error('Instant access is temporarily unavailable');
+        }
+        result = await authApi.verify(req.dev_token);
+      }
+      localStorage.setItem(TOKEN_KEY, result.access_token);
+      setAccessToken(result.access_token);
+      setUser(result.user);
+    } catch (err) {
+      setError((err as Error).message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const signOut = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setAccessToken(null);
@@ -139,6 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       requestLink,
       verify,
       completeOAuth,
+      demoLogin,
       signOut,
       authedFetch,
     }),
@@ -150,6 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       requestLink,
       verify,
       completeOAuth,
+      demoLogin,
       signOut,
       authedFetch,
     ],
