@@ -58,13 +58,33 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
 
         raw_bytes = msg.as_bytes()
 
-        # Check for direct SMTP credentials provided in request, environment SMTP, Gmail OAuth, or Direct MX Delivery
+        # 1. Direct SMTP credentials provided in request or environment take top priority
         if self._has_direct_smtp(input_data) or self._has_smtp_config():
             return self._send_via_smtp(input_data, msg)
-        elif self._has_gmail_oauth():
-            return await self._send_via_gmail_api(input_data, raw_bytes)
-        else:
-            return self._send_via_direct_mx(input_data, msg)
+
+        # 2. If Gmail OAuth credentials exist and a token has been saved, use Gmail API
+        user_id = input_data.user_id or "default"
+        if self._has_gmail_oauth():
+            token = self._load_user_token(user_id)
+            if token:
+                return await self._send_via_gmail_api(input_data, raw_bytes)
+
+        # 3. Fall back to Direct MX delivery
+        mx_res = self._send_via_direct_mx(input_data, msg)
+        if mx_res.success:
+            return mx_res
+
+        # 4. If direct MX failed or was blocked, return actionable diagnostic message
+        return EmailSendResponse(
+            success=False,
+            delivery_status="not_sent",
+            error=(
+                "Email delivery is not configured. To send emails: "
+                "(1) Sign in with Google with Gmail permissions, or "
+                "(2) Add your Gmail App Password to SMTP_PASS in backend/.env for rijjienterprise@gmail.com, or "
+                "(3) Enter your Gmail App Password in the Sender Settings in the Send Email panel."
+            ),
+        )
 
     # -------------------------------------------------------------------------
     # Gmail API (OAuth2)
@@ -78,11 +98,12 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
 
     def _load_user_token(self, user_id: str) -> str | None:
         """Load the stored OAuth2 access token for a user, if present."""
-        token_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "..", "data", f"gmail_token_{user_id}.json"
-        )
+        data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
+        token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
         if not os.path.exists(token_path):
-            return None
+            token_path = os.path.join(data_dir, "gmail_token_default.json")
+            if not os.path.exists(token_path):
+                return None
         try:
             with open(token_path, encoding="utf-8") as f:
                 data = json.load(f)

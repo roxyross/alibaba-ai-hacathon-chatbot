@@ -326,6 +326,25 @@ async def complete_google_callback(
     user = await upsert_user_by_email(email)
     log.info("auth.oauth.signed_in", user_id=user.id)
     jwt_token, ttl = create_session_token(user.id)
+
+    # Persist Google tokens for email_send and calendar skills
+    try:
+        import json as _json
+        token_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
+        os.makedirs(token_dir, exist_ok=True)
+        token_data = {
+            "access_token": token_payload.get("access_token"),
+            "refresh_token": token_payload.get("refresh_token"),
+            "expires_at": time.time() + float(token_payload.get("expires_in", 3600)),
+            "email": email,
+        }
+        with open(os.path.join(token_dir, f"gmail_token_{user.id}.json"), "w", encoding="utf-8") as f:
+            _json.dump(token_data, f)
+        with open(os.path.join(token_dir, "gmail_token_default.json"), "w", encoding="utf-8") as f:
+            _json.dump(token_data, f)
+    except Exception as exc:
+        log.warning("auth.oauth.persist_token_failed", error=str(exc))
+
     return user, jwt_token, ttl
 
 

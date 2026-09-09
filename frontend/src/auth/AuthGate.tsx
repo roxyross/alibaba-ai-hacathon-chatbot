@@ -256,20 +256,28 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
               }}
             >
               <summary style={{ cursor: 'pointer', color: '#93c5fd', fontWeight: 500 }}>
-                ℹ️ Google / GitHub access blocked? Read how to configure
+                ℹ️ Setup Guide: Google & GitHub OAuth Redirect URIs
               </summary>
-              <ul style={{ margin: '0.5rem 0 0 0', paddingLeft: '1.2rem', lineHeight: 1.5 }}>
+              <ul style={{ margin: '0.5rem 0 0 0', paddingLeft: '1.2rem', lineHeight: 1.6 }}>
                 <li>
-                  <strong>Google (Error 400: redirect_uri_mismatch):</strong> Add <code style={{ color: '#60a5fa' }}>http://localhost:8000/api/v1/auth/oauth/google/callback</code> to Authorized Redirect URIs in your Google Cloud Console.
+                  <strong>Google (Error 400: redirect_uri_mismatch):</strong> In Google Cloud Console, under <em>Authorized redirect URIs</em>, make sure you include <code>/callback</code>:
+                  <br />
+                  • Local: <code style={{ color: '#60a5fa' }}>http://localhost:8000/api/v1/auth/oauth/google/callback</code>
+                  <br />
+                  • Cloud/Vercel: <code style={{ color: '#60a5fa' }}>https://roxy-personal-ai-backend.vercel.app/api/v1/auth/oauth/google/callback</code>
                 </li>
-                <li>
-                  <strong>Google ("Access blocked: app in testing"):</strong> Add your Gmail address under "Test Users" in Google OAuth Consent Screen.
+                <li style={{ marginTop: '0.35rem' }}>
+                  <strong>Google ("Access blocked: app in testing"):</strong> Go to <em>Google Auth Platform → Audience (or OAuth consent screen) → Test users</em>, and click <strong>+ Add users</strong> to add your Gmail address (e.g. <code style={{ color: '#60a5fa' }}>rijjienterprise@gmail.com</code>).
                 </li>
-                <li>
-                  <strong>GitHub ("redirect_uri mismatch"):</strong> Set Authorization callback URL to <code style={{ color: '#60a5fa' }}>http://localhost:8000/api/v1/auth/oauth/github/callback</code> in GitHub Developer Settings.
+                <li style={{ marginTop: '0.35rem' }}>
+                  <strong>GitHub ("redirect_uri mismatch"):</strong> Set Authorization callback URL in GitHub Developer Settings to:
+                  <br />
+                  • Local: <code style={{ color: '#60a5fa' }}>http://localhost:8000/api/v1/auth/oauth/github/callback</code>
+                  <br />
+                  • Cloud/Vercel: <code style={{ color: '#60a5fa' }}>https://roxy-personal-ai-backend.vercel.app/api/v1/auth/oauth/github/callback</code>
                 </li>
-                <li>
-                  <strong>Instant Demo:</strong> Use <strong>⚡ Enter Instantly</strong> above to bypass OAuth setup completely.
+                <li style={{ marginTop: '0.35rem' }}>
+                  <strong>⚡ Instant Access:</strong> You can always click <strong>⚡ Enter Instantly (Demo Access)</strong> above to enter and test immediately without configuring OAuth!
                 </li>
               </ul>
             </details>

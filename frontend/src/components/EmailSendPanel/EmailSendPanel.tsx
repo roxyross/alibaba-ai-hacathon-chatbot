@@ -34,6 +34,8 @@ async function sendEmail(
     cc: string[];
     bcc: string[];
     confirm: boolean;
+    smtp_user?: string;
+    smtp_pass?: string;
   },
   accessToken: string | null
 ): Promise<EmailSendResponse> {
@@ -72,6 +74,12 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
   const [sent, setSent] = useState<{ messageId: string; sentAt: string; to: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Optional SMTP Credentials configuration (for users without Google OAuth)
+  const [showSettings, setShowSettings] = useState(false);
+  const [senderEmail, setSenderEmail] = useState(() => localStorage.getItem('roxy_smtp_user') || 'rijjienterprise@gmail.com');
+  const [appPassword, setAppPassword] = useState(() => localStorage.getItem('roxy_smtp_pass') || '');
+  const [savedSettings, setSavedSettings] = useState(false);
+
   const reset = () => {
     setTo('');
     setSubject('');
@@ -91,6 +99,9 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
     setSent(null);
 
     try {
+      const storedSmtpUser = localStorage.getItem('roxy_smtp_user');
+      const storedSmtpPass = localStorage.getItem('roxy_smtp_pass');
+
       const payload: Parameters<typeof sendEmail>[0] = {
         to: to.trim(),
         subject: subject.trim(),
@@ -98,6 +109,8 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
         cc: cc.split(',').map((s) => s.trim()).filter(Boolean),
         bcc: bcc.split(',').map((s) => s.trim()).filter(Boolean),
         confirm: true,
+        smtp_user: senderEmail.trim() || storedSmtpUser || undefined,
+        smtp_pass: appPassword.trim() || storedSmtpPass || undefined,
       };
 
       const result = await sendEmail(payload, accessToken ?? null);
@@ -173,8 +186,59 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
             </button>
           </div>
         ) : (
-          <form className="esp__form" onSubmit={handleSubmit}>
-            <div className="esp__field">
+          <>
+            <div style={{ marginBottom: '1rem', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '0.6rem 0.85rem', background: 'rgba(30, 41, 59, 0.4)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
+                  ⚙️ Sender Settings: {appPassword ? '✅ App Password Active' : 'ℹ️ Direct Gmail App Password (Optional)'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(!showSettings)}
+                  style={{ background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer', fontSize: '0.82rem' }}
+                >
+                  {showSettings ? 'Hide ▲' : 'Configure ▼'}
+                </button>
+              </div>
+              {showSettings && (
+                <div style={{ marginTop: '0.65rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                    If you haven't connected via Google OAuth, you can provide a 16-character <strong>Google App Password</strong> (from Google Account → Security → 2-Step Verification → App passwords) to send directly:
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                    <input
+                      type="email"
+                      className="esp__input"
+                      style={{ fontSize: '0.82rem', padding: '0.4rem 0.6rem' }}
+                      placeholder="Sender Gmail"
+                      value={senderEmail}
+                      onChange={(e) => {
+                        setSenderEmail(e.target.value);
+                        localStorage.setItem('roxy_smtp_user', e.target.value);
+                      }}
+                    />
+                    <input
+                      type="password"
+                      className="esp__input"
+                      style={{ fontSize: '0.82rem', padding: '0.4rem 0.6rem' }}
+                      placeholder="16-character App Password"
+                      value={appPassword}
+                      onChange={(e) => {
+                        setAppPassword(e.target.value);
+                        localStorage.setItem('roxy_smtp_pass', e.target.value);
+                        setSavedSettings(true);
+                      }}
+                    />
+                  </div>
+                  {savedSettings && (
+                    <span style={{ fontSize: '0.75rem', color: '#34d399' }}>✓ Saved to browser storage</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <form className="esp__form" onSubmit={handleSubmit}>
+              <div className="esp__field">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <label style={{ margin: 0, fontWeight: 500 }}>To *</label>
                 <VoiceInputControl
@@ -286,7 +350,8 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
               </button>
             </div>
           </form>
-        )}
+        </>
+      )}
       </div>
     </div>
   );
