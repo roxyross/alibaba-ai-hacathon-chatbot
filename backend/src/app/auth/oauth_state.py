@@ -35,7 +35,9 @@ def _is_production() -> bool:
     return (
         os.environ.get("APP_ENV", "").lower() == "production"
         or bool(os.environ.get("VERCEL"))
+        or bool(os.environ.get("VERCEL_ENV"))
         or os.environ.get("OAUTH_REDIRECT_BASE_URL", "").startswith("https://")
+        or os.environ.get("APP_BASE_URL", "").startswith("https://")
     )
 
 
@@ -93,28 +95,36 @@ def consume_state(
     Supports:
       1. Cookie matching with in-memory store (local dev & tests).
       2. Serverless HMAC cryptographic validation (stateless across Vercel lambdas
-         where memory is not shared between invocations).
+         where memory is not shared between invocations, or when cookies are
+         dropped/blocked in Incognito mode or cross-site redirects).
     """
-    if not request_value or not cookie_value:
-        return False
-
-    if not secrets.compare_digest(request_value, cookie_value):
+    if not request_value:
         return False
 
     # Prevent replay attacks
-    if cookie_value in _CONSUMED_STATES or request_value in _CONSUMED_STATES:
+    if request_value in _CONSUMED_STATES or (cookie_value and cookie_value in _CONSUMED_STATES):
         return False
 
-    # 1. In-memory exact match check (tests & local dev)
-    issued_at = _STATES.pop(cookie_value, None)
-    if issued_at is not None:
-        if _now() - issued_at <= STATE_TTL_SECONDS:
-            _CONSUMED_STATES.add(cookie_value)
-            _CONSUMED_STATES.add(request_value)
-            return True
+    # 1. In-memory exact match check (tests & local dev when cookie is present)
+    if cookie_value and secrets.compare_digest(request_value, cookie_value):
+        issued_at = _STATES.pop(cookie_value, None)
+        if issued_at is not None:
+            if _now() - issued_at <= STATE_TTL_SECONDS:
+                _CONSUMED_STATES.add(cookie_value)
+                _CONSUMED_STATES.add(request_value)
+                return True
+            return False
+
+    # If a cookie is present, ensure it hasn't been tampered with
+    if cookie_value and not secrets.compare_digest(request_value, cookie_value):
+        return False
+
+    # In local dev and tests, require cookie presence if not running in production
+    if not cookie_value and not _is_production():
         return False
 
     # 2. Serverless HMAC verification (stateless & cross-container on Vercel)
+    # Works even if the cookie was dropped by Chrome Incognito or cross-site tracking prevention.
     parts = request_value.split("_")
     if len(parts) >= 3:
         raw_token = "_".join(parts[:-2])
@@ -130,7 +140,8 @@ def consume_state(
 
                 if secrets.compare_digest(sig, expected_sig):
                     if _now() - ts <= STATE_TTL_SECONDS:
-                        _CONSUMED_STATES.add(cookie_value)
+                        if cookie_value:
+                            _CONSUMED_STATES.add(cookie_value)
                         _CONSUMED_STATES.add(request_value)
                         return True
         except ValueError:

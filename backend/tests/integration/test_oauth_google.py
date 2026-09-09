@@ -350,3 +350,38 @@ async def test_state_is_single_use(async_client) -> None:
         follow_redirects=False,
     )
     assert r2.status_code == 400
+
+
+async def test_stateless_hmac_state_in_production_without_cookie(
+    async_client, rsa_keypair, monkeypatch
+) -> None:
+    """In production (e.g. Vercel), Chrome Incognito blocks cookies, but signed HMAC state succeeds."""
+    monkeypatch.setenv("VERCEL", "1")
+    priv, jwks = rsa_keypair
+    id_token = _sign_id_token(priv, email="incognito@example.com")
+
+    with respx.mock(assert_all_called=False) as respx_mock:
+        respx_mock.get(GOOGLE_JWKS_URL).respond(200, json=jwks)
+        respx_mock.post(GOOGLE_TOKEN_URL).respond(
+            200,
+            json={
+                "id_token": id_token,
+                "access_token": "x",
+                "token_type": "Bearer",
+            },
+        )
+        r1 = await async_client.get(
+            "/api/v1/auth/oauth/google/start", follow_redirects=False
+        )
+        state = r1.headers["location"].split("state=")[1].split("&")[0]
+
+        # Simulate Incognito mode: client drops third-party cookie completely
+        async_client.cookies.clear()
+
+        r2 = await async_client.get(
+            "/api/v1/auth/oauth/google/callback",
+            params={"code": "valid-code", "state": state},
+            follow_redirects=False,
+        )
+        assert r2.status_code == 302
+        assert "access_token=" in r2.headers["location"]
