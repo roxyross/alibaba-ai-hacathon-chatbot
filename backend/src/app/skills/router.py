@@ -105,7 +105,7 @@ _pending_confirmations: dict[str, dict[str, tuple[Any, Any]]] = {}
 async def _run_skill(
     executor: Any,
     input_data: Any,
-    user: User,
+    user: User | None,
     skill_slug: str = "",
     http_request: StarletteRequest | None = None,
 ) -> T:
