@@ -119,7 +119,10 @@ async def _fetch_jwks(force: bool = False) -> dict[str, Any]:
         resp = await client.get(GOOGLE_JWKS_URL)
     if resp.status_code != 200:
         raise OAuthError("jwks_unavailable", f"JWKS fetch returned {resp.status_code}")
-    _jwks_cache = resp.json()
+    data = resp.json()
+    if not isinstance(data, dict):
+        raise OAuthError("jwks_unavailable", "JWKS endpoint returned non-dict response")
+    _jwks_cache = dict(data)
     _jwks_cache_fetched_at = now
     return _jwks_cache
 
@@ -190,9 +193,11 @@ async def exchange_code(code: str, config: GoogleConfig) -> dict[str, Any]:
         )
         raise OAuthError("exchange_failed", "Token endpoint returned non-200")
     payload = resp.json()
+    if not isinstance(payload, dict):
+        raise OAuthError("exchange_failed", "Token endpoint returned non-dict response")
     if "id_token" not in payload:
         raise OAuthError("no_id_token", "Token response missing id_token")
-    return payload
+    return dict(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -220,15 +225,20 @@ async def _verify_with_jwks(id_token: str, config: GoogleConfig) -> dict[str, An
         jwk_dict = _key_for_kid(jwks, kid)
 
     import json as _json
+    from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
     from jwt.algorithms import RSAAlgorithm
 
     try:
-        public_key = RSAAlgorithm.from_jwk(_json.dumps(jwk_dict))
+        raw_key = RSAAlgorithm.from_jwk(_json.dumps(jwk_dict))
     except Exception as exc:  # noqa: BLE001 — pyjwt raises various low-level errors
         raise OAuthError("jwks_unavailable", f"Could not parse JWK: {exc}") from exc
 
+    if not isinstance(raw_key, RSAPublicKey):
+        raise OAuthError("jwks_unavailable", "JWK does not represent an RSA public key")
+    public_key: RSAPublicKey = raw_key
+
     try:
-        claims = jwt.decode(
+        claims: dict[str, Any] = jwt.decode(
             id_token,
             public_key,
             algorithms=["RS256"],

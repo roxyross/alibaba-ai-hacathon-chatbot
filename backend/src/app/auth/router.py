@@ -113,8 +113,8 @@ async def oauth_start(
         )
 
     if provider == "google":
-        config = oauth_svc.GoogleConfig.from_env()
-        if config is None:
+        google_config = oauth_svc.GoogleConfig.from_env()
+        if google_config is None:
             log.error("auth.oauth.start.misconfigured", provider=provider)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -124,15 +124,15 @@ async def oauth_start(
                 ),
             )
         state = oauth_state.new_state()
-        authorize_url = oauth_svc.build_authorize_url(state, config)
+        authorize_url = oauth_svc.build_authorize_url(state, google_config)
         resp = RedirectResponse(url=authorize_url, status_code=status.HTTP_302_FOUND)
         oauth_state.set_state(resp, state)
         log.info("auth.oauth.started", provider=provider)
         return resp
 
     if provider == "github":
-        config = oauth_svc.GitHubConfig.from_env()
-        if config is None:
+        github_config = oauth_svc.GitHubConfig.from_env()
+        if github_config is None:
             log.error("auth.oauth.start.misconfigured", provider=provider)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -142,7 +142,7 @@ async def oauth_start(
                 ),
             )
         state = oauth_state.new_state()
-        authorize_url = oauth_svc._github_authorize_url(state, config)
+        authorize_url = oauth_svc._github_authorize_url(state, github_config)
         resp = RedirectResponse(url=authorize_url, status_code=status.HTTP_302_FOUND)
         oauth_state.set_state(resp, state)
         log.info("auth.oauth.github.started")
@@ -190,8 +190,8 @@ async def oauth_callback(
         )
 
     if provider == "google":
-        config = oauth_svc.GoogleConfig.from_env()
-        if config is None:
+        google_config = oauth_svc.GoogleConfig.from_env()
+        if google_config is None:
             # Configuration disappeared mid-flow — treat as misconfiguration.
             log.error("auth.oauth.callback.misconfigured", provider=provider)
             raise HTTPException(
@@ -200,7 +200,7 @@ async def oauth_callback(
             )
         try:
             user, jwt_token, ttl = await oauth_svc.complete_google_callback(
-                code, config
+                code, google_config
             )
         except oauth_svc.OAuthError as exc:
             log.warning(
@@ -213,8 +213,8 @@ async def oauth_callback(
         return _redirect_with_jwt(jwt_token, ttl)
 
     if provider == "github":
-        config = oauth_svc.GitHubConfig.from_env()
-        if config is None:
+        github_config = oauth_svc.GitHubConfig.from_env()
+        if github_config is None:
             log.error("auth.oauth.callback.misconfigured", provider=provider)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -222,7 +222,7 @@ async def oauth_callback(
             )
         try:
             user, jwt_token, ttl = await oauth_svc.complete_github_callback(
-                code, config
+                code, github_config
             )
         except oauth_svc.OAuthError as exc:
             log.warning(
