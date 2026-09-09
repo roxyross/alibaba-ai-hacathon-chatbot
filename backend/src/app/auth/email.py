@@ -17,8 +17,8 @@ async def send_magic_link(to_email: str, link: str, token: str | None = None) ->
     """
     token_str = token or (link.split("token=")[1].split("&")[0] if "token=" in link else "")
     smtp_host = os.environ.get("SMTP_HOST")
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_pass = os.environ.get("SMTP_PASS", "")
+    smtp_user = os.environ.get("SMTP_USER", "").strip()
+    smtp_pass = os.environ.get("SMTP_PASS", "").strip().replace(" ", "")
     smtp_port = int(os.environ.get("SMTP_PORT", "587"))
     smtp_from = os.environ.get("SMTP_FROM", smtp_user or "ROXY AI <auth@roxy-personal-ai.com>")
     use_tls = os.environ.get("SMTP_TLS", "true").lower() != "false"
