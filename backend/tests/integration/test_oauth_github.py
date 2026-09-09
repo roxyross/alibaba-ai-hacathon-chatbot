@@ -18,7 +18,6 @@ GitHub's token endpoint, /user, and /user/emails are mocked via respx.
 
 from __future__ import annotations
 
-import os
 import sys
 from typing import Any
 
@@ -59,6 +58,7 @@ def anyio_backend() -> str:
 @pytest.fixture
 async def async_client():
     import httpx
+
     from app.main import app
 
     async with httpx.AsyncClient(

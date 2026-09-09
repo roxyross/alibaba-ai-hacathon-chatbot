@@ -22,16 +22,15 @@ end-to-end (i.e., not stubbed).
 
 from __future__ import annotations
 
-import os
 import sys
 import time
 from typing import Any
 
 import pytest
 import respx
-from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
-from jose import jwk, jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
+from jose import jwt
 
 # Make `app` importable when running from backend/ root.
 sys.path.insert(0, "src")
@@ -126,6 +125,7 @@ def anyio_backend() -> str:
 @pytest.fixture
 async def async_client():
     import httpx
+
     from app.main import app
 
     async with httpx.AsyncClient(
