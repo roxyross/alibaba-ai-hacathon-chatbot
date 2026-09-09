@@ -231,14 +231,18 @@ def _redirect_with_jwt(jwt_token: str, ttl: int) -> RedirectResponse:
         }
     )
     target = f"{frontend_base}/auth/callback#{fragment}"
-    return RedirectResponse(url=target, status_code=status.HTTP_302_FOUND)
+    resp = RedirectResponse(url=target, status_code=status.HTTP_302_FOUND)
+    oauth_state.clear_state(resp)
+    return resp
 
 
 def _redirect_with_error(provider: str, reason: str) -> RedirectResponse:
     """Send the user back to the frontend with a short error reason in the hash."""
     frontend_base = os.environ.get("APP_BASE_URL", "http://localhost:5173").rstrip("/")
     fragment = urlencode({"error": reason, "provider": provider})
-    return RedirectResponse(
+    resp = RedirectResponse(
         url=f"{frontend_base}/auth/callback#{fragment}",
         status_code=status.HTTP_302_FOUND,
     )
+    oauth_state.clear_state(resp)
+    return resp

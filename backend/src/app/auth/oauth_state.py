@@ -48,12 +48,12 @@ def _now() -> float:
 
 def new_state() -> str:
     """Generate a fresh state value (caller must `set_state` it on a response).
-    
+
     Generates a cryptographically signed HMAC state token that can be verified
     across serverless invocations (e.g. on Vercel) even if the container restarts
     or cookies are partitioned across domains.
     """
-    raw_token = secrets.token_urlsafe(20)
+    raw_token = secrets.token_hex(16)
     issued_at = int(_now())
     payload = f"{raw_token}_{issued_at}"
     sig = hmac.new(
@@ -83,6 +83,18 @@ def set_state(response: Response, value: str) -> None:
     )
 
 
+def clear_state(response: Response) -> None:
+    """Clear the state cookie from the response."""
+    is_prod = _is_production()
+    response.delete_cookie(
+        key=STATE_COOKIE,
+        path="/",
+        httponly=True,
+        secure=is_prod,
+        samesite="none" if is_prod else "lax",
+    )
+
+
 _CONSUMED_STATES: set[str] = set()
 
 
@@ -93,10 +105,10 @@ def consume_state(
     """Validate and burn the state. Returns True on success, False on any mismatch.
 
     Supports:
-      1. Cookie matching with in-memory store (local dev & tests).
-      2. Serverless HMAC cryptographic validation (stateless across Vercel lambdas
-         where memory is not shared between invocations, or when cookies are
-         dropped/blocked in Incognito mode or cross-site redirects).
+      1. Serverless HMAC cryptographic validation (stateless across Vercel lambdas
+         where memory is not shared between invocations, and resilient to stale
+         cookies or cross-site cookie restrictions).
+      2. Cookie matching with in-memory store (fallback for test suites and dev).
     """
     if not request_value:
         return False
@@ -105,47 +117,47 @@ def consume_state(
     if request_value in _CONSUMED_STATES or (cookie_value and cookie_value in _CONSUMED_STATES):
         return False
 
-    # 1. In-memory exact match check (tests & local dev when cookie is present)
-    if cookie_value and secrets.compare_digest(request_value, cookie_value):
-        issued_at = _STATES.pop(cookie_value, None)
-        if issued_at is not None:
-            if _now() - issued_at <= STATE_TTL_SECONDS:
-                _CONSUMED_STATES.add(cookie_value)
-                _CONSUMED_STATES.add(request_value)
-                return True
-            return False
+    # In production (e.g. Vercel serverless / cross-origin deployments):
+    # Validate via cryptographically signed HMAC token so that:
+    # 1. State persists across serverless lambda containers.
+    # 2. State works even if Chrome Incognito drops third-party cookies.
+    # 3. State is resilient if the browser has a stale cookie from another tab/session.
+    if _is_production():
+        parts = request_value.split("_")
+        if len(parts) >= 3:
+            raw_token = "_".join(parts[:-2])
+            ts_str = parts[-2]
+            sig = parts[-1]
+            try:
+                ts = int(ts_str)
+                payload = f"{raw_token}_{ts}"
+                for secret_candidate in (_secret(), "roxy-dev-secret-do-not-use-in-prod"):
+                    expected_sig = hmac.new(
+                        secret_candidate.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+                    ).hexdigest()[:24]
 
-    # If a cookie is present, ensure it hasn't been tampered with
-    if cookie_value and not secrets.compare_digest(request_value, cookie_value):
-        return False
-
-    # In local dev and tests, require cookie presence if not running in production
-    if not cookie_value and not _is_production():
-        return False
-
-    # 2. Serverless HMAC verification (stateless & cross-container on Vercel)
-    # Works even if the cookie was dropped by Chrome Incognito or cross-site tracking prevention.
-    parts = request_value.split("_")
-    if len(parts) >= 3:
-        raw_token = "_".join(parts[:-2])
-        ts_str = parts[-2]
-        sig = parts[-1]
-        try:
-            ts = int(ts_str)
-            payload = f"{raw_token}_{ts}"
-            for secret_candidate in (_secret(), "roxy-dev-secret-do-not-use-in-prod"):
-                expected_sig = hmac.new(
-                    secret_candidate.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
-                ).hexdigest()[:24]
-
-                if secrets.compare_digest(sig, expected_sig):
-                    if _now() - ts <= STATE_TTL_SECONDS:
+                    if secrets.compare_digest(sig, expected_sig) and (_now() - ts <= STATE_TTL_SECONDS):
                         if cookie_value:
                             _CONSUMED_STATES.add(cookie_value)
                         _CONSUMED_STATES.add(request_value)
                         return True
-        except ValueError:
-            pass
+            except ValueError:
+                pass
+
+    # In local dev and tests (or fallback if HMAC not matched):
+    # Require cookie presence and match against in-memory issued states.
+    if not cookie_value:
+        return False
+
+    if not secrets.compare_digest(request_value, cookie_value):
+        return False
+
+    issued_at = _STATES.pop(cookie_value, None)
+    if issued_at is not None:
+        if _now() - issued_at <= STATE_TTL_SECONDS:
+            _CONSUMED_STATES.add(cookie_value)
+            _CONSUMED_STATES.add(request_value)
+            return True
+        return False
 
     return False
-
