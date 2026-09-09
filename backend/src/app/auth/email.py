@@ -134,6 +134,12 @@ async def send_magic_link(to_email: str, link: str, token: str | None = None) ->
 
 def build_magic_link(token: str) -> str:
     """Compose the full URL the user clicks in their email."""
-    base = os.environ.get("APP_BASE_URL", "http://localhost:5173").rstrip("/")
+    base = os.environ.get("APP_BASE_URL")
+    if not base or "localhost" in base:
+        if os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV") or bool(os.environ.get("VERCEL_URL")):
+            base = "https://roxy-personal-ai.vercel.app"
+        else:
+            base = base or "http://localhost:5173"
+    base = base.rstrip("/")
     qs = urlencode({"token": token})
     return f"{base}/?{qs}"
