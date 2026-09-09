@@ -210,9 +210,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         headers,
         body: JSON.stringify({
           audio_data: base64Audio,
-          model: 'whisper',
+          model: 'gemini',
           // Omitted language triggers automatic multi-language detection for Urdu, Hindi, English, etc.
         }),
+
       });
 
       if (res.ok) {

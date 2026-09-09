@@ -1,10 +1,10 @@
-// FinanceDashboard — full finance UI: accounts, transactions, budgets, alerts
-
 import React, { useState } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { useFinance } from '../../hooks/useFinance';
 import type { Budget, SpendingAlert, Transaction } from '../../hooks/useFinance';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './FinanceDashboard.css';
+
 
 const rawApiBase =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
@@ -467,14 +467,32 @@ const BudgetOverviewCard: React.FC<BudgetOverviewCardProps> = ({
             {formError}
           </p>
         )}
-        <button
-          type="submit"
-          className="add-budget-form__submit"
-          disabled={submitting || !category.trim() || !limit}
-        >
-          {submitting ? 'Adding…' : '+ Add Budget'}
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <button
+            type="submit"
+            className="add-budget-form__submit"
+            disabled={submitting || !category.trim() || !limit}
+          >
+            {submitting ? 'Adding…' : '+ Add Budget'}
+          </button>
+          <VoiceInputControl
+            size="sm"
+            showReadAloud={false}
+            onTranscript={(t) => {
+              const words = t.split(/\s+/);
+              const num = words.find((w) => /^\d+(\.\d+)?$/.test(w));
+              if (num) {
+                setLimit(num);
+                setCategory(words.filter((w) => w !== num).join(' '));
+              } else {
+                setCategory(t);
+              }
+            }}
+            label="Speak budget (e.g. Groceries 400)"
+          />
+        </div>
       </form>
+
     </div>
   );
 };
@@ -718,22 +736,40 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ accessToken,
             💰 <span>Finance</span>
           </h2>
         </div>
-        <button
-          onClick={() => void fetchSummary()}
-          title="Refresh"
-          style={{
-            background: 'none',
-            border: '1px solid var(--color-border)',
-            borderRadius: '0.4rem',
-            color: 'var(--color-muted)',
-            cursor: 'pointer',
-            fontSize: '0.8rem',
-            padding: '0.25rem 0.5rem',
-          }}
-        >
-          ↻ Refresh
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <VoiceInputControl
+            size="sm"
+            showLangPicker={true}
+            showReadAloud={Boolean(summary)}
+            readAloudText={
+              summary
+                ? `Financial overview: Total bank balance is ${fmt(summary.total_balance)}. Total spending this month is ${fmt(summary.month_spending)}. You have ${summary.budgets.length} budgets configured and ${summary.alerts.length} active spending alerts.`
+                : 'Finance data is currently loading.'
+
+            }
+            onTranscript={(t) => {
+              alert(`Spoken finance query: "${t}"`);
+            }}
+            label="Voice Finance Assistant"
+          />
+          <button
+            onClick={() => void fetchSummary()}
+            title="Refresh"
+            style={{
+              background: 'none',
+              border: '1px solid var(--color-border)',
+              borderRadius: '0.4rem',
+              color: 'var(--color-muted)',
+              cursor: 'pointer',
+              fontSize: '0.8rem',
+              padding: '0.25rem 0.5rem',
+            }}
+          >
+            ↻ Refresh
+          </button>
+        </div>
       </div>
+
 
       {/* Two-column grid on wider screens */}
       <div

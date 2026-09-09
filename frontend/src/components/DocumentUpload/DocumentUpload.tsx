@@ -10,6 +10,8 @@ import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, Trash2, Image as ImageIcon, Film, FileText, X, Eye, AlertCircle } from 'lucide-react';
 import { useDocumentUpload } from '../../hooks/useDocumentUpload';
+import { VoiceInputControl } from '../common/VoiceInputControl';
+
 
 // ── Accepted file types ──────────────────────────────────────────────────────
 
@@ -411,7 +413,7 @@ export function DocumentUpload({
       />
 
       {/* ── Tab bar ─────────────────────────────────────────────────────── */}
-      <div className="document-upload__tabs" role="tablist">
+      <div className="document-upload__tabs" role="tablist" style={{ display: 'flex', alignItems: 'center' }}>
         <button
           role="tab"
           aria-selected={activeTab === 'upload'}
@@ -434,6 +436,27 @@ export function DocumentUpload({
             <span className="document-upload__badge">{documents.length}</span>
           )}
         </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <VoiceInputControl
+            size="sm"
+            showLangPicker={true}
+            showReadAloud={selectedFiles.length > 0 || documents.length > 0}
+            readAloudText={
+              selectedFiles.length > 0
+                ? `Ready to upload ${selectedFiles.length} files: ${selectedFiles.map((f) => f.name).join(', ')}`
+                : `Document library contains ${documents.length} documents.`
+            }
+            onTranscript={(t) => {
+              const lower = t.toLowerCase();
+              if (lower.includes('upload') || lower.includes('attach') || lower.includes('browse') || lower.includes('file')) {
+                handleBrowseClick();
+              } else {
+                setDocumentName(t);
+              }
+            }}
+            label="Voice File Assistant"
+          />
+        </div>
       </div>
 
       {/* ── Upload tab ───────────────────────────────────────────────────── */}
@@ -452,9 +475,17 @@ export function DocumentUpload({
           {selectedFiles.length > 0 && (
             <div className="document-upload__options">
               <div className="document-upload__option">
-                <label htmlFor="doc-name" className="document-upload__label">
-                  Document name
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label htmlFor="doc-name" className="document-upload__label" style={{ margin: 0 }}>
+                    Document name
+                  </label>
+                  <VoiceInputControl
+                    size="sm"
+                    showReadAloud={false}
+                    onTranscript={(t) => setDocumentName(t)}
+                    label="Speak document name"
+                  />
+                </div>
                 <input
                   id="doc-name"
                   type="text"
@@ -465,6 +496,7 @@ export function DocumentUpload({
                   maxLength={200}
                 />
               </div>
+
               <div className="document-upload__option">
                 <label className="document-upload__checkbox-label">
                   <input

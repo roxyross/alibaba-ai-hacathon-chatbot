@@ -37,14 +37,19 @@ class GeminiAdapter(AIProviderAdapter):
             model = model.split("/", 1)[-1]
         # Google directs new users on this API key to gemini-3.6-flash
         if model in (
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.7",
+            "gemini-3.1-flash",
+            "gemini-2.5-flash",
             "gemini-2.0-flash",
             "gemini-1.5-flash",
-            "gemini-2.5-flash",
             "gemini-1.5-pro",
             "gemini-3.6-flash",
         ):
             return self.DEFAULT_MODEL
         return model
+
 
     def __init__(self) -> None:
         super().__init__(self.NAME)

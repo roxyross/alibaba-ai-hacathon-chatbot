@@ -1,7 +1,9 @@
 // EmailSendPanel — compose and send emails via the email_send skill
 
 import React, { useState } from 'react';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './EmailSendPanel.css';
+
 
 const rawApiBase =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
@@ -139,6 +141,20 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           )}
           <h2 className="esp__title">📧 <span>Send Email</span></h2>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>Voice Mode:</span>
+          <VoiceInputControl
+            size="sm"
+            showLangPicker={true}
+            showReadAloud={Boolean(body || subject)}
+            readAloudText={subject ? `Subject: ${subject}. Message: ${body}` : body}
+            onTranscript={(spoken) => {
+              if (!subject) setSubject(spoken);
+              else setBody((prev) => (prev ? `${prev}\n${spoken}` : spoken));
+            }}
+            label="Dictate into email"
+          />
+        </div>
       </div>
 
       <div className="esp__body">
@@ -158,8 +174,19 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           </div>
         ) : (
           <form className="esp__form" onSubmit={handleSubmit}>
-            <label className="esp__field">
-              To *
+            <div className="esp__field">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label style={{ margin: 0, fontWeight: 500 }}>To *</label>
+                <VoiceInputControl
+                  size="sm"
+                  showReadAloud={false}
+                  onTranscript={(text) => {
+                    const cleaned = text.toLowerCase().replace(/\s+at\s+/g, '@').replace(/\s+/g, '');
+                    setTo(cleaned);
+                  }}
+                  label="Speak recipient email"
+                />
+              </div>
               <input
                 type="email"
                 className="esp__input"
@@ -168,10 +195,19 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
                 placeholder="recipient@example.com"
                 required
               />
-            </label>
+            </div>
 
-            <label className="esp__field">
-              Subject *
+            <div className="esp__field">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label style={{ margin: 0, fontWeight: 500 }}>Subject *</label>
+                <VoiceInputControl
+                  size="sm"
+                  showReadAloud={Boolean(subject)}
+                  readAloudText={subject}
+                  onTranscript={(text) => setSubject(text)}
+                  label="Speak subject line"
+                />
+              </div>
               <input
                 type="text"
                 className="esp__input"
@@ -181,19 +217,29 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
                 required
                 maxLength={200}
               />
-            </label>
+            </div>
 
-            <label className="esp__field">
-              Body *
+            <div className="esp__field">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label style={{ margin: 0, fontWeight: 500 }}>Body *</label>
+                <VoiceInputControl
+                  size="sm"
+                  showReadAloud={Boolean(body)}
+                  readAloudText={body}
+                  onTranscript={(text) => setBody((prev) => (prev ? `${prev} ${text}` : text))}
+                  label="Dictate email message"
+                />
+              </div>
               <textarea
                 className="esp__textarea"
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
-                placeholder="Write your message here…"
+                placeholder="Write your message here… (or click the microphone to dictate in Urdu, Hindi, English, etc.)"
                 required
                 rows={8}
               />
-            </label>
+            </div>
+
 
             <label className="esp__field">
               CC (comma-separated)

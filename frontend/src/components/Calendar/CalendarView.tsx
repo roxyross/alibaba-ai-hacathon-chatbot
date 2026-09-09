@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './CalendarView.css';
+
 
 interface CalendarEventItem {
   id: string;
@@ -228,6 +230,33 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </div>
 
         <div className="calendar-header__actions">
+          <VoiceInputControl
+            size="sm"
+            showLangPicker={true}
+            showReadAloud={selectedDateEvents.length > 0}
+            readAloudText={
+              selectedDateEvents.length > 0
+                ? `Events for ${selectedDate}: ${selectedDateEvents
+                    .map(
+                      (e) =>
+                        `${e.summary} at ${
+                          e.start.includes('T') ? e.start.split('T')[1].slice(0, 5) : 'all day'
+                        }`
+                    )
+                    .join('. ')}`
+                : `No events scheduled for ${selectedDate}.`
+            }
+            onTranscript={(spokenPrompt) => {
+              if (onScheduleWithAI) {
+                onScheduleWithAI(spokenPrompt);
+              } else {
+                setNewEventSummary(spokenPrompt);
+                setNewEventDate(selectedDate);
+                setShowAddModal(true);
+              }
+            }}
+            label="Voice Calendar Assistant"
+          />
           <button
             type="button"
             className="calendar-btn-today"
@@ -247,6 +276,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </button>
         </div>
       </header>
+
 
       {/* Main Layout: Left Calendar Grid, Right Agenda/Events Panel */}
       <div className="calendar-layout">
@@ -450,7 +480,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
             <form onSubmit={handleAddEvent} className="calendar-form">
               <div className="calendar-form__group">
-                <label htmlFor="evt-summary" className="calendar-form__label">Event Title *</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label htmlFor="evt-summary" className="calendar-form__label" style={{ margin: 0 }}>Event Title *</label>
+                  <VoiceInputControl
+                    size="sm"
+                    showReadAloud={false}
+                    onTranscript={(t) => setNewEventSummary(t)}
+                    label="Speak event title"
+                  />
+                </div>
                 <input
                   id="evt-summary"
                   type="text"
@@ -506,7 +544,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               </div>
 
               <div className="calendar-form__group">
-                <label htmlFor="evt-desc" className="calendar-form__label">Notes / Description</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label htmlFor="evt-desc" className="calendar-form__label" style={{ margin: 0 }}>Notes / Description</label>
+                  <VoiceInputControl
+                    size="sm"
+                    showReadAloud={Boolean(newEventDescription)}
+                    readAloudText={newEventDescription}
+                    onTranscript={(t) => setNewEventDescription((prev) => prev ? `${prev} ${t}` : t)}
+                    label="Dictate event description"
+                  />
+                </div>
                 <textarea
                   id="evt-desc"
                   rows={3}
@@ -516,6 +563,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   className="calendar-form__textarea"
                 />
               </div>
+
 
               <div className="calendar-form__actions">
                 <button

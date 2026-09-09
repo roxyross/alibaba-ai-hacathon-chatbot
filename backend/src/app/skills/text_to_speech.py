@@ -24,10 +24,16 @@ class TextToSpeechSkill(SkillExecutor[TextToSpeechRequest, TextToSpeechResponse]
         text = input_data.text
         speed = input_data.speed or 1.0
         voice = input_data.voice
-        model = input_data.model or "openai"
+        model = input_data.model or "gemini"
+        modulation = getattr(input_data, "voice_modulation", None)
 
         try:
-            if model == "elevenlabs":
+            if model in ("gemini", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.1-flash", "gemini-tts"):
+                audio_b64, fmt, duration = await self._gemini_tts(text, speed, voice, modulation)
+                if not audio_b64:
+                    # Fallback to OpenAI if Gemini TTS returned empty
+                    audio_b64, fmt, duration = await self._openai_tts(text, speed, voice)
+            elif model == "elevenlabs":
                 audio_b64, fmt, duration = await self._elevenlabs(text, speed, voice)
             else:
                 audio_b64, fmt, duration = await self._openai_tts(text, speed, voice)
@@ -46,6 +52,83 @@ class TextToSpeechSkill(SkillExecutor[TextToSpeechRequest, TextToSpeechResponse]
                 duration_seconds=None,
                 model=model,
             )
+
+    async def _gemini_tts(
+        self, text: str, speed: float, voice: str | None, modulation: str | None
+    ) -> tuple[str, str, float | None]:
+        """Synthesize via Google Gemini Multimodal Audio TTS with steerable voice modulation."""
+        import httpx
+
+        api_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+        if not api_key:
+            return "", "mp3", None
+
+        # Apply voice modulation tags if requested
+        mod_prefix = ""
+        if modulation:
+            mod_map = {
+                "whispering": "[whispers] ",
+                "shouting": "[shouting] ",
+                "excited": "[excitedly] ",
+                "dramatic": "[dramatically] ",
+                "calm": "[calmly] ",
+                "fast": "[fast] ",
+                "slow": "[slow] ",
+            }
+            mod_prefix = mod_map.get(modulation.lower(), f"[{modulation}] ")
+
+        full_prompt = mod_prefix + text if not text.startswith("[") else text
+
+        # Selected Gemini voice (default "Kore" or "Puck", "Fenrir", "Aoede", "Zephyr")
+        target_voice = voice or "Kore"
+
+        models_to_try = [
+            "gemini-2.5-flash-preview-tts",
+            "gemini-3.1-flash-tts-preview",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+        ]
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for gemini_model in models_to_try:
+                try:
+                    payload = {
+                        "contents": [{"parts": [{"text": full_prompt[:5000]}]}],
+                        "generationConfig": {
+                            "responseModalities": ["AUDIO"],
+                            "speechConfig": {
+                                "voiceConfig": {
+                                    "prebuiltVoiceConfig": {
+                                        "voiceName": target_voice,
+                                    }
+                                }
+                            },
+                        },
+                    }
+                    resp = await client.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={api_key}",
+                        headers={"Content-Type": "application/json"},
+                        json=payload,
+                    )
+                    if resp.is_success:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            for part in parts:
+                                inline_data = part.get("inlineData", {})
+                                if inline_data and "data" in inline_data:
+                                    raw_b64 = inline_data["data"]
+                                    mime = inline_data.get("mimeType", "audio/mp3")
+                                    fmt = "wav" if "wav" in mime else "mp3"
+                                    duration = len(raw_b64) / (16_000 * 2) * 0.75
+                                    return raw_b64, fmt, round(duration, 1)
+                except Exception as exc:
+                    log.warning("gemini_tts.model_attempt_failed", model=gemini_model, error=str(exc))
+                    continue
+
+        return "", "mp3", None
+
 
     async def _openai_tts(self, text: str, speed: float, voice: str | None) -> tuple[str, str, float | None]:
         """Synthesize via OpenAI TTS API."""

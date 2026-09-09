@@ -75,12 +75,52 @@ def _seed_data() -> list[dict]:
                     "max_tokens": 131072,
                 },
                 {
+                    "name": "grok-3-mini",
+                    "display_name": "Grok 3 Mini",
+                    "task_types": ["general", "coding", "reasoning"],
+                    "cost_per_1k_input_tokens": 0.001,
+                    "cost_per_1k_output_tokens": 0.003,
+                    "max_tokens": 131072,
+                },
+                {
                     "name": "grok-2",
                     "display_name": "Grok 2",
-                    "task_types": ["general"],
+                    "task_types": ["general", "coding"],
                     "cost_per_1k_input_tokens": 0.002,
                     "cost_per_1k_output_tokens": 0.01,
                     "max_tokens": 131072,
+                },
+                {
+                    "name": "grok-2-vision-1212",
+                    "display_name": "Grok 2 Vision",
+                    "task_types": ["general", "multimodal"],
+                    "cost_per_1k_input_tokens": 0.002,
+                    "cost_per_1k_output_tokens": 0.01,
+                    "max_tokens": 131072,
+                },
+                {
+                    "name": "grok-beta",
+                    "display_name": "Grok Beta",
+                    "task_types": ["general", "coding"],
+                    "cost_per_1k_input_tokens": 0.005,
+                    "cost_per_1k_output_tokens": 0.015,
+                    "max_tokens": 131072,
+                },
+                {
+                    "name": "qwen/qwen3.8-27b",
+                    "display_name": "Grok / Qwen 27B",
+                    "task_types": ["general", "coding", "reasoning"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 32768,
+                },
+                {
+                    "name": "llama-3.3-70b-versatile",
+                    "display_name": "Groq / Llama 3.3 70B",
+                    "task_types": ["general", "coding", "reasoning"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 32768,
                 },
             ],
         },
@@ -121,6 +161,38 @@ def _seed_data() -> list[dict]:
             "supports_streaming": True,
             "models": [
                 {
+                    "name": "gemini-3.8-flash",
+                    "display_name": "Gemini 3.8 Flash",
+                    "task_types": ["general", "coding", "reasoning", "multimodal", "audio"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 1000000,
+                },
+                {
+                    "name": "gemini-3.7-flash",
+                    "display_name": "Gemini 3.7 Flash",
+                    "task_types": ["general", "coding", "reasoning", "multimodal"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 1000000,
+                },
+                {
+                    "name": "gemini-3.1-flash",
+                    "display_name": "Gemini 3.1 Flash",
+                    "task_types": ["general", "coding", "reasoning", "multimodal"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 1000000,
+                },
+                {
+                    "name": "gemini-2.5-flash",
+                    "display_name": "Gemini 2.5 Flash",
+                    "task_types": ["general", "coding", "reasoning", "multimodal"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 1000000,
+                },
+                {
                     "name": "gemini-2.0-flash",
                     "display_name": "Gemini 2.0 Flash",
                     "task_types": ["general", "coding", "reasoning"],
@@ -139,6 +211,7 @@ def _seed_data() -> list[dict]:
             ],
         },
     ]
+
 
 
 async def _run_migration() -> None:

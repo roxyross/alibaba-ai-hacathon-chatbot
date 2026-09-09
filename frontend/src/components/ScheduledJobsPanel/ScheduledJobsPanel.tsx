@@ -3,7 +3,9 @@
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { parseNaturalSchedule, formatHumanSchedule } from '../../utils/naturalCron';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './ScheduledJobsPanel.css';
+
 
 const rawApiBase =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
@@ -294,8 +296,16 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
       {successMsg && <div className="sjp-create-form__success" role="alert">{successMsg}</div>}
 
       <div className="sjp-create-form__row">
-        <label className="sjp-create-form__label">
-          Job name *
+        <div className="sjp-create-form__label">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <span>Job name *</span>
+            <VoiceInputControl
+              size="sm"
+              showReadAloud={false}
+              onTranscript={(t) => setName(t)}
+              label="Speak job name"
+            />
+          </div>
           <input
             type="text"
             className="sjp-create-form__input"
@@ -305,8 +315,9 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
             required
             maxLength={100}
           />
-        </label>
+        </div>
         <label className="sjp-create-form__label">
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Timezone ({timezoneOptions.length} routes) *</span>
             <button
@@ -369,9 +380,17 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
       </div>
 
       <div className="sjp-create-form__label">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
           <span>Schedule (Natural Language or Cron) *</span>
-          <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Powered by Natural Language Cron</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <VoiceInputControl
+              size="sm"
+              showReadAloud={false}
+              onTranscript={(t) => setSchedule(t)}
+              label="Speak schedule (e.g. Every day at 9am)"
+            />
+            <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Natural Language Cron</span>
+          </div>
         </div>
         <input
           type="text"
@@ -418,8 +437,17 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
         )}
       </div>
 
-      <label className="sjp-create-form__label">
-        Task Instructions / Prompt *
+      <div className="sjp-create-form__label">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+          <span>Task Instructions / Prompt *</span>
+          <VoiceInputControl
+            size="sm"
+            showReadAloud={Boolean(message)}
+            readAloudText={message}
+            onTranscript={(t) => setMessage((prev) => (prev ? `${prev} ${t}` : t))}
+            label="Dictate task prompt"
+          />
+        </div>
         <textarea
           className="sjp-create-form__input"
           value={message}
@@ -428,7 +456,8 @@ const CreateJobForm: React.FC<CreateJobFormProps> = ({ accessToken, onCreated })
           rows={3}
           maxLength={500}
         />
-      </label>
+      </div>
+
 
       <label className="sjp-create-form__checkbox">
         <input
@@ -552,15 +581,38 @@ export const ScheduledJobsPanel: React.FC<ScheduledJobsPanelProps> = ({
           )}
           <h2 className="sjp-title">⏰ Scheduled Jobs & Reminders</h2>
         </div>
-        <button
-          type="button"
-          className="sjp-refresh-btn"
-          onClick={loadJobs}
-          disabled={loading}
-          title="Refresh job list"
-        >
-          {loading ? 'Refreshing…' : '↻ Refresh'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <VoiceInputControl
+            size="sm"
+            showLangPicker={true}
+            showReadAloud={jobs.length > 0}
+            readAloudText={
+              jobs.length > 0
+                ? `You have ${jobs.length} scheduled jobs. ${jobs
+                    .map(
+                      (j) =>
+                        `${j.name}, scheduled ${formatHumanSchedule(j.schedule)}, status ${j.status}`
+                    )
+                    .join('. ')}`
+                : 'You currently have no scheduled jobs.'
+            }
+            onTranscript={(t) => {
+              // Quick helper
+              alert(`Spoken task: "${t}". You can type it into the form or chat!`);
+            }}
+            label="Voice Jobs Assistant"
+          />
+          <button
+            type="button"
+            className="sjp-refresh-btn"
+            onClick={loadJobs}
+            disabled={loading}
+            title="Refresh job list"
+          >
+            {loading ? 'Refreshing…' : '↻ Refresh'}
+          </button>
+        </div>
+
       </div>
 
       <CreateJobForm accessToken={accessToken} onCreated={loadJobs} />

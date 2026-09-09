@@ -112,21 +112,32 @@ def _default_models(provider: str) -> tuple[ModelConfig, ...]:
             ModelConfig(name="deepseek-reasoner", display_name="DeepSeek R1", task_types=("reasoning",), cost_per_1k_input=0.001, cost_per_1k_output=0.006, max_tokens=64000),
         ),
         "grok": (
-            ModelConfig(name="qwen/qwen3.8-27b", display_name="Grok / Qwen 27B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
-            ModelConfig(name="openai/gpt-oss-120b", display_name="Grok / GPT-OSS 120B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
+            ModelConfig(name="grok-3", display_name="Grok 3", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.005, cost_per_1k_output=0.015, max_tokens=131072),
+            ModelConfig(name="grok-3-mini", display_name="Grok 3 Mini", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.001, cost_per_1k_output=0.003, max_tokens=131072),
             ModelConfig(name="grok-2", display_name="Grok 2", task_types=("general", "coding"), cost_per_1k_input=0.002, cost_per_1k_output=0.01, max_tokens=131072),
+            ModelConfig(name="grok-2-vision-1212", display_name="Grok 2 Vision", task_types=("general", "multimodal"), cost_per_1k_input=0.002, cost_per_1k_output=0.01, max_tokens=131072),
+            ModelConfig(name="grok-beta", display_name="Grok Beta", task_types=("general", "coding"), cost_per_1k_input=0.005, cost_per_1k_output=0.015, max_tokens=131072),
+            ModelConfig(name="qwen/qwen3.8-27b", display_name="Grok / Qwen 27B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
+            ModelConfig(name="llama-3.3-70b-versatile", display_name="Groq / Llama 3.3 70B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
+            ModelConfig(name="openai/gpt-oss-120b", display_name="Grok / GPT-OSS 120B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
+            ModelConfig(name="mixtral-8x7b-32768", display_name="Groq / Mixtral 8x7B", task_types=("general", "coding"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
         ),
         "openai": (
             ModelConfig(name="gpt-4o", display_name="GPT-4o", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0025, cost_per_1k_output=0.01, max_tokens=128000),
             ModelConfig(name="gpt-4o-mini", display_name="GPT-4o Mini", task_types=("general", "coding"), cost_per_1k_input=0.00015, cost_per_1k_output=0.0006, max_tokens=128000),
         ),
         "gemini": (
-            ModelConfig(name="gemini-3.6-flash", display_name="Gemini 3.6 Flash", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
-            ModelConfig(name="gemini-2.0-flash", display_name="Gemini 2.0 Flash", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
+            ModelConfig(name="gemini-3.8-flash", display_name="Gemini 3.8 Flash (Multimodal Audio & Modulation)", task_types=("general", "coding", "reasoning", "multimodal", "audio"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
+            ModelConfig(name="gemini-3.7-flash", display_name="Gemini 3.7 Flash", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
+            ModelConfig(name="gemini-3.1-flash", display_name="Gemini 3.1 Flash", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
+            ModelConfig(name="gemini-2.5-flash", display_name="Gemini 2.5 Flash", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
+            ModelConfig(name="gemini-2.0-flash", display_name="Gemini 2.0 Flash", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
             ModelConfig(name="gemini-1.5-pro", display_name="Gemini 1.5 Pro", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.00125, cost_per_1k_output=0.005, max_tokens=2000000),
+            ModelConfig(name="gemini-1.5-flash", display_name="Gemini 1.5 Flash", task_types=("general", "coding"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
         ),
     }
     return defaults.get(provider, ())
+
 
 
 def get_provider_config(name: str) -> ProviderConfig | None:

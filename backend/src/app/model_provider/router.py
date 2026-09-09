@@ -64,38 +64,38 @@ async def list_models() -> ModelListResponse:
     # Catalog of all supported providers and models for ROXY JARVIS
     fallback: list[ProviderModels] = [
         ProviderModels(
-            name="grok",
-            display_name="xAI / Groq",
-            enabled=True,
-            models=[
-                ModelInfo(
-                    name="qwen/qwen3.8-27b",
-                    display_name="Grok / Qwen 27B (Fast Inference)",
-                    enabled=True,
-                    task_types=["general", "coding", "reasoning"],
-                    max_tokens=800,
-                ),
-                ModelInfo(
-                    name="openai/gpt-oss-120b",
-                    display_name="Grok / GPT-OSS 120B",
-                    enabled=True,
-                    task_types=["general", "coding", "reasoning"],
-                    max_tokens=800,
-                ),
-                ModelInfo(
-                    name="grok-2",
-                    display_name="xAI Grok 2",
-                    enabled=True,
-                    task_types=["general", "coding"],
-                    max_tokens=8192,
-                ),
-            ],
-        ),
-        ProviderModels(
             name="gemini",
             display_name="Google Gemini",
             enabled=True,
             models=[
+                ModelInfo(
+                    name="gemini-3.8-flash",
+                    display_name="Gemini 3.8 Flash (Multimodal Audio & Modulation)",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning", "multimodal", "audio"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="gemini-3.7-flash",
+                    display_name="Gemini 3.7 Flash",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning", "multimodal"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="gemini-3.1-flash",
+                    display_name="Gemini 3.1 Flash",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning", "multimodal"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="gemini-2.5-flash",
+                    display_name="Gemini 2.5 Flash",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning", "multimodal"],
+                    max_tokens=8192,
+                ),
                 ModelInfo(
                     name="gemini-2.0-flash",
                     display_name="Gemini 2.0 Flash",
@@ -119,6 +119,77 @@ async def list_models() -> ModelListResponse:
                 ),
             ],
         ),
+        ProviderModels(
+            name="grok",
+            display_name="xAI / Groq",
+            enabled=True,
+            models=[
+                ModelInfo(
+                    name="grok-3",
+                    display_name="xAI Grok 3 (Flagship Reasoning & Coding)",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="grok-3-mini",
+                    display_name="xAI Grok 3 Mini (High-Speed)",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="grok-2",
+                    display_name="xAI Grok 2",
+                    enabled=True,
+                    task_types=["general", "coding"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="grok-2-vision-1212",
+                    display_name="xAI Grok 2 Vision",
+                    enabled=True,
+                    task_types=["general", "multimodal", "coding"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="grok-beta",
+                    display_name="xAI Grok Beta",
+                    enabled=True,
+                    task_types=["general", "coding"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="qwen/qwen3.8-27b",
+                    display_name="Groq / Qwen 27B (Fast Inference)",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=800,
+                ),
+                ModelInfo(
+                    name="llama-3.3-70b-versatile",
+                    display_name="Groq / Llama 3.3 70B",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=800,
+                ),
+                ModelInfo(
+                    name="openai/gpt-oss-120b",
+                    display_name="Groq / GPT-OSS 120B",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=800,
+                ),
+                ModelInfo(
+                    name="mixtral-8x7b-32768",
+                    display_name="Groq / Mixtral 8x7B",
+                    enabled=True,
+                    task_types=["general", "coding"],
+                    max_tokens=800,
+                ),
+            ],
+        ),
+
         ProviderModels(
             name="openai",
             display_name="OpenAI",

@@ -511,8 +511,8 @@ class QuizGenerateResponse(BaseModel):
 
 class SpeechToTextRequest(BaseModel):
     audio_data: str = Field(..., description="Base64-encoded audio data")
-    language: str | None = Field(default=None, description="ISO 639-1 language code, e.g. 'en'")
-    model: str | None = Field(default=None, description="STT model to use: 'whisper' (default) or 'deepgram'")
+    language: str | None = Field(default=None, description="ISO 639-1 language code, e.g. 'en', 'ur', 'hi'")
+    model: str | None = Field(default=None, description="STT model: 'gemini', 'whisper' (default), or 'deepgram'")
     user_id: str | None = Field(default=None, description="Stamped by the router from the authenticated user.")
 
 
@@ -530,13 +530,15 @@ class SpeechToTextResponse(BaseModel):
 class TextToSpeechRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=5000)
     speed: Annotated[float, Field(ge=0.5, le=2.0)] = 1.0
-    voice: str | None = Field(default=None, description="Voice ID; defaults to configured default")
-    model: str | None = Field(default=None, description="TTS model: 'openai' (default), 'elevenlabs', 'polly'")
+    voice: str | None = Field(default=None, description="Voice ID; e.g. 'Kore', 'Puck', 'Fenrir', 'alloy', etc.")
+    model: str | None = Field(default=None, description="TTS model: 'gemini', 'gemini-3.8-flash', 'openai', 'elevenlabs'")
+    voice_modulation: str | None = Field(default=None, description="Steerable modulation: 'whispering', 'shouting', 'excited', 'dramatic', 'calm', 'fast', 'slow'")
     user_id: str | None = Field(default=None, description="Stamped by the router from the authenticated user.")
 
 
 class TextToSpeechResponse(BaseModel):
     audio_data: str  # base64-encoded audio
-    format: str  # e.g. "mp3", "opus"
+    format: str  # e.g. "mp3", "opus", "wav"
     duration_seconds: float | None = None
     model: str
+

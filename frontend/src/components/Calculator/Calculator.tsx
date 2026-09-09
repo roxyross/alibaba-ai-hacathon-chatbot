@@ -1,5 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './Calculator.css';
+
+function parseSpokenMath(spoken: string): string {
+  let s = spoken.toLowerCase()
+    .replace(/what is|calculate|solve/g, '')
+    .replace(/plus/g, '+')
+    .replace(/minus/g, '-')
+    .replace(/times|multiplied by/g, '*')
+    .replace(/divided by|over/g, '/')
+    .replace(/to the power of/g, '^')
+    .replace(/square root of/g, '√')
+    .replace(/percent of/g, '% *')
+    .replace(/percentage of/g, '% *')
+    .replace(/x/g, '*')
+    .replace(/[=?]/g, '')
+    .trim();
+  return s;
+}
+
 
 interface CalculatorProps {
   onBack: () => void;
@@ -237,6 +256,29 @@ export const Calculator: React.FC<CalculatorProps> = ({
         </div>
 
         <div className="calculator-header__actions">
+          <VoiceInputControl
+            size="sm"
+            showLangPicker={true}
+            showReadAloud={Boolean(result)}
+            readAloudText={result ? `${expression} equals ${result}` : ''}
+            onTranscript={(text) => {
+              const parsed = parseSpokenMath(text);
+              setExpression(parsed);
+              setTimeout(() => {
+                try {
+                  const val = calculateClient(parsed);
+                  const resStr = Number.isInteger(val)
+                    ? val.toString()
+                    : val.toFixed(6).replace(/\.?0+$/, '');
+                  setResult(resStr);
+                  setLastSource('client');
+                } catch {
+                  // user can hit equal button
+                }
+              }, 150);
+            }}
+            label="Speak math expression"
+          />
           {history.length > 0 && (
             <button
               type="button"
@@ -256,12 +298,12 @@ export const Calculator: React.FC<CalculatorProps> = ({
         <div className="calculator-card">
           {/* Display */}
           <div className="calculator-display">
-            <div className="calculator-display__expression">
+            <div className="calculator-display__expression" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <input
                 ref={inputRef}
                 type="text"
                 value={expression}
-                placeholder="0"
+                placeholder="0 (or click mic to speak calculation)"
                 onChange={(e) => setExpression(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -271,7 +313,17 @@ export const Calculator: React.FC<CalculatorProps> = ({
                 }}
                 className="calculator-input"
               />
+              <VoiceInputControl
+                size="sm"
+                showReadAloud={false}
+                onTranscript={(text) => {
+                  const parsed = parseSpokenMath(text);
+                  setExpression(parsed);
+                }}
+                label="Voice math input"
+              />
             </div>
+
             <div className="calculator-display__result">
               {result ? (
                 <>

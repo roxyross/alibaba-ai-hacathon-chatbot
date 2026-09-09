@@ -29,10 +29,14 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
             audio_bytes = base64.b64decode(audio_b64)
 
             # Route to appropriate STT backend
-            if model == "deepgram":
+            if model in ("gemini", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.1-flash"):
+                text, confidence = await self._gemini_transcribe(audio_bytes, language)
+                if not text:
+                    text, confidence = await self._whisper(audio_bytes, language)
+            elif model == "deepgram":
                 text, confidence = await self._deepgram(audio_bytes, language)
             else:
-                # Default: OpenAI Whisper via AI gateway
+                # Default: Groq / OpenAI Whisper with Gemini fallback
                 text, confidence = await self._whisper(audio_bytes, language)
 
             return SpeechToTextResponse(
@@ -159,7 +163,82 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
             except Exception as exc:
                 log.warning("speech_to_text.openai_exc", error=str(exc))
 
+        # 3. Fallback to Gemini Multimodal Transcription
+        gemini_text, _ = await self._gemini_transcribe(audio_bytes, language)
+        if gemini_text:
+            return gemini_text, 0.95
+
         return self._mock_transcribe(), None
+
+    async def _gemini_transcribe(self, audio_bytes: bytes, language: str | None) -> tuple[str, float | None]:
+        """Transcribe audio via Google Gemini multimodal audio API.
+        
+        Excels at catching whispering, shouting, distinct emotional modulation,
+        and multilingual speech (Urdu, Hindi, English, regional accents).
+        """
+        import os
+        import httpx
+
+        api_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+        if not api_key:
+            return "", None
+
+        is_webm = audio_bytes.startswith(b"\x1a\x45\xdf\xa3") or (len(audio_bytes) > 4 and audio_bytes[:4] != b"RIFF")
+        mime_type = "audio/webm" if is_webm else "audio/wav"
+        audio_b64 = base64.b64encode(audio_bytes).decode()
+
+        prompt = (
+            "Transcribe this speech verbatim. The audio may be whispered, shouted, or spoken in various accents "
+            "and languages including Urdu (اردو), Hindi (हिन्दी), English, Arabic, or mixed dialects. "
+            "Detect and transcribe the exact words spoken. Return ONLY the transcribed text, with no explanations, "
+            "no markdown formatting, and no commentary."
+        )
+        if language:
+            prompt += f" The primary expected language or dialect is {language}."
+
+        models_to_try = [
+            "gemini-2.5-flash",
+            "gemini-3.6-flash",
+            "gemini-2.0-flash",
+        ]
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for m in models_to_try:
+                try:
+                    payload = {
+                        "contents": [
+                            {
+                                "parts": [
+                                    {
+                                        "inlineData": {
+                                            "mimeType": mime_type,
+                                            "data": audio_b64,
+                                        }
+                                    },
+                                    {"text": prompt},
+                                ]
+                            }
+                        ]
+                    }
+                    resp = await client.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}",
+                        headers={"Content-Type": "application/json"},
+                        json=payload,
+                    )
+                    if resp.is_success:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            text_parts = [p.get("text", "") for p in parts if "text" in p]
+                            transcription = "".join(text_parts).strip()
+                            if transcription:
+                                return transcription, 0.95
+                except Exception as exc:
+                    log.warning("speech_to_text.gemini_failed", model=m, error=str(exc))
+                    continue
+
+        return "", None
 
     async def _deepgram(self, audio_bytes: bytes, language: str | None) -> tuple[str, float | None]:
         """Transcribe via Deepgram API."""

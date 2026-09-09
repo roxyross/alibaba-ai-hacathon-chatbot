@@ -85,6 +85,10 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   });
   const [liveCaption, setLiveCaption] = useState<string>('');
   const [audioLevels, setAudioLevels] = useState<number[]>([15, 25, 35, 20, 12]);
+  const [voiceModulation, setVoiceModulation] = useState<string>('normal');
+  const [geminiVoice, setGeminiVoice] = useState<string>('Kore');
+  const [voiceModel, setVoiceModel] = useState<string>('gemini-3.8-flash');
+
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -337,10 +341,11 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
               body: JSON.stringify({
                 audio_data: base64Audio,
                 language: whisperLang,
-                model: 'whisper',
+                model: 'gemini',
               }),
             },
           );
+
           userText = (sttResp.text || '').trim();
         } catch {
           // Backend STT error; fall back to Web Speech recognition
@@ -463,10 +468,13 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
           body: JSON.stringify({
             text,
             speed: 1.0,
-            model: 'openai',
+            model: voiceModel,
+            voice: geminiVoice,
+            voice_modulation: voiceModulation !== 'normal' ? voiceModulation : undefined,
           }),
         },
       );
+
 
       // Decode base64 audio and play it
       const audioBytes = Uint8Array.from(
@@ -535,7 +543,53 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
           )}
           <h2 className="vs__title">🎙️ <span>Voice Session</span></h2>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {/* Voice Model Picker */}
+          <select
+            className="vs__lang-select"
+            value={voiceModel}
+            onChange={(e) => setVoiceModel(e.target.value)}
+            title="Multimodal Voice Model"
+            aria-label="Multimodal Voice Model"
+          >
+            <option value="gemini-3.8-flash">✨ Gemini 3.8 Flash (Multimodal Audio)</option>
+            <option value="gemini-3.7-flash">⚡ Gemini 3.7 Flash</option>
+            <option value="gemini-3.1-flash">⚡ Gemini 3.1 Flash</option>
+            <option value="openai">OpenAI TTS</option>
+          </select>
+
+          {/* Steerable Voice Modulation / Tone */}
+          <select
+            className="vs__lang-select"
+            value={voiceModulation}
+            onChange={(e) => setVoiceModulation(e.target.value)}
+            title="Voice Modulation & Tone"
+            aria-label="Voice Modulation & Tone"
+          >
+            <option value="normal">🗣️ Normal Tone</option>
+            <option value="whispering">🤫 Whispering</option>
+            <option value="excited">🤩 Excited</option>
+            <option value="dramatic">🎭 Dramatic</option>
+            <option value="calm">🧘 Calm</option>
+            <option value="shouting">📢 Shouting</option>
+          </select>
+
+          {/* Gemini Voice */}
+          <select
+            className="vs__lang-select"
+            value={geminiVoice}
+            onChange={(e) => setGeminiVoice(e.target.value)}
+            title="AI Voice Persona"
+            aria-label="AI Voice Persona"
+          >
+            <option value="Kore">Kore (Warm)</option>
+            <option value="Puck">Puck (Energetic)</option>
+            <option value="Fenrir">Fenrir (Deep)</option>
+            <option value="Aoede">Aoede (Expressive)</option>
+            <option value="Zephyr">Zephyr (Calm)</option>
+          </select>
+
+          {/* Spoken Language */}
           <select
             className="vs__lang-select"
             value={voiceLang}
@@ -568,6 +622,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
             </button>
           )}
         </div>
+
       </div>
 
       {/* Mic permission warning */}
