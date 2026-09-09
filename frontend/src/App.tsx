@@ -43,6 +43,17 @@ export function ChatScreen() {
   });
   const [activeView, setActiveView] = useState<AppView>('chat');
 
+  // Auth modal state for on-demand sign in / sign up & trial limit prompts
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup'>('signin');
+  const [authModalMessage, setAuthModalMessage] = useState<string | null>(null);
+
+  const openAuth = useCallback((targetMode: 'signin' | 'signup', message?: string) => {
+    setAuthModalMode(targetMode);
+    setAuthModalMessage(message ?? null);
+    setIsAuthModalOpen(true);
+  }, []);
+
   // Light / Dark mode toggle with persistent state
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('roxy-theme');
@@ -121,36 +132,60 @@ export function ChatScreen() {
 
   // "New task" — clear active session, set mode to 'task' (for coding), and switch back to chat view.
   const handleNewTask = useCallback(() => {
+    if (!accessToken && !user) {
+      openAuth('signin', 'Please sign in to use Task & Code Generation mode.');
+      return;
+    }
     setMode('task');
     chat.clearMessages();
     setActiveSession(null);
     setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
     setActiveView('chat');
     void history.reload();
-  }, [chat, history]);
+  }, [accessToken, user, openAuth, chat, history]);
 
   // After a turn completes in a brand-new session, adopt it
   // as the active session so the sidebar highlights it.
   const handleSend = useCallback(
     async (text: string) => {
+      // Free 1-prompt preview check for unauthenticated guests
+      if (!accessToken && !user) {
+        const GUEST_PROMPT_KEY = 'roxy_guest_prompt_count';
+        const count = parseInt(localStorage.getItem(GUEST_PROMPT_KEY) || '0', 10);
+        if (count >= 1) {
+          openAuth(
+            'signin',
+            "You have used your 1 free preview prompt! Sign in with Google, GitHub, or Email to continue chatting with ROXY AI.",
+          );
+          return;
+        }
+        localStorage.setItem(GUEST_PROMPT_KEY, String(count + 1));
+      }
+
       const activeModel = modelSelection ?? { provider: 'runtime', model: 'coordinator' };
       let session = activeSession;
-      if (!session) {
-        session = await create({
-          provider: activeModel.provider,
-          model: activeModel.model,
-          session_type: mode,
-          title: mode === 'task' ? `[Task] ${text.slice(0, 32)}` : undefined,
-        } satisfies CreateSessionInput);
-        setActiveSession(session);
+      if (!session && (accessToken || user)) {
+        try {
+          session = await create({
+            provider: activeModel.provider,
+            model: activeModel.model,
+            session_type: mode,
+            title: mode === 'task' ? `[Task] ${text.slice(0, 32)}` : undefined,
+          } satisfies CreateSessionInput);
+          setActiveSession(session);
+        } catch {
+          // If session creation fails, proceed with ephemeral chat
+        }
       }
       await chat.sendMessage(text, session?.id);
       // Refresh history once the server has persisted the turn.
-      window.setTimeout(() => {
-        void history.reload();
-      }, 500);
+      if (session?.id) {
+        window.setTimeout(() => {
+          void history.reload();
+        }, 500);
+      }
     },
-    [activeSession, modelSelection, create, chat, history, mode],
+    [activeSession, modelSelection, create, chat, history, mode, accessToken, user, openAuth],
   );
 
   // The messages the chat window renders: persisted history + the in-flight
@@ -189,7 +224,24 @@ export function ChatScreen() {
         onSelect={(s) => { handleSelectSession(s); setSidebarOpen(false); }}
         onNewChat={() => { handleNewChat(); setSidebarOpen(false); }}
         onNewTask={() => { handleNewTask(); setSidebarOpen(false); }}
-        onViewChange={(view) => { setActiveView(view); setSidebarOpen(false); }}
+        onViewChange={(view) => {
+          if (!accessToken && !user && view !== 'chat') {
+            const viewLabels: Record<AppView, string> = {
+              chat: 'Chat',
+              finance: 'Finance Dashboard',
+              jobs: 'Scheduled Jobs',
+              email: 'Email Sending',
+              voice: 'Voice Mode',
+              documents: 'Document Upload',
+              calculator: 'Calculator',
+              calendar: 'Calendar View',
+            };
+            openAuth('signin', `Please sign in to access ${viewLabels[view] || 'this feature'}.`);
+            return;
+          }
+          setActiveView(view);
+          setSidebarOpen(false);
+        }}
       />
 
       <div className="app__main">
@@ -216,8 +268,6 @@ export function ChatScreen() {
             ROXY <span>AI</span>
           </h1>
           <div className="app__header-right">
-            {user && <span className="app__user">{user.email}</span>}
-
             {/* Light / Dark Mode Toggle */}
             <button
               type="button"
@@ -229,16 +279,40 @@ export function ChatScreen() {
               {theme === 'dark' ? '☀️' : '🌙'}
             </button>
 
-            <button
-              type="button"
-              className="app__signout"
-              onClick={() => {
-                signOut();
-                handleNewChat();
-              }}
-            >
-              Sign out
-            </button>
+            {user ? (
+              <>
+                <span className="app__user">{user.email}</span>
+                <button
+                  type="button"
+                  className="app__signout"
+                  onClick={() => {
+                    signOut();
+                    handleNewChat();
+                  }}
+                >
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <div className="app__auth-actions">
+                <button
+                  type="button"
+                  className="app__signin-btn"
+                  onClick={() => openAuth('signin')}
+                  title="Sign in to your account"
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  className="app__signup-btn"
+                  onClick={() => openAuth('signup')}
+                  title="Create a free account"
+                >
+                  Sign Up
+                </button>
+              </div>
+            )}
           </div>
         </header>
 
@@ -293,8 +367,20 @@ export function ChatScreen() {
               onSend={handleSend}
               modelSelection={modelSelection}
               onModelChange={setModelSelection}
-              onVoiceClick={() => setActiveView('voice')}
-              onAttachmentClick={() => setActiveView('documents')}
+              onVoiceClick={() => {
+                if (!accessToken && !user) {
+                  openAuth('signin', 'Please sign in to access Voice Mode.');
+                  return;
+                }
+                setActiveView('voice');
+              }}
+              onAttachmentClick={() => {
+                if (!accessToken && !user) {
+                  openAuth('signin', 'Please sign in to upload and analyze documents.');
+                  return;
+                }
+                setActiveView('documents');
+              }}
               disabledNoModel={!modelSelection}
               mode={mode}
               onNavigateView={setActiveView}
@@ -311,6 +397,15 @@ export function ChatScreen() {
         }}
         onCancel={clearConfirmation}
       />
+
+      {/* On-demand Authentication Modal */}
+      <AuthGate
+        isModal={true}
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        bannerMessage={authModalMessage}
+        mode={authModalMode}
+      />
     </div>
   );
 }
@@ -324,9 +419,7 @@ function toUiMessage(
 export function App() {
   return (
     <AuthProvider>
-      <AuthGate>
-        <ChatScreen />
-      </AuthGate>
+      <ChatScreen />
     </AuthProvider>
   );
 }

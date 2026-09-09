@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request as StarletteReque
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_optional_current_user
 from app.auth.models import User
 from app.ai_gateway.models.schemas import AIRequest, AIResponse, Message, MessageRole
 from app.ai_gateway.services.router import AIRouter
@@ -867,14 +867,15 @@ async def _run_critic_preflight(
 @router.post("/chat", response_model=RuntimeChatResponse)
 async def runtime_chat(
     body: RuntimeChatRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ) -> RuntimeChatResponse:
     """One-shot Coordinator chat — classify intent, route to agent, return response."""
     agent_slug = body.agent_override or classify_intent(body.message)
+    effective_user_id = str(current_user.id) if current_user else "guest_trial"
 
     log.info(
         "runtime.chat",
-        user_id=str(current_user.id),
+        user_id=effective_user_id,
         message_preview=body.message[:80],
         agent=agent_slug,
         session_id=body.session_id,
@@ -886,7 +887,7 @@ async def runtime_chat(
         response_text, _, _ = await _call_ai_for_agent(
             agent_slug,
             body.message,
-            user_id=str(current_user.id),
+            user_id=effective_user_id,
             session_id=body.session_id,
             provider=body.provider,
             model=body.model,
@@ -925,9 +926,10 @@ async def runtime_chat(
 @router.post("/chat/stream")
 async def runtime_chat_stream(
     body: RuntimeChatRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     """Streaming Coordinator chat — same as /chat but SSE with Critic pre-flight on final chunk."""
+    effective_user_id = str(current_user.id) if current_user else "guest_trial"
     is_img, img_prompt = check_image_intent(body.message)
     if is_img or body.agent_override == "image_generator":
         prompt = img_prompt or body.message
@@ -963,7 +965,7 @@ async def runtime_chat_stream(
 
     log.info(
         "runtime.chat.stream",
-        user_id=str(current_user.id),
+        user_id=effective_user_id,
         message_preview=body.message[:80],
         agent=agent_slug,
         provider=body.provider,
@@ -979,11 +981,11 @@ async def runtime_chat_stream(
         try:
             system_prompt = _get_agent_prompt(agent_slug)
             history_messages: list[Message] = [Message(role=MessageRole.SYSTEM, content=system_prompt)]
-            if body.session_id:
+            if body.session_id and current_user:
                 try:
                     from app.chat_history.repository import ChatMessageRepository
                     repo = ChatMessageRepository()
-                    rows = await repo.list_for_session(body.session_id, str(current_user.id), limit=8)
+                    rows = await repo.list_for_session(body.session_id, effective_user_id, limit=8)
                     for r in rows:
                         role = MessageRole.USER if r.role == "user" else MessageRole.ASSISTANT
                         history_messages.append(Message(role=role, content=r.content))
@@ -1029,7 +1031,7 @@ async def runtime_chat_stream(
                 temperature=0.7,
                 max_tokens=800,
                 stream=True,
-                user_id=str(current_user.id),
+                user_id=effective_user_id,
                 session_id=body.session_id,
             )
 

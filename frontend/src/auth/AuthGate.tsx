@@ -45,8 +45,22 @@ const GitHubLogo: React.FC = () => (
   </svg>
 );
 
-export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
+export interface AuthGateProps {
+  children?: React.ReactNode;
+  isModal?: boolean;
+  isOpen?: boolean;
+  onClose?: () => void;
+  bannerMessage?: string | null;
+  mode?: 'signin' | 'signup';
+}
+
+export const AuthGate: React.FC<AuthGateProps> = ({
   children,
+  isModal = false,
+  isOpen = true,
+  onClose,
+  bannerMessage,
+  mode = 'signin',
 }) => {
   const { user, accessToken, loading, error, requestLink, verify, completeOAuth } =
     useAuth();
@@ -57,6 +71,13 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
   const [manualToken, setManualToken] = useState('');
   const [devToken, setDevToken] = useState<string | null>(null);
   const [oauthErrorMessage, setOauthErrorMessage] = useState<string | null>(null);
+
+  // Close modal when authentication succeeds
+  useEffect(() => {
+    if (isModal && isOpen && user && accessToken) {
+      onClose?.();
+    }
+  }, [isModal, isOpen, user, accessToken, onClose]);
 
   // Handle deep links from both auth flows on initial render:
   //   - Magic link: /auth/callback?token=...
@@ -106,7 +127,21 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
       });
   }, [verify, completeOAuth]);
 
+  // If in modal mode and closed or authenticated, render nothing
+  if (isModal && (!isOpen || (user && accessToken))) {
+    return null;
+  }
+
   if (loading) {
+    if (isModal) {
+      return (
+        <div className="auth-modal-overlay" onClick={onClose}>
+          <div className="auth-gate__panel" onClick={(e) => e.stopPropagation()}>
+            <p>Loading…</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="auth-gate">
         <div className="auth-gate__panel">
@@ -116,22 +151,46 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
     );
   }
 
-  if (user && accessToken) {
+  if (!isModal && user && accessToken) {
     if (typeof window !== 'undefined' && window.location.pathname.startsWith('/auth')) {
       window.history.replaceState({}, '', '/');
     }
     return <>{children}</>;
   }
 
-  return (
-    <div className="auth-gate">
-      <div className="auth-gate__panel">
-        <h1 className="auth-gate__brand">
-          ROXY <span>AI</span>
-        </h1>
-        <p className="auth-gate__tagline">A Personal AI That Actually Knows You</p>
+  const panelContent = (
+    <div className="auth-gate__panel" onClick={(e) => e.stopPropagation()}>
+      {isModal && onClose && (
+        <button
+          type="button"
+          className="auth-modal__close"
+          onClick={onClose}
+          aria-label="Close modal"
+          title="Close"
+        >
+          ✕
+        </button>
+      )}
 
-        <h2 className="auth-gate__heading">Sign in or create an account</h2>
+      <h1 className="auth-gate__brand">
+        ROXY <span>AI</span>
+      </h1>
+      <p className="auth-gate__tagline">A Personal AI That Actually Knows You</p>
+
+      {bannerMessage && (
+        <div className="auth-gate__trial-banner">
+          <span className="auth-gate__trial-badge">Free Preview Limit</span>
+          <p>{bannerMessage}</p>
+        </div>
+      )}
+
+      <h2 className="auth-gate__heading">
+        {mode === 'signup'
+          ? 'Create your account'
+          : mode === 'signin'
+            ? 'Sign in to your account'
+            : 'Sign in or create an account'}
+      </h2>
 
         {phase === 'request' && (
           <>
@@ -391,7 +450,20 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({
         {phase === 'verifying' && (
           <p className="auth-gate__info">Verifying…</p>
         )}
+    </div>
+  );
+
+  if (isModal) {
+    return (
+      <div className="auth-modal-overlay" onClick={onClose}>
+        {panelContent}
       </div>
+    );
+  }
+
+  return (
+    <div className="auth-gate">
+      {panelContent}
     </div>
   );
 };

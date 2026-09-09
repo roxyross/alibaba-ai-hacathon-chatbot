@@ -48,3 +48,20 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+async def get_optional_current_user(
+    authorization: str | None = Header(default=None),
+) -> User | None:
+    """Resolve the authenticated user if Authorization header is provided, or None if guest."""
+    token = _bearer(authorization)
+    if not token:
+        return None
+    user_id = decode_session_token(token)
+    if not user_id:
+        return None
+    try:
+        service = MagicLinkService()
+        return await service.get_user(user_id)
+    except Exception:
+        return None
