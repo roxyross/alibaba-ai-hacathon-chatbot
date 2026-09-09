@@ -37,6 +37,8 @@ class MagicLinkService:
     Uses SQLAlchemy async session when DATABASE_URL is configured; falls back
     to in-memory storage otherwise so dev still works without Postgres.
     """
+    _mem_users: dict[str, User] = _MEM_USERS
+    _mem_tokens: dict[str, MagicLinkToken] = _MEM_TOKENS
 
     def __init__(self) -> None:
         # Reference the module-level singletons so the in-memory store is

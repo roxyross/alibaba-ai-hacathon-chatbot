@@ -280,8 +280,8 @@ def _memory_upsert(email: str) -> User:
         )
         _MEM_USERS[email] = user
     try:
-        from app.auth.service import MagicLinkService
-        MagicLinkService._mem_users[email] = user
+        from app.auth.service import _MEM_USERS as _service_mem_users
+        _service_mem_users[email] = user
     except Exception:
         pass
     return user
