@@ -61,8 +61,8 @@ class GoogleConfig:
 
     @classmethod
     def from_env(cls) -> "GoogleConfig | None":
-        client_id = os.environ.get("GOOGLE_CLIENT_ID")
-        client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+        client_id = (os.environ.get("GOOGLE_CLIENT_ID") or "").strip()
+        client_secret = (os.environ.get("GOOGLE_CLIENT_SECRET") or "").strip()
         if not client_id or not client_secret:
             return None
         app_base = os.environ.get("APP_BASE_URL", "http://localhost:5173").rstrip("/")
@@ -352,7 +352,12 @@ async def complete_google_callback(
     try:
         import json as _json
         token_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
-        os.makedirs(token_dir, exist_ok=True)
+        try:
+            os.makedirs(token_dir, exist_ok=True)
+        except OSError:
+            token_dir = "/tmp/roxy_data"
+            os.makedirs(token_dir, exist_ok=True)
+
         token_data = {
             "access_token": token_payload.get("access_token"),
             "refresh_token": token_payload.get("refresh_token"),
@@ -401,8 +406,8 @@ class GitHubConfig:
 
     @classmethod
     def from_env(cls) -> "GitHubConfig | None":
-        client_id = os.environ.get("GITHUB_CLIENT_ID")
-        client_secret = os.environ.get("GITHUB_CLIENT_SECRET")
+        client_id = (os.environ.get("GITHUB_CLIENT_ID") or "").strip()
+        client_secret = (os.environ.get("GITHUB_CLIENT_SECRET") or "").strip()
         if not client_id or not client_secret:
             return None
         backend_base = os.environ.get(
