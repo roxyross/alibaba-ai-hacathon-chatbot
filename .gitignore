@@ -83,3 +83,4 @@ backend/scratch/
 scratch/
 
 .vercel
+*.mp4

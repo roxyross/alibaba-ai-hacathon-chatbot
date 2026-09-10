@@ -70,7 +70,12 @@ class MagicLinkService:
                 created_at=datetime.now(timezone.utc),
             )
             self._mem_tokens[token_value] = link
-            asyncio.create_task(send_magic_link(email, build_magic_link(token_value), token_value))
+            try:
+                import asyncio
+                async with asyncio.timeout(3.0):
+                    await send_magic_link(email, build_magic_link(token_value), token_value)
+            except Exception:
+                asyncio.create_task(send_magic_link(email, build_magic_link(token_value), token_value))
             return token_value
 
         async with factory() as session:
@@ -89,7 +94,16 @@ class MagicLinkService:
             session.add(link_row)
             await session.commit()
 
-        asyncio.create_task(send_magic_link(email, build_magic_link(token_value), token_value))
+        # Cache in memory for instant 0ms verify & me lookups
+        self._mem_users[email] = user
+        self._mem_tokens[token_value] = link_row
+
+        try:
+            import asyncio
+            async with asyncio.timeout(3.0):
+                await send_magic_link(email, build_magic_link(token_value), token_value)
+        except Exception:
+            asyncio.create_task(send_magic_link(email, build_magic_link(token_value), token_value))
         return token_value
 
     async def verify(self, token_value: str) -> tuple[User, str, int] | None:

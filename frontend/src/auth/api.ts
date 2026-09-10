@@ -75,7 +75,9 @@ export async function fetchWithToken<T>(
  * sees the consent screen.
  */
 export function getOAuthStartUrl(provider: 'google' | 'github'): string {
-  return `${API_BASE}/auth/oauth/${provider}/start`;
+  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+  const param = origin ? `?origin=${encodeURIComponent(origin)}` : '';
+  return `${API_BASE}/auth/oauth/${provider}/start${param}`;
 }
 
 export const authApi = {

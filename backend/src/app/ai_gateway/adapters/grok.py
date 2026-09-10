@@ -122,19 +122,24 @@ class GrokAdapter(AIProviderAdapter):
         is_groq = api_key.startswith("gsk_")
         model = request.model
         if is_groq:
-            if model in ("llama-3.3-70b-versatile", "mixtral-8x7b-32768", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"):
+            active_groq_models = {
+                "qwen/qwen3.8-27b",
+                "openai/gpt-oss-120b",
+                "qwen/qwen3.6-27b",
+                "openai/gpt-oss-20b",
+            }
+            if model in active_groq_models:
                 pass
-            elif not model or "grok" in model:
-                model = "llama-3.3-70b-versatile"
+            elif model and any(k in model.lower() for k in ("oss-120b", "reason", "deep")):
+                model = "openai/gpt-oss-120b"
+            else:
+                # Safely fallback llama-3.3-70b-versatile, mixtral, grok-3 to ultra-fast qwen/qwen3.8-27b
+                model = "qwen/qwen3.8-27b"
         else:
             if not model:
                 model = "grok-3"
 
-
-
-        # Groq on-demand free tier has a 1000 output tokens per minute (OTPM) limit.
-        # Clamping max_tokens to 800 prevents HTTP 429 "Request too large for model on output tokens per minute".
-        max_tok = min(request.max_tokens or 800, 800) if is_groq else (request.max_tokens or 4096)
+        max_tok = min(request.max_tokens or 4096, 4096)
 
         return {
             "model": model,

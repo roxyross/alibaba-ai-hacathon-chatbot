@@ -19,6 +19,13 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
     enabled: true,
     models: [
       {
+        name: 'gemini-3.6-flash',
+        display_name: 'Gemini 3.6 Flash (Fast & Comprehensive)',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 16384,
+      },
+      {
         name: 'gemini-3.8-flash',
         display_name: 'Gemini 3.8 Flash (Multimodal Audio Flagship)',
         enabled: true,
@@ -48,7 +55,7 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
       },
       {
         name: 'gemini-2.0-flash',
-        display_name: 'Gemini 2.0 Flash (Recommended)',
+        display_name: 'Gemini 2.0 Flash',
         enabled: true,
         task_types: ['general', 'coding'],
         max_tokens: 8192,
@@ -74,6 +81,27 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
     display_name: 'xAI / Groq',
     enabled: true,
     models: [
+      {
+        name: 'qwen/qwen3.8-27b',
+        display_name: 'Groq / Qwen 27B (High Speed & Full Responses)',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 4096,
+      },
+      {
+        name: 'openai/gpt-oss-120b',
+        display_name: 'Groq / GPT-OSS 120B (Deep Reasoning)',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 4096,
+      },
+      {
+        name: 'qwen/qwen3.6-27b',
+        display_name: 'Groq / Qwen 3.6 27B',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 4096,
+      },
       {
         name: 'grok-3',
         display_name: 'xAI Grok 3 (Flagship)',
@@ -111,31 +139,17 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
       },
       {
         name: 'llama-3.3-70b-versatile',
-        display_name: 'Groq Llama 3.3 70B (High Speed)',
+        display_name: 'Groq Llama 3.3 70B',
         enabled: true,
         task_types: ['general', 'coding'],
-        max_tokens: 8192,
+        max_tokens: 4096,
       },
       {
         name: 'mixtral-8x7b-32768',
         display_name: 'Groq Mixtral 8x7B (Ultra Fast)',
         enabled: true,
         task_types: ['general'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'qwen/qwen3.8-27b',
-        display_name: 'Grok / Qwen 27B (Fast)',
-        enabled: true,
-        task_types: ['general', 'coding'],
-        max_tokens: 800,
-      },
-      {
-        name: 'openai/gpt-oss-120b',
-        display_name: 'Grok / GPT-OSS 120B',
-        enabled: true,
-        task_types: ['general', 'coding'],
-        max_tokens: 800,
+        max_tokens: 4096,
       },
     ],
   },

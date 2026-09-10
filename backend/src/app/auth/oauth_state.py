@@ -25,6 +25,7 @@ from fastapi import Cookie, Response
 from app.auth.jwt import _secret
 
 STATE_COOKIE = "roxy.oauth_state"
+ORIGIN_COOKIE = "roxy.oauth_origin"
 STATE_TTL_SECONDS = 10 * 60  # 10 minutes — comfortably longer than a real OAuth round-trip
 
 # Module-level in-memory store for dev/testing.
@@ -83,13 +84,36 @@ def set_state(response: Response, value: str) -> None:
     )
 
 
+def set_origin(response: Response, origin: str) -> None:
+    """Attach the origin cookie so callback knows exactly which frontend host to return to."""
+    if not origin:
+        return
+    is_prod = _is_production()
+    response.set_cookie(
+        key=ORIGIN_COOKIE,
+        value=origin.rstrip("/"),
+        max_age=STATE_TTL_SECONDS,
+        httponly=False,  # readable if needed
+        secure=is_prod,
+        samesite="none" if is_prod else "lax",
+        path="/",
+    )
+
+
 def clear_state(response: Response) -> None:
-    """Clear the state cookie from the response."""
+    """Clear the state and origin cookies from the response."""
     is_prod = _is_production()
     response.delete_cookie(
         key=STATE_COOKIE,
         path="/",
         httponly=True,
+        secure=is_prod,
+        samesite="none" if is_prod else "lax",
+    )
+    response.delete_cookie(
+        key=ORIGIN_COOKIE,
+        path="/",
+        httponly=False,
         secure=is_prod,
         samesite="none" if is_prod else "lax",
     )

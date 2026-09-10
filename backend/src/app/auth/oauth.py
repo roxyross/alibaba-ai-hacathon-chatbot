@@ -65,13 +65,13 @@ class GoogleConfig:
         client_secret = (os.environ.get("GOOGLE_CLIENT_SECRET") or "").strip()
         if not client_id or not client_secret:
             return None
-        app_base = os.environ.get("APP_BASE_URL", "http://localhost:5173").rstrip("/")
-        # OAUTH_REDIRECT_BASE_URL overrides the *backend* host (the API). The
-        # Google redirect URI is to /api/v1/auth/oauth/google/callback on the
-        # backend — never to the frontend.
-        backend_base = os.environ.get(
-            "OAUTH_REDIRECT_BASE_URL", "http://localhost:8000"
-        ).rstrip("/")
+        backend_base = (os.environ.get("OAUTH_REDIRECT_BASE_URL") or "").strip()
+        if not backend_base:
+            if os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV") or bool(os.environ.get("VERCEL_URL")):
+                backend_base = "https://roxy-personal-ai-backend.vercel.app"
+            else:
+                backend_base = "http://localhost:8000"
+        backend_base = backend_base.rstrip("/")
         redirect_uri = f"{backend_base}/api/v1/auth/oauth/google/callback"
         return cls(
             client_id=client_id,
@@ -288,8 +288,13 @@ def _memory_upsert(email: str) -> User:
 
 
 async def _db_upsert(email: str) -> User:
+    # Check in-memory first for 0ms instant login resolution
+    mem = _MEM_USERS.get(email)
+    if mem is not None:
+        return mem
     factory = get_session_factory()
-    assert factory is not None
+    if factory is None:
+        return _memory_upsert(email)
     try:
         import asyncio
         async with asyncio.timeout(1.5):
@@ -301,11 +306,23 @@ async def _db_upsert(email: str) -> User:
                     from datetime import datetime, timezone
                     existing.last_login_at = datetime.now(timezone.utc)
                     await session.commit()
+                    _MEM_USERS[email] = existing
+                    try:
+                        from app.auth.service import _MEM_USERS as _service_mem_users
+                        _service_mem_users[email] = existing
+                    except Exception:
+                        pass
                     return existing
                 user = User(email=email)
                 session.add(user)
                 await session.commit()
                 await session.refresh(user)
+                _MEM_USERS[email] = user
+                try:
+                    from app.auth.service import _MEM_USERS as _service_mem_users
+                    _service_mem_users[email] = user
+                except Exception:
+                    pass
                 return user
     except Exception as exc:
         log.warning("auth.oauth.db_upsert_failed_fallback_memory", error=str(exc))
@@ -410,9 +427,13 @@ class GitHubConfig:
         client_secret = (os.environ.get("GITHUB_CLIENT_SECRET") or "").strip()
         if not client_id or not client_secret:
             return None
-        backend_base = os.environ.get(
-            "OAUTH_REDIRECT_BASE_URL", "http://localhost:8000"
-        ).rstrip("/")
+        backend_base = (os.environ.get("OAUTH_REDIRECT_BASE_URL") or "").strip()
+        if not backend_base:
+            if os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV") or bool(os.environ.get("VERCEL_URL")):
+                backend_base = "https://roxy-personal-ai-backend.vercel.app"
+            else:
+                backend_base = "http://localhost:8000"
+        backend_base = backend_base.rstrip("/")
         redirect_uri = f"{backend_base}/api/v1/auth/oauth/github/callback"
         return cls(
             client_id=client_id,

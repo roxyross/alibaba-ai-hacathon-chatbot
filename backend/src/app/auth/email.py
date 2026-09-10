@@ -74,7 +74,7 @@ async def send_magic_link(to_email: str, link: str, token: str | None = None) ->
                 username=smtp_user or None,
                 password=smtp_pass or None,
                 start_tls=use_tls,
-                timeout=5,
+                timeout=15,
             )
             log.info("auth.magic_link.sent_smtp", to=to_email, host=smtp_host)
             sent = True

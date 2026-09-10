@@ -407,40 +407,52 @@ export const AuthGate: React.FC<AuthGateProps> = ({
             </form>
 
             {devToken && (
-              <details
+              <div
                 style={{
                   marginTop: '1rem',
-                  padding: '0.6rem 0.85rem',
-                  background: 'rgba(30, 41, 59, 0.6)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  padding: '0.85rem 1rem',
+                  background: 'rgba(37, 99, 235, 0.12)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
                   borderRadius: '8px',
-                  fontSize: '0.8rem',
-                  color: '#94a3b8',
+                  fontSize: '0.85rem',
+                  color: '#93c5fd',
+                  textAlign: 'left',
                 }}
               >
-                <summary style={{ cursor: 'pointer', color: '#60a5fa', fontWeight: 500 }}>
-                  🔧 Local Dev: show console token
-                </summary>
-                <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                  <code style={{ fontSize: '0.75rem', color: '#cbd5e1', wordBreak: 'break-all' }}>{devToken}</code>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <span style={{ fontWeight: 600, color: '#60a5fa' }}>⚡ Direct Sign-in Code:</span>
                   <button
                     type="button"
                     style={{
-                      background: 'rgba(255, 255, 255, 0.1)',
+                      background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
                       border: 'none',
                       color: '#fff',
-                      borderRadius: '4px',
-                      padding: '0.25rem 0.5rem',
-                      fontSize: '0.75rem',
+                      borderRadius: '5px',
+                      padding: '0.35rem 0.75rem',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
                       cursor: 'pointer',
                       whiteSpace: 'nowrap',
                     }}
-                    onClick={() => setManualToken(devToken)}
+                    onClick={async () => {
+                      setManualToken(devToken);
+                      try {
+                        await verify(devToken);
+                      } catch {
+                        /* handled in context */
+                      }
+                    }}
                   >
-                    Paste to input
+                    Auto-Fill & Sign In
                   </button>
                 </div>
-              </details>
+                <p style={{ margin: '0 0 0.4rem 0', fontSize: '0.78rem', color: '#cbd5e1' }}>
+                  If your email provider delays delivery or flags it as spam, use this direct code:
+                </p>
+                <code style={{ fontSize: '0.75rem', color: '#93c5fd', wordBreak: 'break-all', display: 'block', background: 'rgba(0,0,0,0.25)', padding: '0.35rem 0.5rem', borderRadius: '4px' }}>
+                  {devToken}
+                </code>
+              </div>
             )}
             <button
               type="button"

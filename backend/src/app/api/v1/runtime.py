@@ -649,15 +649,24 @@ def load_agent_system_prompt(slug: str) -> str:
     """Load the system prompt from .claude/agents/<slug>.md.
 
     Strips YAML frontmatter and returns the markdown body with the universal multilingual mandate.
-    Returns a default prompt if the agent file doesn't exist.
+    Returns a comprehensive default prompt for general inquiries and fallback agents.
     """
+    default_prompt = (
+        "You are ROXY, an intelligent, helpful, and highly knowledgeable autonomous AI assistant. "
+        "You provide comprehensive, detailed, clear, and well-structured responses to the user's questions. "
+        "Never truncate or cut short your explanations. Provide thorough answers, detailed step-by-step guidance, "
+        "and full runnable code examples when requested. Format your output with clear markdown headings, lists, and formatting."
+    )
+    if slug in ("general", "assistant", "default"):
+        return f"{MULTILINGUAL_AGENT_HEADER}\n\n{default_prompt}"
+
     if not _AGENTS_DIR.exists():
-        base = f"You are the {slug} agent. Handle the user's request appropriately."
+        base = f"You are the {slug} agent. Handle the user's request thoroughly and provide complete answers."
         return f"{MULTILINGUAL_AGENT_HEADER}\n\n{base}"
 
     agent_file = _AGENTS_DIR / f"{slug}.md"
     if not agent_file.exists():
-        base = f"You are the {slug} agent. Handle the user's request appropriately."
+        base = f"You are the {slug} agent. Handle the user's request thoroughly and provide complete answers."
         return f"{MULTILINGUAL_AGENT_HEADER}\n\n{base}"
 
     content = agent_file.read_text(encoding="utf-8")
@@ -775,7 +784,7 @@ async def _call_ai_for_agent(
         provider=provider_override,
         model=model_override,
         temperature=0.7,
-        max_tokens=800,
+        max_tokens=4096,
         stream=stream,
         user_id=user_id,
         session_id=session_id,
@@ -1029,7 +1038,7 @@ async def runtime_chat_stream(
                 provider=provider_override,
                 model=model_override,
                 temperature=0.7,
-                max_tokens=800,
+                max_tokens=4096,
                 stream=True,
                 user_id=effective_user_id,
                 session_id=body.session_id,

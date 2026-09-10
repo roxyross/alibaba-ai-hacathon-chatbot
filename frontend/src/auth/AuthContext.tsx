@@ -72,87 +72,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Bootstrap from a stored token or URL hash token immediately.
-  useEffect(() => {
-    let cancelled = false;
-    let initialToken = accessToken;
-
-    if (!initialToken && typeof window !== 'undefined') {
-      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-      const hashToken = hashParams.get('access_token');
-      if (hashToken) {
-        initialToken = hashToken;
-        localStorage.setItem(TOKEN_KEY, hashToken);
-        setAccessToken(hashToken);
-      }
-    }
-
-    if (!initialToken) {
-      setLoading(false);
-      return;
-    }
-
-    // Optimistically decode user from token payload immediately
-    try {
-      const payloadPart = initialToken.split('.')[1];
-      if (payloadPart) {
-        const decoded = JSON.parse(atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/')));
-        if (decoded.sub && !user) {
-          setUser({
-            id: decoded.sub,
-            email: decoded.email || 'user@roxy.ai',
-            created_at: new Date().toISOString(),
-          });
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    (async () => {
-      try {
-        const me = await authApi.me(initialToken);
-        if (!cancelled && me) {
-          setUser(me);
-          setError(null);
-        }
-      } catch {
-        // Keep optimistic user if me() fails due to server cold start
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken]);
-
-  const requestLink = useCallback(async (email: string) => {
-    setError(null);
-    try {
-      return await authApi.requestLink(email);
-    } catch (err) {
-      setError((err as Error).message);
-      throw err;
-    }
-  }, []);
-
-  const verify = useCallback(async (token: string) => {
-    setError(null);
-    setLoading(true);
-    try {
-      const result = await authApi.verify(token);
-      localStorage.setItem(TOKEN_KEY, result.access_token);
-      setAccessToken(result.access_token);
-      setUser(result.user);
-    } catch (err) {
-      setError((err as Error).message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   /**
    * Adopt a JWT delivered in the URL hash by the OAuth callback redirect.
    * Stores the token and sets user state INSTANTLY (0ms delay), then verifies
@@ -192,6 +111,105 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err) {
       setError((err as Error).message);
       throw err;
+    }
+  }, []);
+
+  // Bootstrap from a stored token or URL hash token immediately.
+  useEffect(() => {
+    let cancelled = false;
+    let initialToken = accessToken;
+
+    const checkHash = () => {
+      if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const hashToken = hashParams.get('access_token');
+        if (hashToken) {
+          completeOAuth(hashToken);
+          window.history.replaceState({}, '', window.location.pathname + window.location.search);
+          return hashToken;
+        }
+      }
+      return null;
+    };
+
+    const tokenFromHash = checkHash();
+    if (tokenFromHash) {
+      initialToken = tokenFromHash;
+    }
+
+    const onHashChange = () => {
+      checkHash();
+    };
+    window.addEventListener('hashchange', onHashChange);
+
+    if (!initialToken) {
+      setLoading(false);
+      return () => {
+        cancelled = true;
+        window.removeEventListener('hashchange', onHashChange);
+      };
+    }
+
+    // Optimistically decode user from token payload immediately
+    try {
+      const payloadPart = initialToken.split('.')[1];
+      if (payloadPart) {
+        const decoded = JSON.parse(atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/')));
+        if (decoded.sub && !user) {
+          setUser({
+            id: decoded.sub,
+            email: decoded.email || 'user@roxy.ai',
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    (async () => {
+      try {
+        const me = await authApi.me(initialToken);
+        if (!cancelled && me) {
+          setUser(me);
+          setError(null);
+        }
+      } catch {
+        // Keep optimistic user if me() fails due to server cold start
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('hashchange', onHashChange);
+    };
+  }, [accessToken, completeOAuth]);
+
+  const requestLink = useCallback(async (email: string) => {
+    setError(null);
+    try {
+      return await authApi.requestLink(email);
+    } catch (err) {
+      setError((err as Error).message);
+      throw err;
+    }
+  }, []);
+
+  const verify = useCallback(async (token: string) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await authApi.verify(token);
+      localStorage.setItem(TOKEN_KEY, result.access_token);
+      setAccessToken(result.access_token);
+      setUser(result.user);
+    } catch (err) {
+      setError((err as Error).message);
+      throw err;
+    } finally {
+      setLoading(false);
     }
   }, []);
 
