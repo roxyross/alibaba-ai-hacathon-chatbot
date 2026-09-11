@@ -660,7 +660,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
           )}
         </div>
 
-        {role === 'assistant' && (
+        {role === 'assistant' && (attribution || isStreaming) && (
           <div
             className="chat-message__attribution"
             aria-label={attributionLabel}
@@ -670,9 +670,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               <>
                 <span className="chat-message__provider">{attribution.agentSlug}</span>
               </>
-            ) : (
+            ) : isStreaming ? (
               <span className="chat-message__provider-unknown">routing…</span>
-            )}
+            ) : null}
           </div>
         )}
 

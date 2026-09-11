@@ -110,7 +110,7 @@ class AIRouter:
 
         # Route to provider(s)
         if provider_override:
-            providers = [provider_override]
+            providers = [provider_override] + [p for p in _sorted_providers() if p != provider_override]
         else:
             providers = _sorted_providers()
 
@@ -125,7 +125,9 @@ class AIRouter:
                 await self._persist_turn(request, response)
                 return response
             except ProviderUnavailableError as exc:
-                last_error = f"{provider_name}: {exc.reason}"
+                err_msg = exc.reason or str(exc)
+                last_error = f"{provider_name}: {err_msg}"
+                log.warning("router.provider_failed_failover", provider=provider_name, error=err_msg)
                 continue  # failover to next provider
 
         raise AllProvidersUnavailableError(
@@ -160,7 +162,7 @@ class AIRouter:
 
         provider_override = self._resolve_override(request)
         if provider_override:
-            providers = [provider_override]
+            providers = [provider_override] + [p for p in _sorted_providers() if p != provider_override]
         else:
             providers = _sorted_providers()
 
@@ -179,7 +181,9 @@ class AIRouter:
                     await self._persist_turn(request, last_response)
                 return  # stream ended normally
             except ProviderUnavailableError as exc:
-                last_error = f"{provider_name}: {exc.reason}"
+                err_msg = exc.reason or str(exc)
+                last_error = f"{provider_name}: {err_msg}"
+                log.warning("router.provider_stream_failed_failover", provider=provider_name, error=err_msg)
                 continue
 
         raise AllProvidersUnavailableError(

@@ -212,17 +212,17 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
       .filter((p) => p.models.length > 0);
   }, [providers]);
 
-  // If currently selected is runtime, migrate to gemini-2.0-flash
+  // If currently selected is runtime, migrate to gemini-3.6-flash
   useEffect(() => {
-    if (!value || value.provider === 'runtime' || value.model === 'coordinator') {
-      onChange({ provider: 'gemini', model: 'gemini-2.0-flash' });
+    if (!value || value.provider === 'runtime' || value.model === 'coordinator' || value.model === 'gemini-2.0-flash') {
+      onChange({ provider: 'gemini', model: 'gemini-3.6-flash' });
     }
   }, [value, onChange]);
 
   const currentValue =
     value && value.provider !== 'runtime'
       ? `${value.provider}/${value.model}`
-      : 'gemini/gemini-2.0-flash';
+      : 'gemini/gemini-3.6-flash';
 
   return (
     <div className="model-picker">

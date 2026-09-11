@@ -45,7 +45,7 @@ _AGENTS_DIR = Path(__file__).resolve().parents[4] / ".claude" / "agents"
 
 # Finance keywords (money, bank, budget, spending, expenses, income, savings)
 _FINANCE_PATTERNS = [
-    re.compile(r"\b(bank|balance|account|transactions?|transfer)\b", re.I),
+    re.compile(r"\b(bank|balance|bank\s*account|financial\s*account|transactions?|transfer)\b", re.I),
     re.compile(r"\b(budget|budgeting|spending|expenses?|expense)\b", re.I),
     re.compile(r"\b(income|salary|wages|earnings|savings)\b", re.I),
     re.compile(r"\b(credit.debit|card|loan|mortgage)\b", re.I),
