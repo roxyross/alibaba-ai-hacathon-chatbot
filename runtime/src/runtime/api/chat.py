@@ -10,7 +10,7 @@ CoordinatorResult back to JSON.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -39,7 +39,7 @@ class ChatResponse(BaseModel):
 
 class SecurityCheckRequest(BaseModel):
     skill_slug: str = Field(..., min_length=1)
-    inputs: dict = Field(default_factory=dict)
+    inputs: dict[str, Any] = Field(default_factory=dict)
     session_id: str | None = None
 
 
@@ -160,11 +160,13 @@ async def route_security_check(
     if auth_header and auth_header.lower().startswith("bearer "):
         bearer = auth_header[7:].strip() or None
 
-    from runtime.coordinator.router import SecurityCheckRequest as SCR
+    from runtime.coordinator.router import (
+        SecurityCheckRequest as CoordinatorSecurityCheckRequest,
+    )
 
     result = await security_check(
         coord,
-        SCR(
+        CoordinatorSecurityCheckRequest(
             skill_slug=body.skill_slug,
             inputs=body.inputs,
             user_id=user.user_id,

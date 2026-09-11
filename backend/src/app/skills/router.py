@@ -6,16 +6,35 @@ Each skill module provides get_executor() which returns a SkillExecutor instance
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeVar, cast
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import Request as StarletteRequest
 from pydantic import BaseModel
-
-from fastapi import APIRouter, Depends, HTTPException, Query, Request as StarletteRequest, status
-from fastapi.responses import JSONResponse
 
 from app.auth.dependencies import get_current_user, get_optional_current_user
 from app.auth.models import User
-
+from app.skills.bank_connect import get_executor as bank_connect_executor
+from app.skills.browser_fill_form import get_executor as browser_fill_form_executor
+from app.skills.browser_navigate import get_executor as browser_navigate_executor
+from app.skills.calculator import get_executor as calculator_executor
+from app.skills.calendar_read import get_executor as calendar_read_executor
+from app.skills.critic_review import get_executor as critic_review_executor
+from app.skills.document_ingest import get_executor as document_ingest_executor
+from app.skills.document_rag_query import get_executor as document_rag_query_executor
+from app.skills.email_draft import get_executor as email_draft_executor
+from app.skills.email_send import get_executor as email_send_executor
+from app.skills.flashcard_generate import get_executor as flashcard_generate_executor
+from app.skills.quiz_generate import get_executor as quiz_generate_executor
+from app.skills.retrieve_memory import get_executor as retrieve_memory_executor
+from app.skills.schedule_job import (
+    get_executor as schedule_job_executor,
+)
+from app.skills.schedule_job import (
+    get_supported_timezones,
+    get_timezone_regions,
+    validate_timezone,
+)
 from app.skills.schemas import (
     BankConnectRequest,
     BankConnectResponse,
@@ -23,16 +42,16 @@ from app.skills.schemas import (
     BrowserFillFormResponse,
     BrowserNavigateRequest,
     BrowserNavigateResponse,
-    CalendarReadRequest,
-    CalendarReadResponse,
     CalculatorRequest,
     CalculatorResponse,
+    CalendarReadRequest,
+    CalendarReadResponse,
     CriticReviewRequest,
     CriticReviewResponse,
-    DocumentRagQueryRequest,
-    DocumentRagQueryResponse,
     DocumentIngestRequest,
     DocumentIngestResponse,
+    DocumentRagQueryRequest,
+    DocumentRagQueryResponse,
     EmailDraftRequest,
     EmailDraftResponse,
     EmailSendRequest,
@@ -54,38 +73,18 @@ from app.skills.schemas import (
     WebSearchRequest,
     WebSearchResponse,
 )
-
-# Sensitive skills that require security-privacy confirmation gate
-SENSITIVE_SKILLS = {"email_draft", "email_send", "browser_fill_form", "bank_connect"}
+from app.skills.speech_to_text import get_executor as speech_to_text_executor
 
 # Import get_executor factories directly from skill modules (not app.skills
 # package) to avoid the circular import: app.skills.__init__ → router →
 # app.skills calendar_read, which blocks before router.py finishes defining
 # the `router` variable that __init__.py is trying to re-export.
 from app.skills.store_memory import get_executor as store_memory_executor
-from app.skills.retrieve_memory import get_executor as retrieve_memory_executor
-from app.skills.calendar_read import get_executor as calendar_read_executor
-from app.skills.calculator import get_executor as calculator_executor
-from app.skills.email_draft import get_executor as email_draft_executor
-from app.skills.web_search import get_executor as web_search_executor
-from app.skills.browser_navigate import get_executor as browser_navigate_executor
-from app.skills.browser_fill_form import get_executor as browser_fill_form_executor
-from app.skills.bank_connect import get_executor as bank_connect_executor
-from app.skills.critic_review import get_executor as critic_review_executor
-from app.skills.schedule_job import (
-    get_executor as schedule_job_executor,
-    get_supported_timezones,
-    get_timezone_regions,
-    validate_timezone,
-)
-from app.skills.email_send import get_executor as email_send_executor
-from app.skills.document_rag_query import get_executor as document_rag_query_executor
-from app.skills.document_ingest import get_executor as document_ingest_executor
-from app.skills.flashcard_generate import get_executor as flashcard_generate_executor
-from app.skills.quiz_generate import get_executor as quiz_generate_executor
-from app.skills.speech_to_text import get_executor as speech_to_text_executor
 from app.skills.text_to_speech import get_executor as text_to_speech_executor
+from app.skills.web_search import get_executor as web_search_executor
 
+# Sensitive skills that require security-privacy confirmation gate
+SENSITIVE_SKILLS = {"email_draft", "email_send", "browser_fill_form", "bank_connect"}
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
@@ -93,8 +92,6 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 # ---------------------------------------------------------------------------
 # Sensitive skill confirmation gate
 # ---------------------------------------------------------------------------
-
-from typing import Any, TypeVar, cast
 
 T = TypeVar("T")
 
