@@ -15,12 +15,21 @@ import json
 import os
 import re
 import urllib.parse
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncGenerator
 
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request as StarletteRequest, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -29,6 +38,7 @@ from app.auth.models import User
 from app.ai_gateway.models.schemas import AIRequest, AIResponse, Message, MessageRole
 from app.ai_gateway.services.router import AIRouter
 from app.skills.critic_review import get_executor as critic_review_executor
+from app.skills.document_rag_query import DocumentRAGSkill
 from app.skills.schemas import CriticReviewRequest
 
 log = structlog.get_logger()
@@ -937,13 +947,13 @@ async def runtime_chat(
 async def runtime_chat_stream(
     body: RuntimeChatRequest,
     current_user: User | None = Depends(get_optional_current_user),
-):
+) -> StreamingResponse:
     """Streaming Coordinator chat — same as /chat but SSE with Critic pre-flight on final chunk."""
     effective_user_id = str(current_user.id) if current_user else "guest_trial"
     is_img, img_prompt = check_image_intent(body.message)
     if is_img or body.agent_override == "image_generator":
         prompt = img_prompt or body.message
-        async def image_stream():
+        async def image_stream() -> AsyncGenerator[bytes, None]:
             img_res = generate_image_response(prompt)
             data = json.dumps({
                 "delta": img_res,
@@ -982,10 +992,10 @@ async def runtime_chat_stream(
         model=body.model,
     )
 
-    async def event_generator():
+    async def event_generator() -> AsyncGenerator[bytes, None]:
         provider_name = body.provider or "unknown"
         model_name = body.model or "unknown"
-        full_response = []
+        full_response: list[str] = []
         chunks_yielded = False
 
         try:
@@ -1066,8 +1076,8 @@ async def runtime_chat_stream(
                         model_name = chunk.model
                         yield f": provider={provider_name} model={model_name}\n\n".encode()
 
-                    delta = getattr(chunk, "delta", None) or getattr(chunk, "content", "")
-                    chunk_done = getattr(chunk, "done", False)
+                    delta = str(getattr(chunk, "delta", None) or getattr(chunk, "content", "") or "")
+                    chunk_done = bool(getattr(chunk, "done", False))
                     full_response.append(delta)
 
                     data = json.dumps({
@@ -1156,9 +1166,6 @@ async def runtime_chat_stream(
 # Runtime document ingestion endpoints
 # ---------------------------------------------------------------------------
 
-import uuid
-
-from fastapi import File, Form, UploadFile
 
 class RuntimeUploadResponse(BaseModel):
     document_id: str
@@ -1289,7 +1296,7 @@ async def runtime_upload(
     filename: str = Form(default=""),
     replace_existing: bool = Form(default=False),
     current_user: User = Depends(get_current_user),
-):
+) -> RuntimeUploadResponse:
     """Parse and ingest a file into the RAG vector store.
 
     Accepts multipart/form-data with the file and optional metadata fields.
@@ -1338,7 +1345,7 @@ async def runtime_upload(
 @router.get("/documents", response_model=RuntimeDocumentListResponse)
 async def runtime_list_documents(
     current_user: User = Depends(get_current_user),
-):
+) -> RuntimeDocumentListResponse:
     """List all documents ingested by the authenticated user."""
     user_id = str(current_user.id)
     from app.skills.document_ingest import _document_meta
@@ -1366,7 +1373,7 @@ async def runtime_list_documents(
 async def runtime_delete_document(
     document_id: str,
     current_user: User = Depends(get_current_user),
-):
+) -> RuntimeDocumentDeleteResponse:
     """Delete a document and all its chunks from the RAG store."""
     user_id = str(current_user.id)
     from app.skills.document_ingest import _document_meta, _chunk_store
@@ -1396,7 +1403,7 @@ async def runtime_delete_document(
 async def runtime_documents_query(
     body: RuntimeDocumentQueryRequest,
     current_user: User = Depends(get_current_user),
-):
+) -> Any:
     """RAG query over the user's uploaded documents.
 
     Proxy to the document_rag_query skill with user context injected.
@@ -1412,5 +1419,3 @@ async def runtime_documents_query(
     )
     return await executor.execute(req)
 
-
-from app.skills.document_rag_query import DocumentRAGSkill

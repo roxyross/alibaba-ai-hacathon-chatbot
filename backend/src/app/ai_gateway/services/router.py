@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, AsyncGenerator
 
 import structlog
 from app.ai_gateway.adapters.base import (
@@ -22,10 +22,7 @@ from app.ai_gateway.adapters.base import (
     ProviderUnavailableError,
 )
 from app.ai_gateway.adapters.deepseek import DeepSeekAdapter
-from app.ai_gateway.models.provider import (
-    DEFAULT_ROUTING_PRIORITY,
-    get_all_provider_configs,
-)
+from app.ai_gateway.models.provider import get_all_provider_configs
 from app.ai_gateway.models.schemas import AIRequest, AIResponse
 from app.ai_gateway.services.sanitizer import PromptInjectionError, PromptSanitizer
 from app.ai_gateway.services.token_logger import TokenUsageLogger
@@ -134,7 +131,9 @@ class AIRouter:
             f"All providers failed. Last error: {last_error}"
         )
 
-    async def route_stream(self, request: AIRequest):
+    async def route_stream(
+        self, request: AIRequest
+    ) -> AsyncGenerator[AIResponse, None]:
         """Streaming version of route(). Yields AIResponse chunks.
 
         Raises:
