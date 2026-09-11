@@ -85,9 +85,10 @@ class GrokAdapter(AIProviderAdapter):
         try:
             async with client.stream("POST", "/chat/completions", json=payload) as response:
                 if not response.is_success:
+                    err_bytes = await response.aread()
                     raise ProviderUnavailableError(
                         self.provider_name,
-                        f"HTTP {response.status_code}: {await response.aread()}",
+                        f"HTTP {response.status_code}: {err_bytes.decode('utf-8', errors='replace')[:250]}",
                     )
 
                 accumulated = ""

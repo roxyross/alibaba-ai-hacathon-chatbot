@@ -15,6 +15,7 @@ from app.ai_gateway.models.schemas import AIRequest, AIResponse
 from app.ai_gateway.models.provider import (
     CB_FAILURES,
     CB_RESET_SECONDS,
+    ProviderConfig,
     get_provider_config,
 )
 
@@ -74,7 +75,7 @@ class AIProviderAdapter(ABC):
         return self._cb
 
     @property
-    def config(self) -> "app.ai_gateway.models.provider.ProviderConfig":
+    def config(self) -> ProviderConfig:
         """Provider runtime configuration."""
         return self._config
 

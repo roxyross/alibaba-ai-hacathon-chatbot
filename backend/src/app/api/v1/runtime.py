@@ -360,6 +360,9 @@ async def fetch_live_maps(query: str) -> str | None:
     raw = query.strip()
     is_empty_or_generic = (not raw) or raw.lower() in ("maps", "map", "near me", "my location", "here")
 
+    lat: float | None = None
+    lon: float | None = None
+
     if is_empty_or_generic:
         clean_target = "Paris"
         place_name = "Paris, Île-de-France, France"
@@ -367,8 +370,6 @@ async def fetch_live_maps(query: str) -> str | None:
     else:
         clean_target = raw
         place_name = clean_target
-        lat: float | None = None
-        lon: float | None = None
 
         target_lower = clean_target.lower()
         for key, (k_lat, k_lon, k_name) in _POPULAR_COORDINATES.items():
