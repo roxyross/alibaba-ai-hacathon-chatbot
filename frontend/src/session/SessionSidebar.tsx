@@ -2,7 +2,22 @@ import React, { useState } from 'react';
 import { useSessions, ChatSession } from './useSessions';
 import './SessionSidebar.css';
 
-export type AppView = 'chat' | 'finance' | 'jobs' | 'email' | 'voice' | 'documents' | 'calculator' | 'calendar';
+export type AppView =
+  | 'chat'
+  | 'pricing'
+  | 'image_studio'
+  | 'knowledge_vault'
+  | 'workspace_hub'
+  | 'jobs'
+  | 'finance'
+  | 'usage'
+  | 'billing'
+  | 'payment_methods'
+  | 'email'
+  | 'voice'
+  | 'documents'
+  | 'calculator'
+  | 'calendar';
 
 interface SessionSidebarProps {
   activeSessionId: string | null;
@@ -176,27 +191,35 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             </button>
             <button
               type="button"
-              className={`session-sidebar__nav-item${activeView === 'voice' ? ' session-sidebar__nav-item--active' : ''}`}
-              onClick={() => onViewChange('voice')}
+              className={`session-sidebar__nav-item${activeView === 'image_studio' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('image_studio')}
             >
-              <span className="session-sidebar__nav-icon">🎙️</span>
-              <span className="session-sidebar__nav-label">Voice Mode</span>
+              <span className="session-sidebar__nav-icon">🎨</span>
+              <span className="session-sidebar__nav-label">Image Studio</span>
             </button>
             <button
               type="button"
-              className={`session-sidebar__nav-item${activeView === 'calculator' ? ' session-sidebar__nav-item--active' : ''}`}
-              onClick={() => onViewChange('calculator')}
+              className={`session-sidebar__nav-item${activeView === 'knowledge_vault' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('knowledge_vault')}
             >
-              <span className="session-sidebar__nav-icon">🧮</span>
-              <span className="session-sidebar__nav-label">Calculator</span>
+              <span className="session-sidebar__nav-icon">📚</span>
+              <span className="session-sidebar__nav-label">Knowledge Vault</span>
             </button>
             <button
               type="button"
-              className={`session-sidebar__nav-item${activeView === 'calendar' ? ' session-sidebar__nav-item--active' : ''}`}
-              onClick={() => onViewChange('calendar')}
+              className={`session-sidebar__nav-item${activeView === 'workspace_hub' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('workspace_hub')}
             >
-              <span className="session-sidebar__nav-icon">📅</span>
-              <span className="session-sidebar__nav-label">Calendar</span>
+              <span className="session-sidebar__nav-icon">🗂️</span>
+              <span className="session-sidebar__nav-label">Workspace Hub</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'jobs' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('jobs')}
+            >
+              <span className="session-sidebar__nav-icon">⏰</span>
+              <span className="session-sidebar__nav-label">Scheduled Jobs</span>
             </button>
             <button
               type="button"
@@ -208,11 +231,35 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             </button>
             <button
               type="button"
-              className={`session-sidebar__nav-item${activeView === 'jobs' ? ' session-sidebar__nav-item--active' : ''}`}
-              onClick={() => onViewChange('jobs')}
+              className={`session-sidebar__nav-item${activeView === 'voice' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('voice')}
             >
-              <span className="session-sidebar__nav-icon">⏰</span>
-              <span className="session-sidebar__nav-label">Scheduled Jobs</span>
+              <span className="session-sidebar__nav-icon">🎙️</span>
+              <span className="session-sidebar__nav-label">Voice Mode</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'usage' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('usage')}
+            >
+              <span className="session-sidebar__nav-icon">📊</span>
+              <span className="session-sidebar__nav-label">Usage & Credits</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'billing' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('billing')}
+            >
+              <span className="session-sidebar__nav-icon">💳</span>
+              <span className="session-sidebar__nav-label">Billing</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'pricing' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('pricing')}
+            >
+              <span className="session-sidebar__nav-icon">⚡</span>
+              <span className="session-sidebar__nav-label">Upgrade Plans</span>
             </button>
             <button
               type="button"
@@ -229,6 +276,22 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             >
               <span className="session-sidebar__nav-icon">📄</span>
               <span className="session-sidebar__nav-label">Documents</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'calculator' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('calculator')}
+            >
+              <span className="session-sidebar__nav-icon">🧮</span>
+              <span className="session-sidebar__nav-label">Calculator</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-item${activeView === 'calendar' ? ' session-sidebar__nav-item--active' : ''}`}
+              onClick={() => onViewChange('calendar')}
+            >
+              <span className="session-sidebar__nav-icon">📅</span>
+              <span className="session-sidebar__nav-label">Calendar</span>
             </button>
           </nav>
         )}

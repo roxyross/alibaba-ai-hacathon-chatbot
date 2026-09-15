@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AuthProvider, AuthGate, useAuth } from './auth';
 import { ChatWindow } from './components/ChatWindow';
-import { FinanceDashboard } from './components/FinanceDashboard/FinanceDashboard';
 import { SessionSidebar, type AppView } from './session';
 import { useSessions, type ChatSession, type CreateSessionInput } from './session';
 import { useSessionMessages, type ChatMessageRecord } from './chat_history';
@@ -11,7 +10,6 @@ import {
   SensitiveActionConfirm,
   useSensitiveConfirm,
 } from './components/SensitiveActionConfirm/SensitiveActionConfirm';
-import { ScheduledJobsPanel } from './components/ScheduledJobsPanel/ScheduledJobsPanel';
 import { EmailSendPanel } from './components/EmailSendPanel/EmailSendPanel';
 import { VoiceSession } from './components/VoiceSession/VoiceSession';
 import { DocumentUpload } from './components/DocumentUpload';
@@ -19,6 +17,15 @@ import { Calculator } from './components/Calculator/Calculator';
 import { CalendarView } from './components/Calendar/CalendarView';
 import { SettingsModal } from './components/SettingsModal';
 import { ToastContainer, type ToastMessage } from './components/common/Toast';
+import { PricingPage } from './components/PricingPage/PricingPage';
+import { ImageStudio } from './components/ImageStudio/ImageStudio';
+import { KnowledgeVault } from './components/KnowledgeVault/KnowledgeVault';
+import { WorkspaceHub } from './components/WorkspaceHub/WorkspaceHub';
+import { ScheduledJobsView } from './components/ScheduledJobsView/ScheduledJobsView';
+import { FinanceView } from './components/FinanceView/FinanceView';
+import { UsageView } from './components/UsageView/UsageView';
+import { BillingView } from './components/BillingView/BillingView';
+import { PaymentMethodView } from './components/PaymentMethodView/PaymentMethodView';
 import './App.css';
 import './components/DocumentUpload/DocumentUpload.css';
 
@@ -29,6 +36,42 @@ const API_BASE =
 const RUNTIME_URL =
   (import.meta as { env: { VITE_RUNTIME_URL?: string } }).env.VITE_RUNTIME_URL ||
   API_BASE;
+
+function detectGreetingMessage(text: string): string | null {
+  const patterns: Record<string, { regex: RegExp; greeting: string }> = {
+    urdu: {
+      regex: /\b(assalam\s*o\s*alaikum|salam|kese\s*ho|kia\s*hal\s*hai|adab|khushamdeed)\b/i,
+      greeting: 'Assalam o alaikum! Welcome to ROXY AI. Ready when you are — how can I assist you today?',
+    },
+    english: {
+      regex: /\b(hello|hi|hey|good\s+morning|good\s+afternoon|good\s+evening|greetings|howdy)\b/i,
+      greeting: 'Hello! Welcome back to ROXY AI. Ready when you are — how can I assist you today?',
+    },
+    arabic: {
+      regex: /\b(marhaban|ahlan|salam\s+alaykum|sabah\s+al\s*khair)\b/i,
+      greeting: 'Marhaban! Ahlan wa sahlan. ROXY AI is ready when you are. How may I help you?',
+    },
+    spanish: {
+      regex: /\b(hola|buenos\s+dias|buenas\s+tardes|que\s+tal)\b/i,
+      greeting: '¡Hola! Bienvenido a ROXY AI. Listo cuando tú lo estés. ¿En qué puedo ayudarte hoy?',
+    },
+    french: {
+      regex: /\b(bonjour|salut|bonsoir|bienvenue)\b/i,
+      greeting: "Bonjour! Bienvenue sur ROXY AI. Prêt quand vous l'êtes. Que pouvons-nous faire ensemble aujourd'hui?",
+    },
+    hindi: {
+      regex: /\b(namaste|namaskar|kaise\s+ho)\b/i,
+      greeting: 'Namaste! Welcome back to ROXY AI. Ready when you are — how can I assist you?',
+    },
+  };
+
+  for (const key of Object.keys(patterns)) {
+    if (patterns[key].regex.test(text)) {
+      return patterns[key].greeting;
+    }
+  }
+  return null;
+}
 
 export function ChatScreen() {
   const { accessToken, signOut, user } = useAuth();
@@ -86,6 +129,31 @@ export function ChatScreen() {
 
   // Settings Modal state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Warm Greeting banner state
+  const [warmGreeting, setWarmGreeting] = useState<string | null>(null);
+
+  // Interactive Pin menu state
+  const [isPinnedMenuOpen, setIsPinnedMenuOpen] = useState(false);
+  const [pinnedItems, setPinnedItems] = useState<Array<{ id: string; title: string; type: string }>>(() => {
+    try {
+      const saved = localStorage.getItem('roxy_pinned_items');
+      return saved ? JSON.parse(saved) : [
+        { id: 'pin-1', title: 'Q3 Financial Statements', type: 'Statement' },
+        { id: 'pin-2', title: 'Daily Market Briefing Task', type: 'Scheduled Job' },
+      ];
+    } catch {
+      return [];
+    }
+  });
+
+  const unpinItem = useCallback((id: string) => {
+    setPinnedItems((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      localStorage.setItem('roxy_pinned_items', JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   // Global Toast state
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -217,6 +285,12 @@ export function ChatScreen() {
         localStorage.setItem(GUEST_PROMPT_KEY, String(count + 1));
       }
 
+      // Detect greeting in any language and convert to warm personalized greeting
+      const detected = detectGreetingMessage(text);
+      if (detected) {
+        setWarmGreeting(detected);
+      }
+
       const activeModel = modelSelection ?? { provider: 'runtime', model: 'coordinator' };
       let session = activeSession;
       if (!session && (accessToken || user)) {
@@ -298,8 +372,15 @@ export function ChatScreen() {
           if (!accessToken && !user && view !== 'chat') {
             const viewLabels: Record<AppView, string> = {
               chat: 'Chat',
-              finance: 'Finance Dashboard',
+              pricing: 'Pricing Plans',
+              image_studio: 'Image Studio',
+              knowledge_vault: 'Knowledge Vault',
+              workspace_hub: 'Workspace Hub',
               jobs: 'Scheduled Jobs',
+              finance: 'Finance Dashboard',
+              usage: 'Usage & Credits',
+              billing: 'Billing & Subscriptions',
+              payment_methods: 'Payment Methods',
               email: 'Email Sending',
               voice: 'Voice Mode',
               documents: 'Document Upload',
@@ -385,6 +466,57 @@ export function ChatScreen() {
             </button>
           </div>
           <div className="app__header-right">
+            {/* Interactive Pin Icon in Menu Bar with Hover Tooltip */}
+            <div className="app__pin-menu-wrap">
+              <button
+                type="button"
+                className={`app__pin-btn ${isPinnedMenuOpen ? 'app__pin-btn--active' : ''}`}
+                onClick={() => setIsPinnedMenuOpen((v) => !v)}
+                title="Pinned Chats & Statements (Click to view)"
+                aria-label="Pinned Items"
+              >
+                📌
+                {pinnedItems.length > 0 && (
+                  <span className="app__pin-count">{pinnedItems.length}</span>
+                )}
+              </button>
+
+              {isPinnedMenuOpen && (
+                <div className="app__pinned-dropdown">
+                  <div className="app__pinned-header">
+                    <span>Pinned Items</span>
+                    <button
+                      type="button"
+                      className="app__pinned-close"
+                      onClick={() => setIsPinnedMenuOpen(false)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {pinnedItems.length === 0 ? (
+                    <p className="app__pinned-empty">No pinned chats or statements yet.</p>
+                  ) : (
+                    <div className="app__pinned-list">
+                      {pinnedItems.map((item) => (
+                        <div key={item.id} className="app__pinned-item">
+                          <span className="app__pinned-type">{item.type}</span>
+                          <span className="app__pinned-title">{item.title}</span>
+                          <button
+                            type="button"
+                            className="app__pinned-unpin"
+                            onClick={() => unpinItem(item.id)}
+                            title="Unpin item"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Settings & Preferences button */}
             <button
               type="button"
@@ -405,6 +537,17 @@ export function ChatScreen() {
               aria-label="Toggle theme"
             >
               {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
+
+            {/* Clear Upgrade Button placed immediately before Sign In / User */}
+            <button
+              type="button"
+              className="app__upgrade-btn"
+              onClick={() => setActiveView('pricing')}
+              title="Choose Your Roxy-AI Plan"
+              aria-label="Upgrade Plan"
+            >
+              ⚡ Upgrade
             </button>
 
             {user ? (
@@ -444,10 +587,52 @@ export function ChatScreen() {
           </div>
         </header>
 
-        {activeView === 'finance' ? (
-          <FinanceDashboard accessToken={accessToken} onBack={() => setActiveView('chat')} />
+        {activeView === 'pricing' ? (
+          <PricingPage
+            onBack={() => setActiveView('chat')}
+            onSelectPlan={(plan) => {
+              addToast('success', `Plan ${plan} selected!`);
+              if (plan !== 'free') setActiveView('billing');
+            }}
+          />
+        ) : activeView === 'image_studio' ? (
+          <ImageStudio accessToken={accessToken} onBack={() => setActiveView('chat')} />
+        ) : activeView === 'knowledge_vault' ? (
+          <KnowledgeVault accessToken={accessToken} onBack={() => setActiveView('chat')} />
+        ) : activeView === 'workspace_hub' ? (
+          <WorkspaceHub
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onOpenProject={() => setActiveView('chat')}
+          />
         ) : activeView === 'jobs' ? (
-          <ScheduledJobsPanel accessToken={accessToken} onBack={() => setActiveView('chat')} />
+          <ScheduledJobsView
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onNavigateView={(v) => setActiveView(v as AppView)}
+          />
+        ) : activeView === 'finance' ? (
+          <FinanceView
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onNavigateView={(v) => setActiveView(v as AppView)}
+          />
+        ) : activeView === 'usage' ? (
+          <UsageView
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onNavigateBilling={() => setActiveView('billing')}
+          />
+        ) : activeView === 'billing' ? (
+          <BillingView
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onNavigatePricing={() => setActiveView('pricing')}
+            onNavigateUsage={() => setActiveView('usage')}
+            onNavigatePaymentMethods={() => setActiveView('payment_methods')}
+          />
+        ) : activeView === 'payment_methods' ? (
+          <PaymentMethodView accessToken={accessToken} onBack={() => setActiveView('billing')} />
         ) : activeView === 'email' ? (
           <EmailSendPanel
             accessToken={accessToken}
@@ -464,7 +649,6 @@ export function ChatScreen() {
             runtimeUrl={isRuntime ? RUNTIME_URL : undefined}
             onBack={() => setActiveView('chat')}
             onUploadDone={(_result) => {
-              // After upload, user can ask about the document
               setActiveView('chat');
             }}
           />
@@ -485,6 +669,20 @@ export function ChatScreen() {
           />
         ) : (
           <div className="app__chat">
+            {warmGreeting && (
+              <div className="app__warm-greeting-banner" role="status">
+                <span className="app__warm-greeting-icon">👋</span>
+                <span className="app__warm-greeting-text">{warmGreeting}</span>
+                <button
+                  type="button"
+                  className="app__warm-greeting-close"
+                  onClick={() => setWarmGreeting(null)}
+                  aria-label="Dismiss greeting"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <ChatWindow
               messages={renderedMessages}
               attribution={chat.attribution}

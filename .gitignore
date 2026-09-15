@@ -25,6 +25,7 @@ node_modules/
 .vite/
 .parcel-cache/
 next/
+.next/
 out/
 build/
 *.tsbuildinfo

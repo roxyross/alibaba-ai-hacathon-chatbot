@@ -278,6 +278,209 @@ body {
   outline-offset: 2px;
 }
 
+/* Clear Upgrade Button placed immediately before Sign In */
+.app__upgrade-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(13, 148, 136, 0.1);
+  border: 1px solid var(--color-accent, #0d9488);
+  color: var(--color-accent, #0d9488);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.38rem 0.9rem;
+  border-radius: 0.45rem;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.app__upgrade-btn:hover {
+  background: var(--color-accent, #0d9488);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.35);
+}
+
+/* Interactive Pin Menu in header */
+.app__pin-menu-wrap {
+  position: relative;
+}
+
+.app__pin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.app__pin-btn:hover {
+  background: rgba(13, 148, 136, 0.12);
+  border-color: var(--color-accent, #0d9488);
+  transform: translateY(-1px);
+}
+
+.app__pin-btn--active {
+  border-color: var(--color-accent, #0d9488);
+  background: rgba(13, 148, 136, 0.1);
+}
+
+.app__pin-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--color-accent, #0d9488);
+  color: #ffffff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--color-surface, #ffffff);
+}
+
+.app__pinned-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  padding: 0.85rem;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.app__pinned-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-text, #1e292b);
+}
+
+.app__pinned-close {
+  background: none;
+  border: none;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--color-muted, #64748b);
+}
+
+.app__pinned-empty {
+  margin: 0.5rem 0;
+  font-size: 0.8rem;
+  color: var(--color-muted, #64748b);
+  text-align: center;
+}
+
+.app__pinned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.app__pinned-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.55rem;
+  background: var(--color-input-bg, #f0f4f3);
+  border-radius: 0.45rem;
+  font-size: 0.8rem;
+  gap: 0.4rem;
+}
+
+.app__pinned-type {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  background: rgba(13, 148, 136, 0.12);
+  color: var(--color-accent, #0d9488);
+  border-radius: 0.25rem;
+  flex-shrink: 0;
+}
+
+.app__pinned-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--color-text, #1e292b);
+}
+
+.app__pinned-unpin {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-muted, #64748b);
+  font-size: 0.75rem;
+}
+
+/* Warm Personalized Greeting Banner */
+.app__warm-greeting-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 880px;
+  width: calc(100% - 2rem);
+  margin: 0.85rem auto 0;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, rgba(13, 148, 136, 0.08) 0%, rgba(20, 184, 166, 0.04) 100%);
+  border: 1px solid rgba(13, 148, 136, 0.25);
+  border-radius: 0.75rem;
+  color: #0f766e;
+  box-shadow: 0 2px 10px rgba(13, 148, 136, 0.05);
+  animation: fadeIn 0.3s ease;
+}
+
+.app__warm-greeting-icon {
+  font-size: 1.25rem;
+}
+
+.app__warm-greeting-text {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.app__warm-greeting-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #0f766e;
+  font-size: 0.85rem;
+  padding: 0.2rem;
+  border-radius: 0.25rem;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .app__views {
   display: flex;
   align-items: center;

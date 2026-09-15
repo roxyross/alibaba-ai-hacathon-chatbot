@@ -21,9 +21,16 @@ elif Path(".env").exists():
 
 from app.api.v1.ai import router as ai_router
 from app.api.v1.bank import router as bank_router
+from app.api.v1.billing import router as billing_router
 from app.api.v1.documents import router as documents_router
 from app.api.v1.finance import router as finance_router
+from app.api.v1.greeting import router as greeting_router
+from app.api.v1.images import router as images_router
+from app.api.v1.jobs import router as jobs_router
+from app.api.v1.projects import router as projects_router
+from app.api.v1.raast import router as raast_router
 from app.api.v1.runtime import router as runtime_router
+from app.api.v1.usage import router as usage_router
 from app.auth.router import router as auth_router
 from app.chat_history.router import router as chat_history_router
 from app.model_provider.router import router as model_provider_router
@@ -73,6 +80,13 @@ app.include_router(bank_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(runtime_router, prefix="/api/v1")
 app.include_router(finance_router, prefix="/api/v1")
+app.include_router(greeting_router, prefix="/api/v1")
+app.include_router(billing_router, prefix="/api/v1")
+app.include_router(usage_router, prefix="/api/v1")
+app.include_router(projects_router, prefix="/api/v1")
+app.include_router(images_router, prefix="/api/v1")
+app.include_router(raast_router, prefix="/api/v1")
+app.include_router(jobs_router, prefix="/api/v1")
 
 
 @app.on_event("startup")
@@ -84,9 +98,15 @@ async def on_startup() -> None:
         import app.chat_history.models  # noqa: F401
         import app.models.bank_connection  # noqa: F401
         import app.models.budget  # noqa: F401
+        import app.models.document_vault  # noqa: F401
+        import app.models.finance_account  # noqa: F401
+        import app.models.generated_image  # noqa: F401
         import app.models.model  # noqa: F401
+        import app.models.project  # noqa: F401
         import app.models.provider  # noqa: F401
+        import app.models.scheduled_job  # noqa: F401
         import app.models.spending_alert  # noqa: F401
+        import app.models.subscription  # noqa: F401
         import app.models.token_usage  # noqa: F401
         import app.models.user_preference  # noqa: F401
         import app.session.models  # noqa: F401

@@ -1,0 +1,322 @@
+/* Payment Method View Styles */
+.pm-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  background: var(--color-bg, #f8faf9);
+  color: var(--color-text, #1e292b);
+  overflow-y: auto;
+}
+
+.pm-view__header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.75rem;
+  background: var(--color-surface, #ffffff);
+  border-bottom: 1px solid var(--color-border, #e2e8e6);
+  flex-shrink: 0;
+}
+
+.pm-view__back-btn {
+  background: none;
+  border: 1px solid var(--color-border, #e2e8e6);
+  color: var(--color-muted, #64748b);
+  padding: 0.35rem 0.8rem;
+  border-radius: 0.45rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pm-view__back-btn:hover {
+  color: var(--color-text, #1e292b);
+  border-color: var(--color-accent, #0d9488);
+}
+
+.pm-view__title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--color-text, #1e292b);
+}
+
+.pm-view__body {
+  max-width: 680px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.75rem 1.5rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.pm-view__alert {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(13, 148, 136, 0.1);
+  border: 1px solid rgba(13, 148, 136, 0.3);
+  border-radius: 0.6rem;
+  padding: 0.75rem 1rem;
+  color: #0f766e;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+/* Primary Payment Method Card */
+.pm-primary-card {
+  background: linear-gradient(135deg, #1e292b 0%, #0d3834 100%);
+  color: #ffffff;
+  border-radius: 1.1rem;
+  padding: 1.5rem 1.75rem;
+  box-shadow: 0 10px 30px rgba(13, 148, 136, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.pm-primary-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pm-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 0.2rem 0.6rem;
+  border-radius: 1rem;
+  letter-spacing: 0.05em;
+}
+
+.pm-stripe-badge {
+  font-size: 0.75rem;
+  color: #6ee7b7;
+  font-weight: 600;
+}
+
+.pm-chip {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.pm-primary-card__digits {
+  font-family: monospace;
+  font-size: 1.35rem;
+  letter-spacing: 0.15em;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+}
+
+.pm-primary-card__meta {
+  display: flex;
+  gap: 2.5rem;
+}
+
+.meta-sub {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  opacity: 0.7;
+  letter-spacing: 0.05em;
+}
+
+.meta-main {
+  margin: 0.15rem 0 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+/* Form Card */
+.pm-form-card {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.85rem;
+  padding: 1.5rem 1.75rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.pm-form-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-text, #1e292b);
+}
+
+.pm-form-subtitle {
+  margin: 0 0 1.25rem;
+  font-size: 0.84rem;
+  color: var(--color-muted, #64748b);
+  line-height: 1.4;
+}
+
+.stripe-elements-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.stripe-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.stripe-input-group label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text, #1e292b);
+}
+
+.stripe-input-group input {
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.9rem;
+  color: var(--color-text, #1e292b);
+  outline: none;
+}
+
+.stripe-card-field {
+  display: flex;
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.stripe-card-field input {
+  border: none;
+  background: transparent;
+  padding: 0.6rem 0.75rem;
+}
+
+.stripe-card-field input:not(:last-child) {
+  border-right: 1px solid var(--color-border, #e2e8e6);
+}
+
+.stripe-submit-btn {
+  background: var(--color-accent, #0d9488);
+  color: #ffffff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.7rem 1.25rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-top: 0.5rem;
+}
+
+.stripe-submit-btn:hover:not(:disabled) {
+  background: var(--color-accent-hover, #0f766e);
+}
+
+.stripe-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Other Methods */
+.pm-other-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pm-section-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text, #1e292b);
+}
+
+.pm-other-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.pm-other-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.65rem;
+  padding: 0.8rem 1.15rem;
+}
+
+.pm-other-row__info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.pm-other-brand {
+  font-weight: 700;
+}
+
+.pm-other-exp {
+  font-size: 0.75rem;
+  color: var(--color-muted, #64748b);
+}
+
+.pm-other-row__actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.pm-btn-primary {
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.4rem;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pm-btn-primary:hover {
+  border-color: var(--color-accent, #0d9488);
+  color: var(--color-accent, #0d9488);
+}
+
+.pm-btn-delete {
+  background: none;
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.4rem;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.78rem;
+  color: #ef4444;
+  cursor: pointer;
+}
+
+.pm-btn-delete:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+}
+
+/* Security Note */
+.pm-security-note {
+  display: flex;
+  gap: 0.75rem;
+  background: rgba(13, 148, 136, 0.05);
+  border: 1px solid rgba(13, 148, 136, 0.15);
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--color-text, #1e292b);
+}
+
+.security-icon {
+  font-size: 1.25rem;
+}

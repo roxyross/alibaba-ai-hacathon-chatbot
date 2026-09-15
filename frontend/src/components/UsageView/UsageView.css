@@ -1,0 +1,319 @@
+/* Usage View Styles */
+.usage-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  background: var(--color-bg, #f8faf9);
+  color: var(--color-text, #1e292b);
+  overflow-y: auto;
+}
+
+.usage-view__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.75rem;
+  background: var(--color-surface, #ffffff);
+  border-bottom: 1px solid var(--color-border, #e2e8e6);
+  flex-shrink: 0;
+}
+
+.usage-view__header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.usage-view__back-btn {
+  background: none;
+  border: 1px solid var(--color-border, #e2e8e6);
+  color: var(--color-muted, #64748b);
+  padding: 0.35rem 0.8rem;
+  border-radius: 0.45rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.usage-view__back-btn:hover {
+  color: var(--color-text, #1e292b);
+  border-color: var(--color-accent, #0d9488);
+}
+
+.usage-view__title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--color-text, #1e292b);
+}
+
+.usage-view__billing-btn {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text, #1e292b);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.usage-view__billing-btn:hover {
+  border-color: var(--color-accent, #0d9488);
+  color: var(--color-accent, #0d9488);
+}
+
+.usage-view__body {
+  max-width: 880px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.75rem 1.5rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.usage-view__alert {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(13, 148, 136, 0.1);
+  border: 1px solid rgba(13, 148, 136, 0.3);
+  border-radius: 0.6rem;
+  padding: 0.75rem 1rem;
+  color: #0f766e;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.usage-view__metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.usage-metric-card {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.metric-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--color-muted, #64748b);
+  letter-spacing: 0.04em;
+}
+
+.metric-val {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: var(--color-text, #1e292b);
+}
+
+.metric-sub {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-muted, #64748b);
+}
+
+.metric-status {
+  font-size: 0.76rem;
+  color: var(--color-accent, #0d9488);
+  font-weight: 500;
+}
+
+/* Chart Card */
+.usage-chart-card {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+}
+
+.usage-chart-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.usage-card-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-text, #1e292b);
+}
+
+.usage-chart-legend {
+  font-size: 0.78rem;
+  color: var(--color-accent, #0d9488);
+  font-weight: 600;
+}
+
+.usage-chart-container {
+  width: 100%;
+  height: 140px;
+}
+
+.usage-svg-chart {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.usage-chart-dates {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.74rem;
+  color: var(--color-muted, #64748b);
+  margin-top: 0.5rem;
+}
+
+/* Top-up grid */
+.topup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.topup-card {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.topup-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-accent, #0d9488);
+  box-shadow: 0 6px 16px rgba(13, 148, 136, 0.08);
+}
+
+.topup-card__name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text, #1e292b);
+}
+
+.topup-card__price {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--color-text, #1e292b);
+}
+
+.topup-card__pkr {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-muted, #64748b);
+}
+
+.topup-card__credits {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-accent, #0d9488);
+  background: rgba(13, 148, 136, 0.08);
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.35rem;
+  align-self: center;
+}
+
+.topup-card__btn {
+  margin-top: 0.5rem;
+  background: var(--color-accent, #0d9488);
+  color: #ffffff;
+  border: none;
+  border-radius: 0.45rem;
+  padding: 0.5rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.topup-card__btn:hover {
+  background: var(--color-accent-hover, #0f766e);
+}
+
+/* Activity table */
+.activity-table {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  margin-top: 0.75rem;
+}
+
+.activity-table__header {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr 1fr 1.5fr 1fr;
+  padding: 0.75rem 1rem;
+  background: var(--color-input-bg, #f0f4f3);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-muted, #64748b);
+  text-transform: uppercase;
+}
+
+.activity-table__row {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr 1fr 1.5fr 1fr;
+  padding: 0.8rem 1rem;
+  border-top: 1px solid var(--color-border, #e2e8e6);
+  font-size: 0.82rem;
+  align-items: center;
+}
+
+.act-feat {
+  font-weight: 600;
+  color: var(--color-text, #1e292b);
+}
+
+.act-model {
+  color: var(--color-muted, #64748b);
+}
+
+.act-tokens {
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.act-cost {
+  font-weight: 700;
+}
+
+.act-pkr {
+  font-size: 0.75rem;
+  color: var(--color-muted, #64748b);
+  font-weight: 500;
+}
+
+.act-time {
+  font-size: 0.76rem;
+  color: var(--color-muted, #64748b);
+}
+
+@media (max-width: 768px) {
+  .activity-table__header,
+  .activity-table__row {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+}

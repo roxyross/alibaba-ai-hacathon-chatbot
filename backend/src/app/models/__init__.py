@@ -19,17 +19,33 @@ from app.models.token_usage import TokenUsageLog
 from app.models.user_preference import UserPreference
 from app.session.models import ChatSession
 
+from app.models.subscription import CreditWallet, PaymentMethod, Subscription, UsageLog
+from app.models.finance_account import FinanceAccount, FinanceAlert, FinanceTransaction
+from app.models.project import Project
+from app.models.generated_image import GeneratedImage
+from app.models.document_vault import DocumentRecord
+
 __all__ = [
     "BankConnection",
     "Budget",
     "ChatMessage",
     "ChatSession",
+    "CreditWallet",
+    "DocumentRecord",
+    "FinanceAccount",
+    "FinanceAlert",
+    "FinanceTransaction",
+    "GeneratedImage",
     "MagicLinkToken",
     "Model",
+    "PaymentMethod",
+    "Project",
     "Provider",
     "ScheduledJob",
     "SpendingAlert",
+    "Subscription",
     "TokenUsageLog",
+    "UsageLog",
     "User",
     "UserPreference",
 ]
