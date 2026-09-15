@@ -3,6 +3,7 @@
 import React, { useCallback, useRef } from 'react';
 import { ChatMessage } from '../ChatMessage';
 import { ChatInput } from '../ChatInput';
+import { AgentActivityTimeline } from '../AgentActivityTimeline';
 import { ModelPicker, type ModelSelection } from '../../model_provider';
 import type { ChatState } from '../../hooks/useChat';
 import './ChatWindow.css';
@@ -16,6 +17,7 @@ interface ChatWindowProps extends ChatState {
   disabledNoModel?: boolean;
   mode?: 'chat' | 'task';
   onNavigateView?: (view: 'finance' | 'jobs' | 'email' | 'calculator' | 'calendar') => void;
+  onStop?: () => void;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -33,6 +35,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   disabledNoModel = false,
   mode = 'chat',
   onNavigateView,
+  onStop,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -52,6 +55,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     <ModelPicker value={modelSelection ?? null} onChange={onModelChange} />
   ) : undefined;
 
+  const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
   const isEmpty = messages.length === 0 && !isStreaming;
 
   return (
@@ -74,6 +78,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 leftSlot={modelPickerSlot}
                 onVoiceClick={onVoiceClick}
                 onAttachmentClick={onAttachmentClick}
+                onStop={onStop}
                 placeholder={
                   mode === 'task'
                     ? 'Ask to write code, build a script, or debug…'
@@ -114,6 +119,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 );
               })}
 
+              {/* Agent Activity Pipeline Timeline during streaming */}
+              {isStreaming && (
+                <AgentActivityTimeline
+                  isStreaming={isStreaming}
+                  prompt={lastUserMessage?.content}
+                  onStop={onStop}
+                  onReplyNow={scrollToBottom}
+                  agentSlug={attribution?.agentSlug || 'coordinator'}
+                />
+              )}
+
               {error && (
                 <div className="chat-window__error" role="alert" aria-live="assertive">
                   <strong>Error:</strong> {error}
@@ -142,6 +158,32 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
           {/* Floating Bottom Single Input */}
           <div className="chat-window__bottom-bar">
+            {/* Quick action bar during streaming */}
+            {isStreaming && (
+              <div className="chat-window__streaming-bar">
+                <button
+                  type="button"
+                  className="chat-window__reply-now-btn"
+                  onClick={scrollToBottom}
+                  title="Scroll to the generating response"
+                >
+                  <span className="chat-window__reply-icon">⚡</span>
+                  <span>Reply now</span>
+                </button>
+                {onStop && (
+                  <button
+                    type="button"
+                    className="chat-window__stop-btn"
+                    onClick={onStop}
+                    title="Stop generating response (interrupt server)"
+                  >
+                    <span className="chat-window__stop-icon">⏹</span>
+                    <span>Stop generating</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <ChatInput
               onSend={onSend}
               disabled={false}
@@ -150,6 +192,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               leftSlot={modelPickerSlot}
               onVoiceClick={onVoiceClick}
               onAttachmentClick={onAttachmentClick}
+              onStop={onStop}
               placeholder={
                 mode === 'task'
                   ? 'Ask to write code, build a script, or debug…'

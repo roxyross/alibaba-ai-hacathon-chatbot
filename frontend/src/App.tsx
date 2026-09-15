@@ -62,10 +62,10 @@ export function ChatScreen() {
     setIsAuthModalOpen(true);
   }, []);
 
-  // Light / Dark mode toggle with persistent state
+  // Light / Dark mode toggle with persistent state (defaulting to soft off-white light mode)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('roxy-theme');
-    return saved === 'light' || saved === 'dark' ? saved : 'dark';
+    return saved === 'dark' ? 'dark' : 'light';
   });
 
   useEffect(() => {
@@ -77,10 +77,32 @@ export function ChatScreen() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
 
+  // Desktop sidebar collapse state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('roxy-sidebar-collapsed') === 'true';
+  });
+
+  // Global Ctrl+K / Cmd+K shortcut to open sidebar search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSidebarCollapsed(false);
+        setSidebarOpen(true);
+        setTimeout(() => {
+          const input = document.querySelector<HTMLInputElement>('.session-sidebar__search-input');
+          input?.focus();
+        }, 60);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // History for the active session, if any.
   const history = useSessionMessages(activeSession?.id ?? null);
 
-  // Live chat state. Re-initialized whenever the session changes.
+  // Live chat state with fast token-by-token SSE streaming.
   const isRuntime = modelSelection?.provider === 'runtime';
   const chat = useChat({
     apiBase: isRuntime ? undefined : API_BASE,
@@ -90,6 +112,7 @@ export function ChatScreen() {
     sessionId: activeSession?.id ?? undefined,
     accessToken,
     agentOverride: mode === 'task' ? 'code_generation' : undefined,
+    streaming: true,
   });
 
   // Sensitive action confirmation
@@ -233,6 +256,11 @@ export function ChatScreen() {
       )}
 
       <SessionSidebar
+        isCollapsed={sidebarCollapsed}
+        onCloseSidebar={() => {
+          setSidebarCollapsed(true);
+          localStorage.setItem('roxy-sidebar-collapsed', 'true');
+        }}
         activeSessionId={activeSession?.id ?? null}
         activeView={activeView}
         mode={mode}
@@ -267,27 +295,74 @@ export function ChatScreen() {
 
       <div className="app__main">
         <header className="app__header">
-          <button
-            type="button"
-            className="app__hamburger"
-            aria-label="Toggle sidebar"
-            onClick={() => setSidebarOpen((v) => !v)}
-          >
-            {sidebarOpen ? (
-              /* X mark */
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path d="M4 4l12 12M16 4L4 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-            ) : (
-              /* Hamburger */
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
+          <div className="app__header-left">
+            <button
+              type="button"
+              className="app__hamburger"
+              aria-label="Toggle sidebar"
+              onClick={() => setSidebarOpen((v) => !v)}
+            >
+              {sidebarOpen ? (
+                /* X mark */
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M4 4l12 12M16 4L4 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              ) : (
+                /* Hamburger */
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              )}
+            </button>
+
+            {/* Clear Open Sidebar button when closed/collapsed */}
+            {sidebarCollapsed && (
+              <button
+                type="button"
+                className="app__open-sidebar-btn"
+                onClick={() => {
+                  setSidebarCollapsed(false);
+                  localStorage.setItem('roxy-sidebar-collapsed', 'false');
+                }}
+                title="Open Sidebar"
+                aria-label="Open Sidebar"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <line x1="9" y1="3" x2="9" y2="21"/>
+                  <polyline points="13 9 16 12 13 15"/>
+                </svg>
+                <span>Open Sidebar</span>
+              </button>
             )}
-          </button>
-          <h1 className="app__title">
-            ROXY <span>AI</span>
-          </h1>
+
+            <h1 className="app__title">
+              ROXY <span>AI</span>
+            </h1>
+
+            {/* Prominent Search button in top bar */}
+            <button
+              type="button"
+              className="app__header-search-btn"
+              onClick={() => {
+                setSidebarCollapsed(false);
+                setSidebarOpen(true);
+                setTimeout(() => {
+                  const input = document.querySelector<HTMLInputElement>('.session-sidebar__search-input');
+                  input?.focus();
+                }, 60);
+              }}
+              title="Search previous conversations & messages (Ctrl+K)"
+              aria-label="Search conversations"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <span className="app__header-search-text">Search chats…</span>
+              <kbd className="app__header-search-kbd">⌘K</kbd>
+            </button>
+          </div>
           <div className="app__header-right">
             {/* Light / Dark Mode Toggle */}
             <button
@@ -386,6 +461,7 @@ export function ChatScreen() {
               needsClarification={chat.needsClarification}
               nextActions={chat.nextActions}
               onSend={handleSend}
+              onStop={chat.abort}
               modelSelection={modelSelection}
               onModelChange={setModelSelection}
               onVoiceClick={() => {

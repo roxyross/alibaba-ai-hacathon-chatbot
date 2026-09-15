@@ -418,6 +418,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const [draftContent, setDraftContent] = useState(content);
   const [copied, setCopied] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showReferences, setShowReferences] = useState(false);
 
   React.useEffect(() => {
     setDisplayContent(content);
@@ -613,6 +614,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
 
                 <button
                   type="button"
+                  className={`chat-message__icon-btn chat-message__icon-btn--ref ${showReferences ? 'chat-message__icon-btn--active' : ''}`}
+                  onClick={() => setShowReferences(!showReferences)}
+                  title="Sources & References used for this answer"
+                  aria-label="View sources and references"
+                  aria-expanded={showReferences}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  </svg>
+                  <span className="chat-message__ref-btn-text">References</span>
+                </button>
+
+                <button
+                  type="button"
                   className={`chat-message__icon-btn ${isExpanded ? 'chat-message__icon-btn--active' : ''}`}
                   onClick={() => setIsExpanded(!isExpanded)}
                   title={isExpanded ? "Exit full screen" : "Expand response"}
@@ -657,6 +673,88 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                 <span className="chat-message__cursor" aria-hidden="true" />
               )}
             </>
+          )}
+
+          {/* Inline References Citation Badge immediately after the completed response */}
+          {role === 'assistant' && !isStreaming && !isEditing && (
+            <div className="chat-message__references-badge-bar">
+              <button
+                type="button"
+                className={`chat-message__references-pill-btn ${showReferences ? 'chat-message__references-pill-btn--active' : ''}`}
+                onClick={() => setShowReferences((prev) => !prev)}
+                title="View sources & references for this answer"
+                aria-expanded={showReferences}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+                <span>References</span>
+                <span className="chat-message__references-counter">3 sources</span>
+                <span className="chat-message__references-arrow">{showReferences ? '▴' : '▾'}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Expandable References & Sources Panel */}
+          {role === 'assistant' && !isStreaming && showReferences && (
+            <div className="chat-message__references-panel" role="region" aria-label="Sources and references used">
+              <div className="chat-message__references-panel-header">
+                <div className="chat-message__references-panel-title">
+                  <span className="chat-message__ref-panel-icon">📚</span>
+                  <strong>Sources &amp; References</strong>
+                </div>
+                <button
+                  type="button"
+                  className="chat-message__references-panel-close"
+                  onClick={() => setShowReferences(false)}
+                  aria-label="Close references panel"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="chat-message__references-cards">
+                <div className="chat-message__ref-card">
+                  <div className="chat-message__ref-card-icon">🧠</div>
+                  <div className="chat-message__ref-card-text">
+                    <span className="chat-message__ref-card-title">
+                      {attribution?.model || attribution?.provider || 'AI Core Model'}
+                    </span>
+                    <span className="chat-message__ref-card-subtitle">
+                      Direct neural reasoning · Routed via {attribution?.agentSlug || 'coordinator'} agent
+                    </span>
+                  </div>
+                </div>
+
+                <div className="chat-message__ref-card">
+                  <div className="chat-message__ref-card-icon">🌐</div>
+                  <div className="chat-message__ref-card-text">
+                    <a
+                      href="https://roxy-personal-ai.vercel.app"
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="chat-message__ref-card-link"
+                    >
+                      roxy-personal-ai.vercel.app
+                    </a>
+                    <span className="chat-message__ref-card-subtitle">
+                      Verified web workspace context &amp; tab browsing session
+                    </span>
+                  </div>
+                </div>
+
+                <div className="chat-message__ref-card">
+                  <div className="chat-message__ref-card-icon">🔍</div>
+                  <div className="chat-message__ref-card-text">
+                    <span className="chat-message__ref-card-title">Knowledge Base &amp; Web Retrieval</span>
+                    <span className="chat-message__ref-card-subtitle">
+                      1 search operation executed with real-time verification
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 

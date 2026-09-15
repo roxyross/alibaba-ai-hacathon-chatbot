@@ -19,6 +19,8 @@ interface ChatInputProps {
   placeholder?: string;
   /** Navigation callback to switch modules directly from tools menu */
   onNavigateView?: (view: 'finance' | 'jobs' | 'email' | 'calculator' | 'calendar') => void;
+  /** Callback to stop generating response */
+  onStop?: () => void;
 }
 
 // File extension to icon resolver
@@ -88,6 +90,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onAttachmentClick: _onAttachmentClick,
   placeholder: customPlaceholder,
   onNavigateView,
+  onStop,
 }) => {
   const [value, setValue] = useState('');
   const [dictationState, setDictationState] = useState<DictationState>('idle');
@@ -1089,22 +1092,30 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
 
 
-            {/* If there is content: show Send (↑) button. If empty and onVoiceClick provided: show interactive Voice button */}
-            {hasContent || isStreaming || !onVoiceClick ? (
+            {/* If there is content: show Send (↑) button. When streaming: show visible Stop (⏹) button. If empty and onVoiceClick provided: show interactive Voice button */}
+            {isStreaming ? (
+              <button
+                type="button"
+                className="chat-input__send-btn chat-input__send-btn--stop"
+                onClick={onStop}
+                title="Stop generating (interrupt server)"
+                aria-label="Stop generating"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="5" y="5" width="14" height="14" rx="2" />
+                </svg>
+              </button>
+            ) : hasContent || !onVoiceClick ? (
               <button
                 type="submit"
                 className={`chat-input__send-btn ${hasContent ? 'chat-input__send-btn--ready' : ''}`}
-                disabled={!hasContent || disabled || isStreaming || disabledNoModel}
+                disabled={!hasContent || disabled || disabledNoModel}
                 aria-label="Send message"
               >
-                {isStreaming ? (
-                  <span className="chat-input__spinner" aria-hidden="true" />
-                ) : (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="12" y1="19" x2="12" y2="5" />
-                    <polyline points="5 12 12 5 19 12" />
-                  </svg>
-                )}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="19" x2="12" y2="5" />
+                  <polyline points="5 12 12 5 19 12" />
+                </svg>
               </button>
             ) : (
               <button

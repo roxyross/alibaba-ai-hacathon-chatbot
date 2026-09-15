@@ -18,6 +18,9 @@ interface SessionSidebarProps {
   error?: string | null;
   onRename?: (id: string, title: string) => Promise<ChatSession>;
   onRemove?: (id: string) => Promise<void>;
+  isCollapsed?: boolean;
+  onCloseSidebar?: () => void;
+  initialSearchQuery?: string;
 }
 
 export const SessionSidebar: React.FC<SessionSidebarProps> = ({
@@ -34,6 +37,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   error: propError,
   onRename: propRename,
   onRemove: propRemove,
+  isCollapsed = false,
+  onCloseSidebar,
+  initialSearchQuery = '',
 }) => {
   const localHook = useSessions();
   const sessions = propSessions !== undefined ? propSessions : localHook.sessions;
@@ -43,16 +49,77 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const remove = propRemove || localHook.remove;
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
 
-  // Filter sessions strictly by selected mode (chat vs task)
+  // Sync initialSearchQuery if updated externally
+  React.useEffect(() => {
+    if (initialSearchQuery !== undefined) {
+      setSearchQuery(initialSearchQuery);
+    }
+  }, [initialSearchQuery]);
+
+  // Filter sessions strictly by selected mode and search query
   const filteredSessions = sessions.filter((s) => {
     const isTask = s.session_type === 'task' || s.title?.startsWith('[Task]') || s.model === 'code_generation';
-    return mode === 'task' ? isTask : !isTask;
+    const matchesMode = mode === 'task' ? isTask : !isTask;
+    if (!matchesMode) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (s.title && s.title.toLowerCase().includes(q)) ||
+      (s.provider && s.provider.toLowerCase().includes(q)) ||
+      (s.model && s.model.toLowerCase().includes(q))
+    );
   });
 
   return (
-    <aside className="session-sidebar" aria-label="Chat history">
+    <aside
+      className={`session-sidebar${isCollapsed ? ' session-sidebar--collapsed' : ''}`}
+      aria-label="Chat history"
+      aria-hidden={isCollapsed}
+    >
       <div className="session-sidebar__header">
+        {/* Header bar with title and Close Sidebar button */}
+        <div className="session-sidebar__top-controls">
+          <span className="session-sidebar__brand">Conversations</span>
+          {onCloseSidebar && (
+            <button
+              type="button"
+              className="session-sidebar__close-btn"
+              onClick={onCloseSidebar}
+              title="Close Sidebar"
+              aria-label="Close Sidebar"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+              <span>Close Sidebar</span>
+            </button>
+          )}
+        </div>
+
+        {/* Search Bar for previous conversations */}
+        <div className="session-sidebar__search-box">
+          <span className="session-sidebar__search-icon" aria-hidden="true">🔍</span>
+          <input
+            type="search"
+            className="session-sidebar__search-input"
+            placeholder="Search chats & messages…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Search conversations"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              className="session-sidebar__search-clear"
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
         {/* Toggle between New Chat and New Task */}
         <div className="session-sidebar__mode-toggle" role="tablist" aria-label="Workflow mode">
           <button

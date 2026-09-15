@@ -1,0 +1,157 @@
+/* Agent Activity Timeline — Matching the clean Perplexity/Claude vertical steps style */
+.agent-timeline {
+  display: flex;
+  flex-direction: column;
+  margin: 0.85rem 0 1.25rem 0.5rem;
+  padding: 0.85rem 1rem;
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  max-width: 580px;
+  animation: agentTimelineFadeIn 0.25s ease-out;
+}
+
+@keyframes agentTimelineFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.agent-timeline__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.agent-timeline__step {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.88rem;
+  color: var(--color-muted, #4b5563);
+  line-height: 1.4;
+}
+
+.agent-timeline__icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.agent-timeline__content {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.agent-timeline__title {
+  color: var(--color-text, #1e292b);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.agent-timeline__code {
+  background: rgba(13, 148, 136, 0.08);
+  color: var(--color-accent, #0d9488);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.agent-timeline__connector {
+  width: 1.5px;
+  height: 14px;
+  background: var(--color-border, #e2e8e6);
+  margin-left: 10px;
+}
+
+.agent-timeline__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--color-border, #e2e8e6);
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.agent-timeline__timer {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-accent, #0d9488);
+}
+
+.agent-timeline__pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-accent, #0d9488);
+  box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.5);
+  animation: agentPulse 1.5s infinite cubic-bezier(0.66, 0, 0, 1);
+}
+
+@keyframes agentPulse {
+  to {
+    box-shadow: 0 0 0 8px rgba(13, 148, 136, 0);
+  }
+}
+
+.agent-timeline__timer-text {
+  letter-spacing: -0.01em;
+}
+
+.agent-timeline__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.agent-timeline__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.agent-timeline__btn--reply {
+  background: rgba(13, 148, 136, 0.1);
+  color: var(--color-accent, #0d9488);
+  border: 1px solid rgba(13, 148, 136, 0.3);
+}
+
+.agent-timeline__btn--reply:hover {
+  background: rgba(13, 148, 136, 0.2);
+  color: var(--color-accent-hover, #0f766e);
+}
+
+.agent-timeline__btn--stop {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.agent-timeline__btn--stop:hover {
+  background: rgba(239, 68, 68, 0.18);
+}

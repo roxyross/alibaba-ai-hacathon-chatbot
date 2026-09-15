@@ -1,34 +1,50 @@
-/* Global CSS variables — Catppuccin Mocha inspired */
+/* Global CSS variables — Clean, modern SaaS with soft teal accent */
 :root {
-  --color-bg: #11111b;
-  --color-surface: #181825;
-  --color-input-bg: #1e1e2e;
-  --color-border: #313244;
-  --color-text: #cdd6f4;
-  --color-muted: #6c7086;
-  --color-user-bg: #6366f1;
+  --color-bg: #f8faf9;
+  --color-surface: #ffffff;
+  --color-input-bg: #f0f4f3;
+  --color-border: #e2e8e6;
+  --color-text: #1e292b;
+  --color-muted: #64748b;
+  --color-user-bg: #0d9488;
   --color-user-fg: #ffffff;
-  --color-assistant-bg: #1e1e2e;
-  --color-assistant-fg: #cdd6f4;
-  --color-accent: #89b4fa;
-  --color-accent-hover: #b4befe;
-  --color-error: #f38ba8;
+  --color-assistant-bg: #ffffff;
+  --color-assistant-fg: #1e292b;
+  --color-accent: #0d9488;
+  --color-accent-hover: #0f766e;
+  --color-error: #ef4444;
 }
 
 [data-theme="light"] {
-  --color-bg: #f8fafc;
+  --color-bg: #f8faf9;
   --color-surface: #ffffff;
-  --color-input-bg: #f1f5f9;
-  --color-border: #cbd5e1;
-  --color-text: #0f172a;
+  --color-input-bg: #f0f4f3;
+  --color-border: #e2e8e6;
+  --color-text: #1e292b;
   --color-muted: #64748b;
-  --color-user-bg: #6366f1;
+  --color-user-bg: #0d9488;
   --color-user-fg: #ffffff;
-  --color-assistant-bg: #f1f5f9;
-  --color-assistant-fg: #0f172a;
-  --color-accent: #3b82f6;
-  --color-accent-hover: #2563eb;
+  --color-assistant-bg: #ffffff;
+  --color-assistant-fg: #1e292b;
+  --color-accent: #0d9488;
+  --color-accent-hover: #0f766e;
   --color-error: #ef4444;
+}
+
+[data-theme="dark"] {
+  --color-bg: #111818;
+  --color-surface: #192222;
+  --color-input-bg: #212c2c;
+  --color-border: #2c3a3a;
+  --color-text: #e2e8e7;
+  --color-muted: #829292;
+  --color-user-bg: #0d9488;
+  --color-user-fg: #ffffff;
+  --color-assistant-bg: #192222;
+  --color-assistant-fg: #e2e8e7;
+  --color-accent: #14b8a6;
+  --color-accent-hover: #2dd4bf;
+  --color-error: #f43f5e;
 }
 
 [data-theme="light"] body {
@@ -82,6 +98,74 @@ body {
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  gap: 1rem;
+}
+
+.app__header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.app__open-sidebar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-accent, #0d9488);
+  background: rgba(13, 148, 136, 0.08);
+  border: 1px solid rgba(13, 148, 136, 0.25);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.app__open-sidebar-btn:hover {
+  background: rgba(13, 148, 136, 0.16);
+  border-color: var(--color-accent, #0d9488);
+}
+
+.app__header-search-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.8125rem;
+  color: var(--color-muted, #64748b);
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.55rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  max-width: 220px;
+}
+
+.app__header-search-btn:hover {
+  border-color: var(--color-accent, #0d9488);
+  color: var(--color-text, #1e292b);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.app__header-search-text {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.app__header-search-kbd {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-family: inherit;
+  font-weight: 700;
+  padding: 0.05rem 0.3rem;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 0.25rem;
+  color: var(--color-muted, #64748b);
+  border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .app__title {
@@ -90,6 +174,7 @@ body {
   font-weight: 700;
   color: var(--color-text);
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 .app__title span {
