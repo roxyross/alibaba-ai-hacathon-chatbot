@@ -141,35 +141,32 @@ def consume_state(
     if request_value in _CONSUMED_STATES or (cookie_value and cookie_value in _CONSUMED_STATES):
         return False
 
-    # In production (e.g. Vercel serverless / cross-origin deployments):
-    # Validate via cryptographically signed HMAC token so that:
-    # 1. State persists across serverless lambda containers.
-    # 2. State works even if Chrome Incognito drops third-party cookies.
-    # 3. State is resilient if the browser has a stale cookie from another tab/session.
-    if _is_production():
-        parts = request_value.split("_")
-        if len(parts) >= 3:
-            raw_token = "_".join(parts[:-2])
-            ts_str = parts[-2]
-            sig = parts[-1]
-            try:
-                ts = int(ts_str)
-                payload = f"{raw_token}_{ts}"
-                for secret_candidate in (_secret(), "roxy-dev-secret-do-not-use-in-prod"):
-                    expected_sig = hmac.new(
-                        secret_candidate.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
-                    ).hexdigest()[:24]
+    # 1. Cryptographic HMAC validation (resilient to cross-origin cookie drops,
+    # port changes, incognito mode, and serverless invocations):
+    parts = request_value.split("_")
+    if len(parts) >= 3:
+        raw_token = "_".join(parts[:-2])
+        ts_str = parts[-2]
+        sig = parts[-1]
+        try:
+            ts = int(ts_str)
+            payload = f"{raw_token}_{ts}"
+            for secret_candidate in (_secret(), "roxy-dev-secret-do-not-use-in-prod"):
+                expected_sig = hmac.new(
+                    secret_candidate.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+                ).hexdigest()[:24]
 
-                    if secrets.compare_digest(sig, expected_sig) and (_now() - ts <= STATE_TTL_SECONDS):
-                        if cookie_value:
-                            _CONSUMED_STATES.add(cookie_value)
-                        _CONSUMED_STATES.add(request_value)
-                        return True
-            except ValueError:
-                pass
+                if secrets.compare_digest(sig, expected_sig) and (_now() - ts <= STATE_TTL_SECONDS):
+                    if cookie_value:
+                        _CONSUMED_STATES.add(cookie_value)
+                        _STATES.pop(cookie_value, None)
+                    _CONSUMED_STATES.add(request_value)
+                    _STATES.pop(request_value, None)
+                    return True
+        except ValueError:
+            pass
 
-    # In local dev and tests (or fallback if HMAC not matched):
-    # Require cookie presence and match against in-memory issued states.
+    # 2. In-memory / cookie matching fallback:
     if not cookie_value:
         return False
 

@@ -212,29 +212,20 @@ async def oauth_callback(
 
     if not code or not state:
         log.warning("auth.oauth.callback.missing_params", provider=provider)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing code or state from provider",
-        )
+        return _redirect_with_error(provider, "missing_code_or_state", frontend_base=frontend_base)
 
     # Pull the state cookie and compare. consume_state is single-use.
     state_cookie = request.cookies.get(oauth_state.STATE_COOKIE)
     if not oauth_state.consume_state(state, state_cookie):
         log.warning("auth.oauth.callback.bad_state", provider=provider)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired state",
-        )
+        return _redirect_with_error(provider, "invalid_or_expired_state", frontend_base=frontend_base)
 
     if provider == "google":
         google_config = oauth_svc.GoogleConfig.from_env()
         if google_config is None:
             # Configuration disappeared mid-flow — treat as misconfiguration.
             log.error("auth.oauth.callback.misconfigured", provider=provider)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Google OAuth is not configured",
-            )
+            return _redirect_with_error(provider, "google_oauth_not_configured", frontend_base=frontend_base)
         try:
             user, jwt_token, ttl = await oauth_svc.complete_google_callback(
                 code, google_config
@@ -253,10 +244,7 @@ async def oauth_callback(
         github_config = oauth_svc.GitHubConfig.from_env()
         if github_config is None:
             log.error("auth.oauth.callback.misconfigured", provider=provider)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="GitHub OAuth is not configured",
-            )
+            return _redirect_with_error(provider, "github_oauth_not_configured", frontend_base=frontend_base)
         try:
             user, jwt_token, ttl = await oauth_svc.complete_github_callback(
                 code, github_config
@@ -271,7 +259,7 @@ async def oauth_callback(
         log.info("auth.oauth.callback.success", provider=provider, user_id=user.id)
         return _redirect_with_jwt(jwt_token, ttl, frontend_base=frontend_base)
 
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown provider")
+    return _redirect_with_error(provider, "unknown_provider", frontend_base=frontend_base)
 
 
 def _redirect_with_jwt(jwt_token: str, ttl: int, frontend_base: str | None = None) -> RedirectResponse:
