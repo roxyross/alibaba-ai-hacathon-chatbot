@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import httpx
 
@@ -140,7 +141,13 @@ class GrokAdapter(AIProviderAdapter):
             if not model:
                 model = "grok-3"
 
-        max_tok = min(request.max_tokens or 4096, 4096)
+        if is_groq:
+            # On Groq on-demand / free tier, models like qwen/qwen3.8-27b enforce strict
+            # Output Tokens Per Minute (OTPM) limit of 1000. Capping max_tokens to <= 1000
+            # prevents Groq HTTP 429 ("Request too large ... on output tokens per minute (OTPM)").
+            max_tok = min(request.max_tokens or 1000, 1000)
+        else:
+            max_tok = min(request.max_tokens or 4096, 4096)
 
         return {
             "model": model,

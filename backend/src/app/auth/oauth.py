@@ -166,7 +166,8 @@ def build_authorize_url(state: str, config: GoogleConfig) -> str:
         "include_granted_scopes": "true",
         "prompt": "select_account",
     }
-    return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
+    from urllib.parse import quote
+    return f"{GOOGLE_AUTH_URL}?{urlencode(params, quote_via=quote)}"
 
 
 # ---------------------------------------------------------------------------

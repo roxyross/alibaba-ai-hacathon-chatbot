@@ -86,6 +86,15 @@ class GeminiAdapter(AIProviderAdapter):
             raise ProviderUnavailableError(self.provider_name, str(exc)) from exc
 
         if not response.is_success:
+            if model != self.DEFAULT_MODEL and response.status_code in (404, 503, 429):
+                fallback_url = f"/{self.DEFAULT_MODEL}:generateContent?key={api_key}"
+                try:
+                    fb_resp = await client.post(fallback_url, json=payload)
+                    if fb_resp.is_success:
+                        elapsed_ms = int((time.monotonic() - start) * 1000)
+                        return self._parse_response(fb_resp.json(), request, self.DEFAULT_MODEL, elapsed_ms)
+                except Exception:
+                    pass
             raise ProviderUnavailableError(
                 self.provider_name,
                 f"HTTP {response.status_code}: {response.text[:250]}",
@@ -113,6 +122,39 @@ class GeminiAdapter(AIProviderAdapter):
             async with client.stream("POST", url, json=payload) as response:
                 if not response.is_success:
                     err_bytes = await response.aread()
+                    if model != self.DEFAULT_MODEL and response.status_code in (404, 503, 429):
+                        fb_url = f"/{self.DEFAULT_MODEL}:streamGenerateContent?alt=sse&key={api_key}"
+                        try:
+                            async with client.stream("POST", fb_url, json=payload) as fb_resp:
+                                if fb_resp.is_success:
+                                    async for fb_line in fb_resp.aiter_lines():
+                                        if not fb_line:
+                                            continue
+                                        fb_str = fb_line.strip()
+                                        if not fb_str.startswith("data: "):
+                                            continue
+                                        fb_data = fb_str.removeprefix("data: ").strip()
+                                        if not fb_data or fb_data == "[DONE]":
+                                            break
+                                        chunk = self._parse_stream_chunk(fb_data, self.DEFAULT_MODEL)
+                                        if chunk.delta:
+                                            yield AIResponse(
+                                                user_id=request.user_id,
+                                                content=chunk.delta,
+                                                provider="gemini",
+                                                model=self.DEFAULT_MODEL,
+                                                agent_id=request.agent_id or "unknown",
+                                                input_tokens=0,
+                                                output_tokens=0,
+                                                cost_usd=0.0,
+                                                latency_ms=int((time.monotonic() - start) * 1000),
+                                                request_id=getattr(request, "request_id", None) or uuid.uuid4(),
+                                            )
+                                        if chunk.done:
+                                            break
+                                    return
+                        except Exception:
+                            pass
                     raise ProviderUnavailableError(
                         self.provider_name,
                         f"HTTP {response.status_code}: {err_bytes.decode('utf-8', errors='replace')[:250]}",
