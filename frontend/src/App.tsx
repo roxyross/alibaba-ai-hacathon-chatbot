@@ -17,6 +17,8 @@ import { VoiceSession } from './components/VoiceSession/VoiceSession';
 import { DocumentUpload } from './components/DocumentUpload';
 import { Calculator } from './components/Calculator/Calculator';
 import { CalendarView } from './components/Calendar/CalendarView';
+import { SettingsModal } from './components/SettingsModal';
+import { ToastContainer, type ToastMessage } from './components/common/Toast';
 import './App.css';
 import './components/DocumentUpload/DocumentUpload.css';
 
@@ -82,9 +84,22 @@ export function ChatScreen() {
     return localStorage.getItem('roxy-sidebar-collapsed') === 'true';
   });
 
-  // Global Ctrl+K / Cmd+K shortcut to open sidebar search
+  // Settings Modal state
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Global Toast state
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const addToast = useCallback((type: 'success' | 'info' | 'warning' | 'error', message: string) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+    setToasts((prev) => [...prev, { id, type, message }]);
+  }, []);
+
+  // Global shortcuts: Ctrl+K (search), Ctrl+, (settings), ? (help/shortcuts)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setSidebarCollapsed(false);
@@ -93,6 +108,12 @@ export function ChatScreen() {
           const input = document.querySelector<HTMLInputElement>('.session-sidebar__search-input');
           input?.focus();
         }, 60);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        setIsSettingsOpen(true);
+      } else if (!isInput && e.key === '?') {
+        e.preventDefault();
+        setIsSettingsOpen(true);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -364,6 +385,17 @@ export function ChatScreen() {
             </button>
           </div>
           <div className="app__header-right">
+            {/* Settings & Preferences button */}
+            <button
+              type="button"
+              className="app__settings-btn"
+              onClick={() => setIsSettingsOpen(true)}
+              title="Settings & Preferences (Ctrl+,)"
+              aria-label="Settings"
+            >
+              ⚙️
+            </button>
+
             {/* Light / Dark Mode Toggle */}
             <button
               type="button"
@@ -481,6 +513,7 @@ export function ChatScreen() {
               disabledNoModel={!modelSelection}
               mode={mode}
               onNavigateView={setActiveView}
+              onClearConversation={handleNewChat}
             />
           </div>
         )}
@@ -502,6 +535,28 @@ export function ChatScreen() {
         onClose={() => setIsAuthModalOpen(false)}
         bannerMessage={authModalMessage}
         mode={authModalMode}
+      />
+
+      {/* Settings & Preferences Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        userEmail={user?.email}
+        currentTheme={theme}
+        onToggleTheme={toggleTheme}
+        onClearAllHistory={() => {
+          localStorage.removeItem('roxy-sidebar-collapsed');
+          localStorage.removeItem('roxy-custom-persona');
+          chat.clearMessages();
+          handleNewChat();
+          addToast('info', 'Local chat and settings cache cleared');
+        }}
+      />
+
+      {/* Global Toast Notification System */}
+      <ToastContainer
+        toasts={toasts}
+        onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
       />
     </div>
   );

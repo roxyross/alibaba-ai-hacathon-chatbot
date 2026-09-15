@@ -25,6 +25,7 @@ interface ChatMessageProps {
   attribution?: Attribution;
   criticReview?: CriticReviewData | Record<string, unknown> | null;
   isStreaming?: boolean;
+  onRegenerate?: () => void;
 }
 
 const VERDICT_COLORS: Record<string, string> = {
@@ -412,6 +413,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   attribution,
   criticReview,
   isStreaming = false,
+  onRegenerate,
 }) => {
   const [displayContent, setDisplayContent] = useState(content);
   const [isEditing, setIsEditing] = useState(false);
@@ -612,6 +614,23 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                   </svg>
                 </button>
 
+                {onRegenerate && (
+                  <button
+                    type="button"
+                    className="chat-message__icon-btn chat-message__icon-btn--ref"
+                    onClick={onRegenerate}
+                    title="Regenerate this response"
+                    aria-label="Regenerate response"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="23 4 23 10 17 10" />
+                      <polyline points="1 20 1 14 7 14" />
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                    </svg>
+                    <span className="chat-message__ref-btn-text">Regenerate</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   className={`chat-message__icon-btn chat-message__icon-btn--ref ${showReferences ? 'chat-message__icon-btn--active' : ''}`}
@@ -667,7 +686,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               {displayContent ? (
                 <FormattedContent content={displayContent} />
               ) : isStreaming ? (
-                <span className="chat-message__cursor" aria-hidden="true" />
+                <div className="chat-message__shimmer-skeleton" aria-label="Thinking and generating response...">
+                  <div className="chat-message__shimmer-line chat-message__shimmer-line--long" />
+                  <div className="chat-message__shimmer-line chat-message__shimmer-line--medium" />
+                  <div className="chat-message__shimmer-line chat-message__shimmer-line--short" />
+                </div>
               ) : null}
               {isStreaming && displayContent && (
                 <span className="chat-message__cursor" aria-hidden="true" />

@@ -251,6 +251,33 @@ body {
   transform: translateY(-1px);
 }
 
+.app__settings-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  color: var(--color-text, #1e292b);
+}
+
+.app__settings-btn:hover {
+  background: rgba(13, 148, 136, 0.12);
+  border-color: var(--color-accent, #0d9488);
+  transform: rotate(20deg) scale(1.05);
+}
+
+.app__settings-btn:focus-visible {
+  outline: 2px solid var(--color-accent, #0d9488);
+  outline-offset: 2px;
+}
+
 .app__views {
   display: flex;
   align-items: center;

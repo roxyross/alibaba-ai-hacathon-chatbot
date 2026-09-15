@@ -89,6 +89,46 @@
   50%       { opacity: 0; }
 }
 
+/* ─── Shimmer Thinking Skeleton Placeholder ──────────────────────── */
+.chat-message__shimmer-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.25rem 0;
+  width: 100%;
+  max-width: 28rem;
+}
+
+.chat-message__shimmer-line {
+  height: 0.85rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(
+    90deg,
+    rgba(13, 148, 136, 0.08) 0%,
+    rgba(13, 148, 136, 0.24) 50%,
+    rgba(13, 148, 136, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-pulse 1.6s infinite ease-in-out;
+}
+
+.chat-message__shimmer-line--long {
+  width: 90%;
+}
+
+.chat-message__shimmer-line--medium {
+  width: 72%;
+}
+
+.chat-message__shimmer-line--short {
+  width: 45%;
+}
+
+@keyframes shimmer-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* Attribution badge */
 .chat-message__attribution {
   font-size: 0.7rem;

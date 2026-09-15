@@ -18,6 +18,7 @@ interface ChatWindowProps extends ChatState {
   mode?: 'chat' | 'task';
   onNavigateView?: (view: 'finance' | 'jobs' | 'email' | 'calculator' | 'calendar') => void;
   onStop?: () => void;
+  onClearConversation?: () => void;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -36,6 +37,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   mode = 'chat',
   onNavigateView,
   onStop,
+  onClearConversation,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -64,9 +66,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         /* ─── Modern ChatGPT-Style Centered Hero (Empty State) ─── */
         <div className="chat-window__hero">
           <div className="chat-window__hero-content">
+            <div className="chat-window__hero-badge">
+              <span className="chat-window__hero-badge-spark">✨</span>
+              <span>Next-Gen Multi-Agent Intelligence</span>
+            </div>
+
             <h1 className="chat-window__hero-title">
-              {mode === 'task' ? 'What code shall we build today?' : 'Ready when you are.'}
+              {mode === 'task' ? 'What code shall we build today?' : 'What would you like to accomplish?'}
             </h1>
+
+            <p className="chat-window__hero-subtitle">
+              Fast streaming reasoning, live web context, document understanding, and multi-model synthesis.
+            </p>
 
             {/* Centered Single Input Capsule */}
             <div className="chat-window__hero-input-wrapper">
@@ -87,6 +98,65 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 onNavigateView={onNavigateView}
               />
             </div>
+
+            {/* 4 Categorized Suggestion Cards */}
+            <div className="chat-window__suggestions" role="region" aria-label="Suggested prompts">
+              <button
+                type="button"
+                className="chat-window__suggestion-card"
+                onClick={() => onSend('Build a type-safe FastAPI service with JWT authentication, rate limiting, and health checks')}
+              >
+                <div className="chat-window__suggestion-icon">⚡</div>
+                <div className="chat-window__suggestion-content">
+                  <span className="chat-window__suggestion-category">Code &amp; Architecture</span>
+                  <span className="chat-window__suggestion-text">Build a type-safe FastAPI service with JWT auth</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className="chat-window__suggestion-card"
+                onClick={() => onSend('Analyze key performance indicators and revenue growth patterns in modern SaaS platforms')}
+              >
+                <div className="chat-window__suggestion-icon">📊</div>
+                <div className="chat-window__suggestion-content">
+                  <span className="chat-window__suggestion-category">Data &amp; Analysis</span>
+                  <span className="chat-window__suggestion-text">Analyze KPI metrics and SaaS revenue patterns</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className="chat-window__suggestion-card"
+                onClick={() => onSend('Synthesize the latest research breakthroughs in small reasoning models and test-time compute')}
+              >
+                <div className="chat-window__suggestion-icon">🔍</div>
+                <div className="chat-window__suggestion-content">
+                  <span className="chat-window__suggestion-category">Research &amp; Grounding</span>
+                  <span className="chat-window__suggestion-text">Synthesize breakthrough research in reasoning models</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className="chat-window__suggestion-card"
+                onClick={() => onSend('Draft a comprehensive launch plan and technical documentation roadmap for a developer product')}
+              >
+                <div className="chat-window__suggestion-icon">💡</div>
+                <div className="chat-window__suggestion-content">
+                  <span className="chat-window__suggestion-category">Brainstorm &amp; Strategy</span>
+                  <span className="chat-window__suggestion-text">Draft a launch strategy and documentation roadmap</span>
+                </div>
+              </button>
+            </div>
+
+            {/* Capability Badges */}
+            <div className="chat-window__capabilities">
+              <span className="chat-window__capability-chip">🌐 Live Web Search</span>
+              <span className="chat-window__capability-chip">📑 Document Vision</span>
+              <span className="chat-window__capability-chip">🎙️ Voice Mode</span>
+              <span className="chat-window__capability-chip">🧠 Deep Reasoning</span>
+            </div>
           </div>
         </div>
       ) : (
@@ -99,6 +169,39 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             aria-live="polite"
             aria-atomic="false"
           >
+            {/* In-chat Context Pill & Clear Conversation Bar */}
+            <div className="chat-window__context-bar">
+              <div className="chat-window__context-pill">
+                <span className="chat-window__context-icon">🧠</span>
+                <span>Active Context: {messages.length} messages</span>
+                <span className="chat-window__context-dot">·</span>
+                <span className="chat-window__context-model">
+                  {modelSelection?.model || 'Coordinator Agent'}
+                </span>
+                <span className="chat-window__context-dot">·</span>
+                <span className="chat-window__context-status">Memory Active</span>
+              </div>
+
+              {onClearConversation && (
+                <button
+                  type="button"
+                  className="chat-window__clear-btn"
+                  onClick={() => {
+                    if (window.confirm('Clear active conversation messages?')) {
+                      onClearConversation();
+                    }
+                  }}
+                  title="Clear active conversation"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                  <span>Clear chat</span>
+                </button>
+              )}
+            </div>
+
             <div className="chat-window__messages-inner">
               {messages.map((msg, i) => {
                 const isLastAssistant =
@@ -115,6 +218,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                     attribution={msg.role === 'assistant' && showAttribution ? attribution ?? undefined : undefined}
                     criticReview={msg.role === 'assistant' ? criticReview ?? null : null}
                     isStreaming={isLastAssistant && isStreaming}
+                    onRegenerate={
+                      isLastAssistant && !isStreaming
+                        ? () => {
+                            if (lastUserMessage?.content) onSend(lastUserMessage.content);
+                          }
+                        : undefined
+                    }
                   />
                 );
               })}
@@ -130,9 +240,25 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 />
               )}
 
+              {/* Error card with inline Retry */}
               {error && (
-                <div className="chat-window__error" role="alert" aria-live="assertive">
-                  <strong>Error:</strong> {error}
+                <div className="chat-window__error-card" role="alert" aria-live="assertive">
+                  <div className="chat-window__error-content">
+                    <span className="chat-window__error-icon">⚠️</span>
+                    <div className="chat-window__error-text">
+                      <strong>Generation Error:</strong> {error}
+                    </div>
+                  </div>
+                  {lastUserMessage?.content && (
+                    <button
+                      type="button"
+                      className="chat-window__error-retry-btn"
+                      onClick={() => onSend(lastUserMessage.content)}
+                      title="Retry sending previous prompt"
+                    >
+                      🔄 Retry Turn
+                    </button>
+                  )}
                 </div>
               )}
 
