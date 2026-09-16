@@ -47,6 +47,22 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
+  // Reply now: reliably locate the active streaming response, scroll into view, and focus
+  const handleReplyNow = useCallback(() => {
+    const activeEl =
+      document.querySelector('.chat-message--streaming') ||
+      document.querySelector('.agent-timeline') ||
+      bottomRef.current;
+
+    if (activeEl) {
+      activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (activeEl instanceof HTMLElement) {
+        activeEl.tabIndex = -1;
+        activeEl.focus({ preventScroll: true });
+      }
+    }
+  }, []);
+
   React.useEffect(() => {
     if (isStreaming || messages.length > 0) {
       scrollToBottom();
@@ -235,7 +251,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   isStreaming={isStreaming}
                   prompt={lastUserMessage?.content}
                   onStop={onStop}
-                  onReplyNow={scrollToBottom}
+                  onReplyNow={handleReplyNow}
                   agentSlug={attribution?.agentSlug || 'coordinator'}
                 />
               )}

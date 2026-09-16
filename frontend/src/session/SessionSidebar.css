@@ -237,7 +237,116 @@
 }
 
 /* ==========================================================================
-   3. Recent Chats Header & Quick Actions ([ + ] [ ⚡ ])
+   2.1 Primary Action (New Chat) & Mode Switcher (Chat / Task)
+   ========================================================================== */
+.session-sidebar__primary-action {
+  display: flex;
+  width: 100%;
+}
+
+.session-sidebar__new-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.52rem 0.85rem;
+  background: var(--sidebar-accent);
+  color: #ffffff;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 0.825rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(13, 148, 136, 0.2), 0 1px 2px rgba(13, 148, 136, 0.1);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.session-sidebar__new-chat-btn:hover {
+  background: var(--sidebar-accent-hover);
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.28);
+  transform: translateY(-1px);
+}
+
+.session-sidebar__new-chat-btn:active {
+  transform: translateY(0) scale(0.985);
+  box-shadow: 0 1px 2px rgba(13, 148, 136, 0.2);
+}
+
+.session-sidebar__new-chat-btn:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 2px;
+}
+
+.session-sidebar__new-chat-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Refined Segmented Control: Chat / Task Switcher */
+.session-sidebar__mode-switcher {
+  display: flex;
+  align-items: center;
+  padding: 0.18rem;
+  background: var(--sidebar-input-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 8px;
+  gap: 0.2rem;
+}
+
+.session-sidebar__mode-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border: none;
+  background: transparent;
+  color: var(--sidebar-muted);
+  font-size: 0.775rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  user-select: none;
+}
+
+.session-sidebar__mode-tab:hover {
+  color: var(--sidebar-text);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="dark"] .session-sidebar__mode-tab:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.session-sidebar__mode-tab:active {
+  transform: scale(0.97);
+}
+
+.session-sidebar__mode-tab:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 1px;
+}
+
+.session-sidebar__mode-tab--active {
+  background: var(--sidebar-bg);
+  color: var(--sidebar-accent);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="dark"] .session-sidebar__mode-tab--active {
+  background: #253333;
+  color: #2dd4bf;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* ==========================================================================
+   3. Recent Chats Header
    ========================================================================== */
 .session-sidebar__chats-section {
   display: flex;

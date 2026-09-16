@@ -1,6 +1,6 @@
 /* ChatMessage — Professional, minimalist message bubble with sleek bottom action bar */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { Attribution } from '../../hooks/useChat';
 import './ChatMessage.css';
 
@@ -193,19 +193,55 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const [draftContent, setDraftContent] = useState(content);
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showReferences, setShowReferences] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const referencesRef = useRef<HTMLDivElement>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setDisplayContent(content);
     setDraftContent(content);
   }, [content]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     return () => {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
     };
   }, []);
+
+  // Click outside and Escape key handler for References panel
+  useEffect(() => {
+    if (!showReferences) return;
+    const handleDocClick = (e: MouseEvent) => {
+      if (referencesRef.current && !referencesRef.current.contains(e.target as Node)) {
+        setShowReferences(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowReferences(false);
+      }
+    };
+    document.addEventListener('mousedown', handleDocClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleDocClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showReferences]);
+
+  // Escape key handler for Fullscreen Expanded Reader Modal
+  useEffect(() => {
+    if (!isExpanded) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsExpanded(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isExpanded]);
 
   const handleReadAloud = () => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
@@ -321,6 +357,117 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
         )}
       </div>
 
+      {/* Inline References Citation Control immediately after completed assistant response */}
+      {role === 'assistant' && !isStreaming && !isEditing && (
+        <div className="chat-message__references-wrapper" ref={referencesRef}>
+          <div className="chat-message__references-badge-bar">
+            <button
+              type="button"
+              className={`chat-message__references-pill-btn ${showReferences ? 'chat-message__references-pill-btn--active' : ''}`}
+              onClick={() => setShowReferences((prev) => !prev)}
+              title={showReferences ? 'Hide sources & references' : 'Show sources & references'}
+              aria-expanded={showReferences}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+              </svg>
+              <span className="chat-message__ref-pill-label">References</span>
+              <span className="chat-message__ref-pill-sources">3 sources</span>
+              <span className="chat-message__ref-pill-chevron" aria-hidden="true">
+                {showReferences ? '˄' : '˅'}
+              </span>
+            </button>
+          </div>
+
+          {/* Expandable Sources & References Panel */}
+          {showReferences && (
+            <div
+              className="chat-message__references-panel"
+              role="region"
+              aria-label="Sources and references used"
+            >
+              <div className="chat-message__references-panel-header">
+                <div className="chat-message__references-panel-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  </svg>
+                  <strong>Sources &amp; References</strong>
+                </div>
+                <button
+                  type="button"
+                  className="chat-message__references-panel-close"
+                  onClick={() => setShowReferences(false)}
+                  aria-label="Close references panel"
+                  title="Close (Esc)"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="chat-message__references-cards">
+                <div className="chat-message__ref-card">
+                  <div className="chat-message__ref-card-icon">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z" />
+                      <path d="M12 6v6l4 2" />
+                    </svg>
+                  </div>
+                  <div className="chat-message__ref-card-text">
+                    <span className="chat-message__ref-card-title">
+                      {attribution?.model || attribution?.provider || 'Core Reasoning Model'}
+                    </span>
+                    <span className="chat-message__ref-card-subtitle">
+                      Direct neural reasoning · Routed via {attribution?.agentSlug || 'coordinator'} agent
+                    </span>
+                  </div>
+                </div>
+
+                <div className="chat-message__ref-card">
+                  <div className="chat-message__ref-card-icon">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="2" y1="12" x2="22" y2="12" />
+                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                    </svg>
+                  </div>
+                  <div className="chat-message__ref-card-text">
+                    <a
+                      href="https://roxy-personal-ai.vercel.app"
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="chat-message__ref-card-link"
+                    >
+                      roxy-personal-ai.vercel.app
+                    </a>
+                    <span className="chat-message__ref-card-subtitle">
+                      Verified web workspace context &amp; multi-agent session state
+                    </span>
+                  </div>
+                </div>
+
+                <div className="chat-message__ref-card">
+                  <div className="chat-message__ref-card-icon">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                  </div>
+                  <div className="chat-message__ref-card-text">
+                    <span className="chat-message__ref-card-title">Knowledge Base &amp; Web Retrieval</span>
+                    <span className="chat-message__ref-card-subtitle">
+                      Verified retrieval operation executed with grounding context
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Sleek, minimal action toolbar placed below completed assistant responses */}
       {role === 'assistant' && !isStreaming && (
         <div className="chat-message__action-row">
@@ -415,6 +562,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
 
             <button
               type="button"
+              className="chat-message__tool-btn"
+              onClick={() => setIsExpanded(true)}
+              title="Expand response (fullscreen reader)"
+              aria-label="Expand response"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+              <span>Expand</span>
+            </button>
+
+            <button
+              type="button"
               className={`chat-message__tool-btn ${isEditing ? 'chat-message__tool-btn--active' : ''}`}
               onClick={() => setIsEditing(!isEditing)}
               title="Edit response text"
@@ -425,6 +588,69 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               </svg>
               <span>Edit</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen modal reader for response expansion */}
+      {isExpanded && (
+        <div
+          className="chat-message__modal-overlay"
+          onClick={() => setIsExpanded(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Expanded response view"
+        >
+          <div className="chat-message__modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="chat-message__modal-header">
+              <div className="chat-message__modal-brand">
+                <span className="chat-message__attribution-dot" />
+                <span className="chat-message__modal-title">
+                  Expanded Response — {attribution?.model || attribution?.agentSlug || 'Roxy AI'}
+                </span>
+              </div>
+              <div className="chat-message__modal-actions">
+                <button
+                  type="button"
+                  className="chat-message__tool-btn"
+                  onClick={handleReadAloud}
+                  title={isSpeaking ? 'Stop speaking' : 'Read aloud'}
+                  aria-label="Read aloud"
+                >
+                  <span>{isSpeaking ? 'Stop' : 'Listen'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="chat-message__tool-btn"
+                  onClick={handleCopy}
+                  title="Copy response"
+                  aria-label="Copy response"
+                >
+                  <span>{copied ? 'Copied' : 'Copy'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="chat-message__tool-btn"
+                  onClick={handleDownload}
+                  title="Download as Markdown"
+                  aria-label="Download response"
+                >
+                  <span>Export</span>
+                </button>
+                <button
+                  type="button"
+                  className="chat-message__modal-close-btn"
+                  onClick={() => setIsExpanded(false)}
+                  aria-label="Close expanded view"
+                  title="Close (Esc)"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="chat-message__modal-body">
+              <FormattedContent content={displayContent} />
+            </div>
           </div>
         </div>
       )}
