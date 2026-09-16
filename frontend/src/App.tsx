@@ -356,6 +356,12 @@ export function ChatScreen() {
           setSidebarCollapsed(true);
           localStorage.setItem('roxy-sidebar-collapsed', 'true');
         }}
+        onOpenSidebar={() => {
+          setSidebarCollapsed(false);
+          localStorage.setItem('roxy-sidebar-collapsed', 'false');
+        }}
+        isAuthenticated={!!(accessToken || user)}
+        onOpenAuth={openAuth}
         activeSessionId={activeSession?.id ?? null}
         activeView={activeView}
         mode={mode}
