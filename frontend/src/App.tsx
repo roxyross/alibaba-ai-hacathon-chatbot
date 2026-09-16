@@ -151,8 +151,29 @@ export function ChatScreen() {
     setPinnedItems((prev) => {
       const next = prev.filter((p) => p.id !== id);
       localStorage.setItem('roxy_pinned_items', JSON.stringify(next));
+      window.dispatchEvent(new Event('roxy-pins-updated'));
       return next;
     });
+  }, []);
+
+  // Sync pinned items across sidebar and header menu bar
+  useEffect(() => {
+    const handlePinsSync = () => {
+      try {
+        const saved = localStorage.getItem('roxy_pinned_items');
+        if (saved) {
+          setPinnedItems(JSON.parse(saved));
+        }
+      } catch {
+        // ignore JSON parse error
+      }
+    };
+    window.addEventListener('storage', handlePinsSync);
+    window.addEventListener('roxy-pins-updated', handlePinsSync);
+    return () => {
+      window.removeEventListener('storage', handlePinsSync);
+      window.removeEventListener('roxy-pins-updated', handlePinsSync);
+    };
   }, []);
 
   // Global Toast state
@@ -353,6 +374,7 @@ export function ChatScreen() {
       <SessionSidebar
         isCollapsed={sidebarCollapsed}
         onCloseSidebar={() => {
+          setSidebarOpen(false);
           setSidebarCollapsed(true);
           localStorage.setItem('roxy-sidebar-collapsed', 'true');
         }}

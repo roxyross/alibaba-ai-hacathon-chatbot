@@ -3,8 +3,8 @@
    ========================================================================== */
 
 .session-sidebar {
-  --sidebar-w: 18.25rem;
-  --sidebar-collapsed-w: 4.25rem;
+  --sidebar-w: 17.5rem;
+  --sidebar-collapsed-w: 4rem;
   --sidebar-bg: var(--color-surface, #ffffff);
   --sidebar-border: var(--color-border, #e2e8e6);
   --sidebar-text: var(--color-text, #1e292b);
@@ -62,7 +62,7 @@
   visibility: hidden;
   transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
   z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.15), 0 2px 4px -1px rgba(0, 0, 0, 0.08);
 }
 
 [data-tooltip]:hover::after,
@@ -71,6 +71,13 @@
   visibility: visible;
   transform: translateX(-50%) translateY(0) scale(1);
   transition-delay: 0.2s;
+}
+
+/* Suppress tooltips on touch devices where hover sticks on tap */
+@media (hover: none) {
+  [data-tooltip]::after {
+    display: none !important;
+  }
 }
 
 /* ==========================================================================
@@ -108,7 +115,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(13, 148, 136, 0.3);
+  box-shadow: 0 1px 3px rgba(13, 148, 136, 0.25);
   flex-shrink: 0;
 }
 
@@ -144,6 +151,11 @@
   transform: scale(0.95);
 }
 
+.session-sidebar__collapse-btn:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 1px;
+}
+
 /* ==========================================================================
    2. Search Box
    ========================================================================== */
@@ -152,9 +164,9 @@
   align-items: center;
   gap: 0.45rem;
   background: var(--sidebar-input-bg);
-  border: 1px solid var(--sidebar-border);
-  border-radius: 8px;
-  padding: 0.38rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 0.35rem 0.55rem;
   transition: all 0.15s ease;
 }
 
@@ -176,7 +188,7 @@
   outline: none;
   color: var(--sidebar-text);
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.8125rem;
   min-width: 0;
 }
 
@@ -190,7 +202,7 @@
   font-weight: 600;
   font-family: inherit;
   color: var(--sidebar-muted);
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(0, 0, 0, 0.04);
   border: 1px solid var(--sidebar-border);
   border-radius: 4px;
   padding: 0.1rem 0.35rem;
@@ -219,6 +231,11 @@
   color: var(--sidebar-text);
 }
 
+.session-sidebar__search-clear:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 1px;
+}
+
 /* ==========================================================================
    3. Recent Chats Header & Quick Actions ([ + ] [ ⚡ ])
    ========================================================================== */
@@ -234,12 +251,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 0.85rem 0.4rem;
+  padding: 0.65rem 0.85rem 0.35rem;
   flex-shrink: 0;
 }
 
 .session-sidebar__chats-title {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -249,17 +266,17 @@
 .session-sidebar__quick-actions {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
 
 .session-sidebar__action-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 6px;
-  border: 1px solid var(--sidebar-border);
+  border: 1px solid transparent;
   background: var(--sidebar-input-bg);
   color: var(--sidebar-text);
   cursor: pointer;
@@ -272,11 +289,11 @@
   border-color: var(--sidebar-accent);
   color: var(--sidebar-accent);
   transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
 .session-sidebar__action-icon-btn:active {
-  transform: scale(0.94);
+  transform: scale(0.95);
 }
 
 .session-sidebar__action-icon-btn:focus-visible {
@@ -289,8 +306,9 @@
 }
 
 .session-sidebar__action-icon-btn--task:hover {
-  color: #f59e0b;
-  border-color: #f59e0b;
+  color: #d97706;
+  border-color: rgba(217, 119, 6, 0.3);
+  background: rgba(245, 158, 11, 0.08);
 }
 
 /* ==========================================================================
@@ -310,23 +328,32 @@
   width: 4px;
 }
 
-.session-sidebar__scroll-area::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.12);
-  border-radius: 4px;
+.session-sidebar__scroll-area::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-[data-theme="dark"] .session-sidebar__scroll-area::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+.session-sidebar__scroll-area::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.session-sidebar__scroll-area:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.14);
+}
+
+[data-theme="dark"] .session-sidebar__scroll-area:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .session-sidebar__date-group {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.12rem;
 }
 
 .session-sidebar__date-label {
-  padding: 0.35rem 0.55rem 0.2rem;
+  padding: 0.4rem 0.55rem 0.2rem;
   font-size: 0.66rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -348,10 +375,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-radius: 7px;
+  border-radius: 6px;
   position: relative;
-  transition: background 0.14s ease;
-  height: 34px;
+  transition: background 0.12s ease;
+  height: 36px;
 }
 
 .session-sidebar__item:hover {
@@ -362,12 +389,16 @@
   background: rgba(13, 148, 136, 0.08) !important;
 }
 
+[data-theme="dark"] .session-sidebar__item--active {
+  background: rgba(20, 184, 166, 0.12) !important;
+}
+
 .session-sidebar__item--active::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 6px;
-  bottom: 6px;
+  top: 8px;
+  bottom: 8px;
   width: 3px;
   border-radius: 0 2px 2px 0;
   background: var(--sidebar-accent);
@@ -386,34 +417,52 @@
   text-align: left;
   cursor: pointer;
   min-width: 0;
+  border-radius: 6px;
+}
+
+.session-sidebar__session-btn:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: -1px;
 }
 
 .session-sidebar__session-title {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  gap: 0.45rem;
   width: 100%;
+  min-width: 0;
 }
 
-.session-sidebar__item--active .session-sidebar__session-title {
+.session-sidebar__item-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.session-sidebar__session-title-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.session-sidebar__item--active .session-sidebar__session-title-text {
   color: var(--sidebar-accent);
   font-weight: 600;
 }
 
 .session-sidebar__pin-indicator {
   color: var(--sidebar-accent);
-  flex-shrink: 0;
   transform: rotate(45deg);
 }
 
 .session-sidebar__task-indicator {
   color: #f59e0b;
-  flex-shrink: 0;
 }
 
 /* Rename Inline Form */
@@ -427,7 +476,7 @@
   background: var(--sidebar-bg);
   border: 1px solid var(--sidebar-accent);
   border-radius: 4px;
-  padding: 0.2rem 0.4rem;
+  padding: 0.22rem 0.45rem;
   font: inherit;
   font-size: 0.8rem;
   color: var(--sidebar-text);
@@ -447,19 +496,21 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 4px;
   border: none;
   background: transparent;
   color: var(--sidebar-muted);
   cursor: pointer;
   opacity: 0;
-  transition: all 0.14s ease;
+  transition: all 0.12s ease;
+  flex-shrink: 0;
 }
 
 .session-sidebar__item:hover .session-sidebar__item-menu-btn,
-.session-sidebar__item-menu-btn--active {
+.session-sidebar__item-menu-btn--active,
+.session-sidebar__item:focus-within .session-sidebar__item-menu-btn {
   opacity: 1;
 }
 
@@ -469,30 +520,62 @@
   color: var(--sidebar-text);
 }
 
+.session-sidebar__item-menu-btn:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 1px;
+}
+
 [data-theme="dark"] .session-sidebar__item-menu-btn:hover,
 [data-theme="dark"] .session-sidebar__item-menu-btn--active {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* Touch devices show the more options button with subtle opacity */
+@media (hover: none) {
+  .session-sidebar__item-menu-btn {
+    opacity: 0.65;
+    width: 28px;
+    height: 28px;
+  }
+}
+
 .session-sidebar__dropdown {
   position: absolute;
-  top: calc(100% + 4px);
   right: 0;
-  width: 130px;
+  width: 136px;
   background: var(--sidebar-bg);
   border: 1px solid var(--sidebar-border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
   padding: 0.25rem;
   z-index: 100;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  animation: dropdown-pop 0.12s ease-out;
 }
 
-@keyframes dropdown-pop {
-  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+.session-sidebar__dropdown--down {
+  top: calc(100% + 4px);
+  bottom: auto;
+  transform-origin: top right;
+  animation: dropdown-pop-down 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.session-sidebar__dropdown--up {
+  bottom: calc(100% + 4px);
+  top: auto;
+  transform-origin: bottom right;
+  animation: dropdown-pop-up 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dropdown-pop-down {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes dropdown-pop-up {
+  from { opacity: 0; transform: translateY(4px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
@@ -501,7 +584,7 @@
   align-items: center;
   gap: 0.45rem;
   width: 100%;
-  padding: 0.35rem 0.5rem;
+  padding: 0.38rem 0.55rem;
   border: none;
   background: transparent;
   color: var(--sidebar-text);
@@ -519,6 +602,12 @@
   color: var(--sidebar-accent);
 }
 
+.session-sidebar__dropdown-item:focus-visible {
+  background: var(--sidebar-input-bg);
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: -1px;
+}
+
 .session-sidebar__dropdown-item--delete:hover {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.08);
@@ -533,8 +622,24 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 2rem 1rem;
-  gap: 0.4rem;
+  padding: 2.25rem 1rem;
+  gap: 0.35rem;
+}
+
+.session-sidebar__empty-icon-box {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(13, 148, 136, 0.08);
+  color: var(--sidebar-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.35rem;
+}
+
+[data-theme="dark"] .session-sidebar__empty-icon-box {
+  background: rgba(20, 184, 166, 0.12);
 }
 
 .session-sidebar__empty-title {
@@ -547,7 +652,9 @@
 .session-sidebar__empty-sub {
   margin: 0;
   font-size: 0.74rem;
+  line-height: 1.4;
   color: var(--sidebar-muted);
+  max-width: 190px;
 }
 
 .session-sidebar__signin-btn {
@@ -565,12 +672,17 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
-  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.25);
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.2);
 }
 
 .session-sidebar__signin-btn:hover {
   background: var(--sidebar-accent-hover);
   transform: translateY(-1px);
+}
+
+.session-sidebar__signin-btn:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 1px;
 }
 
 .session-sidebar__empty-action-btn {
@@ -593,6 +705,12 @@
 .session-sidebar__empty-action-btn:hover {
   border-color: var(--sidebar-accent);
   color: var(--sidebar-accent);
+  background: var(--sidebar-bg);
+}
+
+.session-sidebar__empty-action-btn:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 1px;
 }
 
 .session-sidebar__status-box {
@@ -681,6 +799,11 @@
   color: var(--sidebar-accent);
 }
 
+.session-sidebar__nav-link:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: -1px;
+}
+
 .session-sidebar__nav-link--active {
   background: rgba(13, 148, 136, 0.08) !important;
   color: var(--sidebar-accent) !important;
@@ -716,10 +839,16 @@
   cursor: pointer;
   font: inherit;
   transition: color 0.14s ease;
+  border-radius: 4px;
 }
 
 .session-sidebar__utilities-toggle:hover {
   color: var(--sidebar-text);
+}
+
+.session-sidebar__utilities-toggle:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 1px;
 }
 
 .session-sidebar__section-title-text {
@@ -769,6 +898,11 @@
   color: var(--sidebar-text);
 }
 
+.session-sidebar__account-link:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 1px;
+}
+
 .session-sidebar__account-link--active {
   background: var(--sidebar-input-bg);
   color: var(--sidebar-accent);
@@ -794,17 +928,22 @@
 .session-sidebar__upgrade-pill:hover {
   background: var(--sidebar-accent);
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.3);
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.25);
+}
+
+.session-sidebar__upgrade-pill:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: 1px;
 }
 
 /* ==========================================================================
-   5. Collapsed Sidebar State (68px / 4.25rem Rail)
+   5. Collapsed Sidebar State (64px / 4rem Rail)
    ========================================================================== */
 .session-sidebar--collapsed {
   width: var(--sidebar-collapsed-w) !important;
   min-width: var(--sidebar-collapsed-w) !important;
   align-items: center;
-  padding: 0.75rem 0.45rem;
+  padding: 0.75rem 0.35rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -814,7 +953,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.4rem;
   width: 100%;
 }
 
@@ -828,7 +967,7 @@
   justify-content: center;
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: 7px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--sidebar-muted);
@@ -858,11 +997,22 @@
   border-color: rgba(13, 148, 136, 0.2) !important;
 }
 
+.session-sidebar__rail-btn--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--sidebar-accent);
+}
+
 .session-sidebar__rail-btn--primary {
   background: #1e292b;
   color: #ffffff;
   border: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 .session-sidebar__rail-btn--primary:hover {
@@ -876,7 +1026,7 @@
 }
 
 .session-sidebar__rail-btn--accent {
-  background: rgba(13, 148, 136, 0.12);
+  background: rgba(13, 148, 136, 0.1);
   color: var(--sidebar-accent);
   border: 1px solid rgba(13, 148, 136, 0.25);
 }
@@ -888,17 +1038,17 @@
 }
 
 .session-sidebar__rail-divider {
-  width: 24px;
+  width: 22px;
   height: 1px;
   background: var(--sidebar-border);
-  margin: 0.2rem 0;
+  margin: 0.15rem 0;
 }
 
 .session-sidebar__rail-nav {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.25rem;
   width: 100%;
 }
 
@@ -932,28 +1082,30 @@
     position: fixed;
     top: 0;
     left: 0;
+    bottom: 0;
     height: 100%;
-    width: 17.5rem;
-    min-width: 17.5rem;
+    height: 100dvh;
+    width: min(300px, 85vw);
+    min-width: min(300px, 85vw);
+    max-width: 85vw;
     z-index: 50;
     transform: translateX(-100%);
     transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+    box-shadow: none;
   }
 
   .app--sidebar-open .session-sidebar {
     transform: translateX(0);
-  }
-
-  /* In mobile mode, if collapsed prop is true, hide off-screen */
-  .session-sidebar--collapsed {
-    width: 17.5rem !important;
-    min-width: 17.5rem !important;
-    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
   }
 
   .session-sidebar__action-icon-btn {
     min-width: 32px;
     min-height: 32px;
+  }
+
+  .session-sidebar__collapse-btn {
+    width: 32px;
+    height: 32px;
   }
 }

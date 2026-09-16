@@ -138,7 +138,21 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const [renameValue, setRenameValue] = useState('');
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [menuPlacement, setMenuPlacement] = useState<'up' | 'down'>('down');
   const [showUtilities, setShowUtilities] = useState(false);
+
+  // Detect mobile viewport (<= 768px) to prevent rendering collapsed rail in mobile drawer
+  const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => {
+    return typeof window !== 'undefined' ? window.innerWidth <= 768 : false;
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileScreen(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -202,6 +216,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
       }
       localStorage.setItem('roxy_pinned_items', JSON.stringify(items));
       window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new Event('roxy-pins-updated'));
       setActiveMenuId(null);
     } catch (err) {
       console.error('Failed to toggle pin:', err);
@@ -243,8 +258,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     if (onViewChange) onViewChange('chat');
   };
 
-  // If collapsed, render the sleek icon rail
-  if (isCollapsed) {
+  // If collapsed, render the sleek icon rail ONLY on desktop
+  if (isCollapsed && !isMobileScreen) {
     return (
       <aside
         className="session-sidebar session-sidebar--collapsed"
@@ -407,8 +422,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               type="button"
               className="session-sidebar__collapse-btn"
               onClick={onCloseSidebar}
-              aria-label="Collapse sidebar"
-              data-tooltip="Collapse sidebar"
+              aria-label={isMobileScreen ? 'Close sidebar' : 'Collapse sidebar'}
+              data-tooltip={isMobileScreen ? undefined : 'Collapse sidebar'}
             >
               <PanelLeftClose size={17} strokeWidth={2} />
             </button>
@@ -425,6 +440,15 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             placeholder="Search chats..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                if (searchQuery) {
+                  setSearchQuery('');
+                } else {
+                  searchInputRef.current?.blur();
+                }
+              }
+            }}
             aria-label="Search chats"
           />
           {searchQuery ? (
@@ -506,7 +530,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                           className="session-sidebar__rename-form"
                           onSubmit={async (e) => {
                             e.preventDefault();
-                            if (renameValue.trim()) {
+                            if (renameValue.trim() && renameValue.trim() !== s.title) {
                               await rename(s.id, renameValue.trim());
                             }
                             setRenamingId(null);
@@ -516,8 +540,14 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                             autoFocus
                             value={renameValue}
                             onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                e.stopPropagation();
+                                setRenamingId(null);
+                              }
+                            }}
                             onBlur={async () => {
-                              if (renameValue.trim()) {
+                              if (renameValue.trim() && renameValue.trim() !== s.title) {
                                 await rename(s.id, renameValue.trim());
                               }
                               setRenamingId(null);
@@ -532,11 +562,22 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                           className="session-sidebar__session-btn"
                           onClick={() => onSelect(s)}
                           title={s.title || 'Untitled conversation'}
+                          aria-label={s.title || 'Untitled conversation'}
                         >
                           <span className="session-sidebar__session-title">
-                            {isPinned && <Pin size={12} className="session-sidebar__pin-indicator" />}
-                            {isTask && <Zap size={12} className="session-sidebar__task-indicator" />}
-                            {s.title || 'Untitled conversation'}
+                            {isPinned && (
+                              <span className="session-sidebar__item-icon-wrap" title="Pinned conversation">
+                                <Pin size={11} className="session-sidebar__pin-indicator" />
+                              </span>
+                            )}
+                            {isTask && (
+                              <span className="session-sidebar__item-icon-wrap" title="Task session">
+                                <Zap size={11} className="session-sidebar__task-indicator" />
+                              </span>
+                            )}
+                            <span className="session-sidebar__session-title-text">
+                              {s.title || 'Untitled conversation'}
+                            </span>
                           </span>
                         </button>
                       )}
@@ -549,6 +590,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                             className={`session-sidebar__item-menu-btn ${activeMenuId === s.id ? 'session-sidebar__item-menu-btn--active' : ''}`}
                             onClick={(e) => {
                               e.stopPropagation();
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const spaceBelow = window.innerHeight - rect.bottom;
+                              setMenuPlacement(spaceBelow < 145 ? 'up' : 'down');
                               setActiveMenuId((prev) => (prev === s.id ? null : s.id));
                             }}
                             aria-label="Conversation options"
@@ -558,7 +602,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                           </button>
 
                           {activeMenuId === s.id && (
-                            <div ref={menuRef} className="session-sidebar__dropdown" role="menu">
+                            <div
+                              ref={menuRef}
+                              className={`session-sidebar__dropdown session-sidebar__dropdown--${menuPlacement}`}
+                              role="menu"
+                            >
                               <button
                                 type="button"
                                 className="session-sidebar__dropdown-item"
@@ -618,34 +666,51 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             <div className="session-sidebar__empty-state">
               {!isAuthenticated ? (
                 <>
-                  <p className="session-sidebar__empty-title">Sign in to save your conversations</p>
-                  <p className="session-sidebar__empty-sub">Your conversations will appear here.</p>
+                  <div className="session-sidebar__empty-icon-box">
+                    <LogIn size={18} strokeWidth={2} />
+                  </div>
+                  <p className="session-sidebar__empty-title">Sign in to save chats</p>
+                  <p className="session-sidebar__empty-sub">Your conversations and tasks will sync across your devices.</p>
                   {onOpenAuth && (
                     <button
                       type="button"
                       className="session-sidebar__signin-btn"
                       onClick={() => onOpenAuth('signin')}
                     >
-                      <LogIn size={13} />
+                      <LogIn size={13} strokeWidth={2} />
                       <span>Sign In</span>
                     </button>
                   )}
                 </>
               ) : searchQuery ? (
                 <>
+                  <div className="session-sidebar__empty-icon-box">
+                    <Search size={18} strokeWidth={2} />
+                  </div>
                   <p className="session-sidebar__empty-title">No conversations found</p>
                   <p className="session-sidebar__empty-sub">No results match &ldquo;{searchQuery}&rdquo;</p>
+                  <button
+                    type="button"
+                    className="session-sidebar__empty-action-btn"
+                    onClick={() => setSearchQuery('')}
+                  >
+                    <X size={12} strokeWidth={2} />
+                    <span>Clear search</span>
+                  </button>
                 </>
               ) : (
                 <>
-                  <p className="session-sidebar__empty-title">Your conversations will appear here.</p>
-                  <p className="session-sidebar__empty-sub">Start a new chat to begin.</p>
+                  <div className="session-sidebar__empty-icon-box">
+                    <MessageSquare size={18} strokeWidth={2} />
+                  </div>
+                  <p className="session-sidebar__empty-title">No conversations yet</p>
+                  <p className="session-sidebar__empty-sub">Start a new conversation or run a task to begin.</p>
                   <button
                     type="button"
                     className="session-sidebar__empty-action-btn"
                     onClick={handleNewChatAction}
                   >
-                    <Plus size={14} />
+                    <Plus size={13} strokeWidth={2.2} />
                     <span>New Chat</span>
                   </button>
                 </>
