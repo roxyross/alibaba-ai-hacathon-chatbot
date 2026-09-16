@@ -1,14 +1,17 @@
+/* SessionSidebar — Executive-grade SaaS sidebar */
+
 .session-sidebar {
   display: flex;
   flex-direction: column;
-  width: 17rem;
+  width: 17.5rem;
   flex-shrink: 0;
   background: var(--color-surface, #ffffff);
-  border-right: 1px solid var(--color-border, #e2e8e6);
+  border-right: 1px solid var(--color-border, #e5e7eb);
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, transform 0.25s ease;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, transform 0.22s ease;
+  user-select: none;
 }
 
 .session-sidebar--collapsed {
@@ -22,35 +25,36 @@
 }
 
 .session-sidebar__header {
-  padding: 0.75rem;
-  border-bottom: 1px solid var(--color-border, #e2e8e6);
+  padding: 0.85rem 0.85rem 0.65rem;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 
 .session-sidebar__top-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.65rem;
-  padding: 0 0.15rem;
 }
 
 .session-sidebar__brand {
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-muted, #64748b);
+  letter-spacing: 0.06em;
+  color: var(--color-muted, #94a3b8);
 }
 
 .session-sidebar__close-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.76rem;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  background: var(--color-input-bg, #f1f5f9);
-  border: 1px solid var(--color-border, #e2e8e6);
+  background: transparent;
+  border: 1px solid var(--color-border, #e5e7eb);
   border-radius: 6px;
   color: var(--color-muted, #64748b);
   cursor: pointer;
@@ -58,31 +62,25 @@
 }
 
 .session-sidebar__close-btn:hover {
-  background: var(--color-accent-light, rgba(13, 148, 136, 0.1));
-  color: var(--color-accent, #0d9488);
-  border-color: var(--color-accent, #0d9488);
+  background: #f1f5f9;
+  color: #1e292b;
 }
 
 .session-sidebar__search-box {
   display: flex;
   align-items: center;
-  background: var(--color-input-bg, #f1f5f9);
-  border: 1px solid var(--color-border, #e2e8e6);
+  background: #f8fafc;
+  border: 1px solid var(--color-border, #e5e7eb);
   border-radius: 8px;
-  padding: 0.4rem 0.65rem;
-  margin-bottom: 0.75rem;
-  gap: 0.4rem;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  padding: 0.38rem 0.65rem;
+  gap: 0.45rem;
+  transition: all 0.15s ease;
 }
 
 .session-sidebar__search-box:focus-within {
-  border-color: var(--color-accent, #0d9488);
-  box-shadow: 0 0 0 2px var(--color-accent-light, rgba(13, 148, 136, 0.15));
-}
-
-.session-sidebar__search-icon {
-  font-size: 0.85rem;
-  opacity: 0.7;
+  background: #ffffff;
+  border-color: #0d9488;
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.15);
 }
 
 .session-sidebar__search-input {
@@ -92,48 +90,51 @@
   outline: none;
   color: var(--color-text, #1e292b);
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
 }
 
 .session-sidebar__search-input::placeholder {
-  color: var(--color-muted, #64748b);
+  color: #94a3b8;
 }
 
 .session-sidebar__search-clear {
   background: transparent;
   border: none;
-  color: var(--color-muted, #64748b);
+  color: #94a3b8;
   cursor: pointer;
   font-size: 0.75rem;
   padding: 0.1rem 0.3rem;
-  border-radius: 4px;
 }
 
 .session-sidebar__search-clear:hover {
-  color: var(--color-text, #1e292b);
+  color: #1e292b;
 }
 
 /* Mode toggle segmented control */
 .session-sidebar__mode-toggle {
   display: flex;
-  background: var(--color-input-bg, #181825);
-  border: 1px solid var(--color-border, #313244);
-  border-radius: 0.6rem;
-  padding: 0.2rem;
-  margin-bottom: 0.6rem;
-  gap: 0.2rem;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+[data-theme="dark"] .session-sidebar__mode-toggle {
+  background: #1e282a;
+  border-color: #2c3a3a;
 }
 
 .session-sidebar__mode-btn {
   flex: 1;
-  padding: 0.4rem 0.5rem;
+  padding: 0.35rem 0.5rem;
   border: none;
   background: transparent;
-  color: var(--color-muted, #a6adc8);
+  color: #64748b;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  border-radius: 0.45rem;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
   display: inline-flex;
@@ -143,46 +144,74 @@
 }
 
 .session-sidebar__mode-btn:hover {
-  color: var(--color-text, #cdd6f4);
+  color: #1e292b;
 }
 
 .session-sidebar__mode-btn--active {
-  background: var(--color-surface, #313244);
-  color: var(--color-text, #ffffff);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  background: #ffffff;
+  color: #1e292b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
+[data-theme="dark"] .session-sidebar__mode-btn--active {
+  background: #2b383a;
+  color: #ffffff;
+}
+
+/* + New Chat Button: Executive Dark Minimalist */
 .session-sidebar__new {
   width: 100%;
-  background: var(--color-accent);
-  color: var(--color-surface);
+  background: #1e292b;
+  color: #ffffff;
   border: none;
-  border-radius: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
   font: inherit;
+  font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: all 0.15s ease;
 }
 
 .session-sidebar__new:hover {
-  background: var(--color-accent-hover);
+  background: #0f172a;
+  transform: translateY(-1px);
 }
 
-.session-sidebar__new--task {
-  background: #cba6f7;
-  color: #11111b;
+.session-sidebar__new-icon {
+  font-size: 1rem;
+  line-height: 1;
 }
 
-.session-sidebar__new--task:hover {
-  background: #b4befe;
+/* Navigation Groups */
+.session-sidebar__nav-group {
+  padding: 0.5rem 0.85rem;
+}
+
+.session-sidebar__section-header {
+  padding: 0.65rem 0.5rem 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+}
+
+.session-sidebar__section-header--border {
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  margin-top: 0.5rem;
+  padding-left: 1.35rem;
 }
 
 .session-sidebar__nav {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  margin-top: 0.75rem;
+  gap: 0.15rem;
 }
 
 .session-sidebar__nav-item {
@@ -190,198 +219,201 @@
   align-items: center;
   gap: 0.6rem;
   width: 100%;
-  padding: 0.45rem 0.6rem;
+  padding: 0.4rem 0.55rem;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 0.45rem;
-  color: var(--color-text);
+  border-radius: 6px;
+  color: #4b5563;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: all 0.14s ease;
 }
 
 .session-sidebar__nav-item:hover {
-  background: var(--color-input-bg);
+  background: #f8fafc;
+  color: #111827;
+}
+
+[data-theme="dark"] .session-sidebar__nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
 }
 
 .session-sidebar__nav-item--active {
-  background: var(--color-input-bg);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  background: #f0fdfa !important;
+  color: #0d9488 !important;
   font-weight: 600;
 }
 
-.session-sidebar__nav-icon {
-  font-size: 1rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.25rem;
+[data-theme="dark"] .session-sidebar__nav-item--active {
+  background: rgba(13, 148, 136, 0.15) !important;
+  color: #14b8a6 !important;
 }
 
-.session-sidebar__nav-label {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.session-sidebar__nav-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: #cbd5e1;
+  transition: background 0.15s ease;
 }
 
-.session-sidebar__section-title {
-  padding: 0.6rem 0.85rem 0.25rem;
-  font-size: 0.7rem;
+.session-sidebar__nav-item--active .session-sidebar__nav-dot {
+  background: #0d9488;
+}
+
+.session-sidebar__nav-item--upgrade {
+  color: #0d9488;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-muted);
 }
 
+.session-sidebar__nav-upgrade-badge {
+  font-size: 0.85rem;
+}
+
+.session-sidebar__more-toggle-row {
+  padding: 0.35rem 0.5rem;
+}
+
+.session-sidebar__more-toggle {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2rem 0;
+  transition: color 0.15s;
+}
+
+.session-sidebar__more-toggle:hover {
+  color: #0d9488;
+}
+
+.session-sidebar__nav--secondary {
+  padding-left: 0.5rem;
+  border-left: 1px dashed #e2e8f0;
+  margin: 0.25rem 0 0.5rem 0.75rem;
+}
+
+.session-sidebar__nav-sub-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: #cbd5e1;
+}
+
+/* History List */
 .session-sidebar__list {
   list-style: none;
   margin: 0;
-  padding: 0.5rem;
+  padding: 0.25rem 0.85rem 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  overflow-y: auto;
+  gap: 0.2rem;
   flex: 1;
 }
 
 .session-sidebar__item {
-  position: relative;
-  border-radius: 0.5rem;
-  transition: background 0.12s;
   display: flex;
-  align-items: stretch;
-  gap: 0.25rem;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 6px;
+  transition: background 0.14s ease;
+  position: relative;
 }
 
 .session-sidebar__item:hover {
-  background: var(--color-input-bg);
+  background: #f8fafc;
+}
+
+[data-theme="dark"] .session-sidebar__item:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .session-sidebar__item--active {
-  background: var(--color-input-bg);
+  background: #f1f5f9 !important;
 }
 
-.session-sidebar__select {
+[data-theme="dark"] .session-sidebar__item--active {
+  background: #222e30 !important;
+}
+
+.session-sidebar__session-btn {
   flex: 1;
-  background: none;
-  border: none;
-  text-align: left;
-  padding: 0.5rem 0.6rem;
-  cursor: pointer;
-  color: var(--color-text);
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  padding: 0.45rem 0.55rem;
+  background: transparent;
+  border: none;
+  color: var(--color-text, #1e292b);
+  text-align: left;
+  cursor: pointer;
   min-width: 0;
 }
 
-.session-sidebar__title {
-  font-size: 0.875rem;
+.session-sidebar__session-title {
+  font-size: 0.8125rem;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.session-sidebar__meta {
-  font-size: 0.7rem;
-  color: var(--color-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.session-sidebar__session-meta {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  margin-top: 0.1rem;
 }
 
 .session-sidebar__actions {
-  display: none;
-  align-items: center;
-  padding-right: 0.4rem;
-  gap: 0.15rem;
-}
-
-.session-sidebar__item:hover .session-sidebar__actions,
-.session-sidebar__item--active .session-sidebar__actions {
   display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding-right: 0.4rem;
+  opacity: 0;
+  transition: opacity 0.14s ease;
 }
 
-@media (hover: none), (max-width: 768px) {
-  .session-sidebar__actions {
-    display: flex;
-  }
+.session-sidebar__item:hover .session-sidebar__actions {
+  opacity: 1;
 }
 
-.session-sidebar__icon {
-  background: none;
+.session-sidebar__action-btn {
+  background: transparent;
   border: none;
-  color: var(--color-muted);
+  color: #94a3b8;
   cursor: pointer;
-  font-size: 0.85rem;
-  padding: 0.2rem 0.35rem;
-  border-radius: 0.3rem;
-  transition: all 0.12s ease;
+  padding: 0.25rem;
+  font-size: 0.72rem;
+  border-radius: 4px;
 }
 
-.session-sidebar__icon:hover {
-  color: var(--color-text);
-  background: var(--color-border);
+.session-sidebar__action-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1e292b;
 }
 
-.session-sidebar__icon--delete:hover {
+.session-sidebar__action-btn--delete:hover {
   color: #ef4444;
-  background: rgba(239, 68, 68, 0.15);
 }
 
-.session-sidebar__rename {
-  flex: 1;
-  padding: 0.4rem 0.6rem;
+.session-sidebar__empty {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  padding: 1rem 0.5rem;
+  text-align: center;
 }
 
-.session-sidebar__rename-input {
-  width: 100%;
-  background: var(--color-bg);
-  border: 1px solid var(--color-accent);
-  border-radius: 0.3rem;
-  color: var(--color-text);
-  padding: 0.25rem 0.4rem;
-  font: inherit;
-  font-size: 0.85rem;
-}
-
-.session-sidebar__empty,
 .session-sidebar__status {
-  padding: 0.5rem 0.75rem;
-  color: var(--color-muted);
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  padding: 0.5rem 0.85rem;
 }
 
 .session-sidebar__status--error {
-  color: var(--color-error);
-}
-
-/* ─── Mobile (≤ 768px) ─────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .session-sidebar {
-    width: 15rem; /* narrower drawer on small screens */
-  }
-
-  .session-sidebar__header {
-    padding: 0.6rem 0.5rem;
-  }
-
-  .session-sidebar__new {
-    font-size: 0.875rem;
-    padding: 0.4rem 0.6rem;
-  }
-
-  .session-sidebar__title {
-    font-size: 0.8125rem;
-  }
-
-  .session-sidebar__meta {
-    font-size: 0.65rem;
-  }
+  color: #ef4444;
 }

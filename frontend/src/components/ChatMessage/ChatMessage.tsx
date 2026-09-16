@@ -1,4 +1,4 @@
-/* ChatMessage — individual message bubble with optional attribution + critic review */
+/* ChatMessage — Professional, minimalist message bubble with sleek bottom action bar */
 
 import React, { useState } from 'react';
 import type { Attribution } from '../../hooks/useChat';
@@ -26,219 +26,6 @@ interface ChatMessageProps {
   criticReview?: CriticReviewData | Record<string, unknown> | null;
   isStreaming?: boolean;
   onRegenerate?: () => void;
-}
-
-const VERDICT_COLORS: Record<string, string> = {
-  strong: '#a6e3a1',
-  adequate: '#f9e2af',
-  weak: '#f38ba8',
-  flawed: '#f38ba8',
-};
-
-function CriticReviewBadge({ review }: { review: CriticReviewData | Record<string, unknown> | null }) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (!review) return null;
-
-  const verdict = typeof review.verdict === 'string' ? review.verdict : 'unknown';
-  const overall = typeof review.overall === 'string' ? review.overall : '';
-  const strengths = Array.isArray(review.strengths) ? review.strengths : [];
-  const weaknesses = Array.isArray(review.weaknesses) ? review.weaknesses : [];
-  const summary = typeof review.summary === 'string' ? review.summary : '';
-  const verdictColor = VERDICT_COLORS[verdict] ?? '#f9e2af';
-
-  return (
-    <div className="critic-badge" aria-label="Critic review">
-      <button
-        type="button"
-        className="critic-badge__toggle"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-      >
-        <span className="critic-badge__icon">🔍</span>
-        <span className="critic-badge__label">Critic Review</span>
-        <span
-          className="critic-badge__verdict"
-          style={{ color: verdictColor }}
-        >
-          {verdict}
-        </span>
-        <span className={`critic-badge__chevron ${expanded ? 'critic-badge__chevron--up' : ''}`}>
-          ▾
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="critic-badge__body">
-          {overall && (
-            <p className="critic-badge__overall">
-              <strong>Overall:</strong> {overall}
-            </p>
-          )}
-
-          {strengths.length > 0 && (
-            <div className="critic-badge__section">
-              <span className="critic-badge__section-title critic-badge__section-title--strong">✓ Strengths</span>
-              <ul className="critic-badge__list">
-                {strengths.map((s, i) => (
-                  <li key={i}>{String(s)}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {weaknesses.length > 0 && (
-            <div className="critic-badge__section">
-              <span className="critic-badge__section-title critic-badge__section-title--weak">✗ Issues</span>
-              <ul className="critic-badge__list">
-                {weaknesses.map((w, i) => (
-                  <li key={i}>
-                    <strong>{typeof w === 'string' ? w : w.name}</strong>
-                    {typeof w === 'object' && w.why_it_matters && (
-                      <span className="critic-badge__why"> → {w.why_it_matters}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {summary && (
-            <p className="critic-badge__summary">
-              <em>{summary}</em>
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface MapCardData {
-  place: string;
-  query?: string;
-  lat: number;
-  lon: number;
-  zoom?: number;
-  embed_osm?: string;
-  embed_google?: string;
-  gmaps_search?: string;
-  directions?: string;
-  osm_url?: string;
-}
-
-function InteractiveMapCard({ data }: { data: MapCardData }) {
-  const [provider, setProvider] = useState<'google' | 'osm'>('google');
-  const [copied, setCopied] = useState(false);
-
-  const lat = Number(data.lat) || 0;
-  const lon = Number(data.lon) || 0;
-  const zoom = Number(data.zoom) || 14;
-
-  const osmUrl =
-    data.embed_osm ||
-    `https://www.openstreetmap.org/export/embed.html?bbox=${(lon - 0.015).toFixed(5)}%2C${(lat - 0.010).toFixed(5)}%2C${(lon + 0.015).toFixed(5)}%2C${(lat + 0.010).toFixed(5)}&layer=mapnik&marker=${lat.toFixed(5)}%2C${lon.toFixed(5)}`;
-
-  const googleUrl =
-    data.embed_google ||
-    `https://maps.google.com/maps?q=${lat},${lon}&hl=en&z=${zoom}&output=embed`;
-
-  const gmapsSearchUrl =
-    data.gmaps_search ||
-    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(data.place || `${lat},${lon}`)}`;
-
-  const directionsUrl =
-    data.directions ||
-    `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
-
-  const osmDirectUrl =
-    data.osm_url ||
-    `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=${zoom}/${lat}/${lon}`;
-
-  const handleCopy = () => {
-    const coords = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-    navigator.clipboard.writeText(coords).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  return (
-    <div className="chat-map-card">
-      <div className="chat-map-card__header">
-        <div className="chat-map-card__title-row">
-          <span className="chat-map-card__pin-icon" aria-hidden="true">📍</span>
-          <div className="chat-map-card__title-meta">
-            <span className="chat-map-card__title">{data.place || 'Map Location'}</span>
-            <button
-              type="button"
-              className="chat-map-card__coords"
-              onClick={handleCopy}
-              title="Click to copy coordinates"
-            >
-              {copied ? '✓ Copied' : `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`}
-            </button>
-          </div>
-        </div>
-
-        <div className="chat-map-card__tabs" role="tablist">
-          <button
-            type="button"
-            className={`chat-map-card__tab ${provider === 'google' ? 'chat-map-card__tab--active' : ''}`}
-            onClick={() => setProvider('google')}
-          >
-            Google Maps
-          </button>
-          <button
-            type="button"
-            className={`chat-map-card__tab ${provider === 'osm' ? 'chat-map-card__tab--active' : ''}`}
-            onClick={() => setProvider('osm')}
-          >
-            OpenStreetMap
-          </button>
-        </div>
-      </div>
-
-      <div className="chat-map-card__viewport">
-        <iframe
-          key={provider}
-          src={provider === 'google' ? googleUrl : osmUrl}
-          className="chat-map-card__iframe"
-          title={`Map of ${data.place || 'location'}`}
-          loading="lazy"
-          allowFullScreen
-          referrerPolicy="no-referrer-when-downgrade"
-        />
-      </div>
-
-      <div className="chat-map-card__actions">
-        <a
-          href={gmapsSearchUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="chat-map-card__btn"
-        >
-          <span>📍</span> Open in Google Maps
-        </a>
-        <a
-          href={directionsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="chat-map-card__btn"
-        >
-          <span>🧭</span> Directions
-        </a>
-        <a
-          href={osmDirectUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="chat-map-card__btn"
-        >
-          <span>🌐</span> OpenStreetMap
-        </a>
-      </div>
-    </div>
-  );
 }
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
@@ -381,22 +168,9 @@ function FormattedContent({ content }: { content: string }) {
     }
     const lang = match[1] || 'code';
     const code = match[2];
-    if (lang === 'map') {
-      try {
-        const mapData = JSON.parse(code.trim());
-        tokens.push(
-          <InteractiveMapCard key={`map-${match.index}`} data={mapData} />
-        );
-      } catch {
-        tokens.push(
-          <CodeBlock key={`code-${match.index}`} lang={lang} code={code} />
-        );
-      }
-    } else {
-      tokens.push(
-        <CodeBlock key={`code-${match.index}`} lang={lang} code={code} />
-      );
-    }
+    tokens.push(
+      <CodeBlock key={`code-${match.index}`} lang={lang} code={code} />
+    );
     lastIndex = match.index + match[0].length;
   }
 
@@ -411,7 +185,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   role,
   content,
   attribution,
-  criticReview,
   isStreaming = false,
   onRegenerate,
 }) => {
@@ -419,15 +192,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [draftContent, setDraftContent] = useState(content);
   const [copied, setCopied] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [showReferences, setShowReferences] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   React.useEffect(() => {
     setDisplayContent(content);
     setDraftContent(content);
   }, [content]);
-
-  const [isSpeaking, setIsSpeaking] = useState(false);
 
   React.useEffect(() => {
     return () => {
@@ -451,7 +221,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
 
     window.speechSynthesis.cancel();
 
-    // Clean text of markdown formatting for natural, fluent speech
     const textToSpeak = displayContent
       .replace(/```[\s\S]*?```/g, 'Code block omitted.')
       .replace(/`([^`]+)`/g, '$1')
@@ -462,22 +231,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     if (!textToSpeak) return;
 
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
-
-    // Language awareness: Urdu, Hindi, Arabic, or default voice
-    const voices = window.speechSynthesis.getVoices();
-    const hasUrdu = /[\u0600-\u06FF]/.test(textToSpeak);
-    const hasHindi = /[\u0900-\u097F]/.test(textToSpeak);
-
-    if (hasUrdu) {
-      const urVoice = voices.find((v) => v.lang.startsWith('ur') || v.lang.startsWith('ar'));
-      if (urVoice) utterance.voice = urVoice;
-      utterance.lang = 'ur-PK';
-    } else if (hasHindi) {
-      const hiVoice = voices.find((v) => v.lang.startsWith('hi'));
-      if (hiVoice) utterance.voice = hiVoice;
-      utterance.lang = 'hi-IN';
-    }
-
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
 
@@ -510,7 +263,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `response-${new Date().toISOString().slice(0, 10)}.md`;
+    a.download = `roxy-response-${new Date().toISOString().slice(0, 10)}.md`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -527,308 +280,154 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     setIsEditing(false);
   };
 
-  const attributionLabel = attribution
-    ? `Response from ${attribution.agentSlug} agent`
-    : undefined;
-
   return (
-    <>
-      <div
-        className={`chat-message chat-message--${role} ${isStreaming && role === 'assistant' ? 'chat-message--streaming' : ''} ${isExpanded ? 'chat-message--expanded' : ''}`}
-        aria-role={role === 'user' ? 'presentation' : 'article'}
-      >
-        <div className="chat-message__bubble">
-          {role === 'assistant' && !isStreaming && (
-            <div className="chat-message__topbar">
-              <div className="chat-message__topbar-left">
-                <button
-                  type="button"
-                  className={`chat-message__edit-btn ${isEditing ? 'chat-message__edit-btn--active' : ''}`}
-                  onClick={() => setIsEditing(!isEditing)}
-                  title="Edit response"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                  </svg>
-                  <span>Edit</span>
-                </button>
-
-                <button
-                  type="button"
-                  className={`chat-message__read-aloud-btn ${isSpeaking ? 'chat-message__read-aloud-btn--speaking' : ''}`}
-                  onClick={handleReadAloud}
-                  title={isSpeaking ? "Stop reading aloud" : "Read aloud (text-to-speech)"}
-                  aria-label={isSpeaking ? "Stop reading aloud" : "Read aloud"}
-                >
-                  {isSpeaking ? (
-                    <>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                        <rect x="6" y="6" width="12" height="12" rx="2" />
-                      </svg>
-                      <span>Stop</span>
-                    </>
-                  ) : (
-                    <>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                      </svg>
-                      <span>Read aloud</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="chat-message__topbar-right">
-                <button
-                  type="button"
-                  className="chat-message__icon-btn"
-                  onClick={handleCopy}
-                  title={copied ? "Copied to clipboard!" : "Copy response"}
-                  aria-label="Copy response"
-                >
-                  {copied ? (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  ) : (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                    </svg>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  className="chat-message__icon-btn"
-                  onClick={handleDownload}
-                  title="Download as markdown"
-                  aria-label="Download response"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                </button>
-
-                {onRegenerate && (
-                  <button
-                    type="button"
-                    className="chat-message__icon-btn chat-message__icon-btn--ref"
-                    onClick={onRegenerate}
-                    title="Regenerate this response"
-                    aria-label="Regenerate response"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="23 4 23 10 17 10" />
-                      <polyline points="1 20 1 14 7 14" />
-                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                    </svg>
-                    <span className="chat-message__ref-btn-text">Regenerate</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  className={`chat-message__icon-btn chat-message__icon-btn--ref ${showReferences ? 'chat-message__icon-btn--active' : ''}`}
-                  onClick={() => setShowReferences(!showReferences)}
-                  title="Sources & References used for this answer"
-                  aria-label="View sources and references"
-                  aria-expanded={showReferences}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                  </svg>
-                  <span className="chat-message__ref-btn-text">References</span>
-                </button>
-
-                <button
-                  type="button"
-                  className={`chat-message__icon-btn ${isExpanded ? 'chat-message__icon-btn--active' : ''}`}
-                  onClick={() => setIsExpanded(!isExpanded)}
-                  title={isExpanded ? "Exit full screen" : "Expand response"}
-                  aria-label="Expand response"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="15 3 21 3 21 9" />
-                    <polyline points="9 21 3 21 3 15" />
-                    <line x1="21" y1="3" x2="14" y2="10" />
-                    <line x1="3" y1="21" x2="10" y2="14" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {isEditing ? (
-            <div className="chat-message__edit-box">
-              <textarea
-                className="chat-message__edit-textarea"
-                value={draftContent}
-                onChange={(e) => setDraftContent(e.target.value)}
-                rows={Math.max(4, draftContent.split('\n').length)}
-              />
-              <div className="chat-message__edit-actions">
-                <button type="button" className="chat-message__edit-save" onClick={handleSaveEdit}>
-                  Save
-                </button>
-                <button type="button" className="chat-message__edit-cancel" onClick={handleCancelEdit}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {displayContent ? (
-                <FormattedContent content={displayContent} />
-              ) : isStreaming ? (
-                <div className="chat-message__shimmer-skeleton" aria-label="Thinking and generating response...">
-                  <div className="chat-message__shimmer-line chat-message__shimmer-line--long" />
-                  <div className="chat-message__shimmer-line chat-message__shimmer-line--medium" />
-                  <div className="chat-message__shimmer-line chat-message__shimmer-line--short" />
-                </div>
-              ) : null}
-              {isStreaming && displayContent && (
-                <span className="chat-message__cursor" aria-hidden="true" />
-              )}
-            </>
-          )}
-
-          {/* Inline References Citation Badge immediately after the completed response */}
-          {role === 'assistant' && !isStreaming && !isEditing && (
-            <div className="chat-message__references-badge-bar">
-              <button
-                type="button"
-                className={`chat-message__references-pill-btn ${showReferences ? 'chat-message__references-pill-btn--active' : ''}`}
-                onClick={() => setShowReferences((prev) => !prev)}
-                title="View sources & references for this answer"
-                aria-expanded={showReferences}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                </svg>
-                <span>References</span>
-                <span className="chat-message__references-counter">3 sources</span>
-                <span className="chat-message__references-arrow">{showReferences ? '▴' : '▾'}</span>
+    <div
+      className={`chat-message chat-message--${role} ${isStreaming && role === 'assistant' ? 'chat-message--streaming' : ''}`}
+      aria-role={role === 'user' ? 'presentation' : 'article'}
+    >
+      <div className="chat-message__bubble">
+        {isEditing ? (
+          <div className="chat-message__edit-box">
+            <textarea
+              className="chat-message__edit-textarea"
+              value={draftContent}
+              onChange={(e) => setDraftContent(e.target.value)}
+              rows={Math.max(4, draftContent.split('\n').length)}
+            />
+            <div className="chat-message__edit-actions">
+              <button type="button" className="chat-message__edit-save" onClick={handleSaveEdit}>
+                Save
+              </button>
+              <button type="button" className="chat-message__edit-cancel" onClick={handleCancelEdit}>
+                Cancel
               </button>
             </div>
-          )}
-
-          {/* Expandable References & Sources Panel */}
-          {role === 'assistant' && !isStreaming && showReferences && (
-            <div className="chat-message__references-panel" role="region" aria-label="Sources and references used">
-              <div className="chat-message__references-panel-header">
-                <div className="chat-message__references-panel-title">
-                  <span className="chat-message__ref-panel-icon">📚</span>
-                  <strong>Sources &amp; References</strong>
-                </div>
-                <button
-                  type="button"
-                  className="chat-message__references-panel-close"
-                  onClick={() => setShowReferences(false)}
-                  aria-label="Close references panel"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="chat-message__references-cards">
-                <div className="chat-message__ref-card">
-                  <div className="chat-message__ref-card-icon">🧠</div>
-                  <div className="chat-message__ref-card-text">
-                    <span className="chat-message__ref-card-title">
-                      {attribution?.model || attribution?.provider || 'AI Core Model'}
-                    </span>
-                    <span className="chat-message__ref-card-subtitle">
-                      Direct neural reasoning · Routed via {attribution?.agentSlug || 'coordinator'} agent
-                    </span>
-                  </div>
-                </div>
-
-                <div className="chat-message__ref-card">
-                  <div className="chat-message__ref-card-icon">🌐</div>
-                  <div className="chat-message__ref-card-text">
-                    <a
-                      href="https://roxy-personal-ai.vercel.app"
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="chat-message__ref-card-link"
-                    >
-                      roxy-personal-ai.vercel.app
-                    </a>
-                    <span className="chat-message__ref-card-subtitle">
-                      Verified web workspace context &amp; tab browsing session
-                    </span>
-                  </div>
-                </div>
-
-                <div className="chat-message__ref-card">
-                  <div className="chat-message__ref-card-icon">🔍</div>
-                  <div className="chat-message__ref-card-text">
-                    <span className="chat-message__ref-card-title">Knowledge Base &amp; Web Retrieval</span>
-                    <span className="chat-message__ref-card-subtitle">
-                      1 search operation executed with real-time verification
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {role === 'assistant' && (attribution || isStreaming) && (
-          <div
-            className="chat-message__attribution"
-            aria-label={attributionLabel}
-            title={attributionLabel}
-          >
-            {attribution ? (
-              <>
-                <span className="chat-message__provider">{attribution.agentSlug}</span>
-              </>
-            ) : isStreaming ? (
-              <span className="chat-message__provider-unknown">routing…</span>
-            ) : null}
           </div>
-        )}
-
-        {role === 'assistant' && criticReview && (
-          <CriticReviewBadge review={criticReview as CriticReviewData | Record<string, unknown>} />
+        ) : (
+          <>
+            {displayContent ? (
+              <FormattedContent content={displayContent} />
+            ) : isStreaming ? (
+              <div className="chat-message__shimmer-skeleton" aria-label="Thinking...">
+                <div className="chat-message__shimmer-line chat-message__shimmer-line--long" />
+                <div className="chat-message__shimmer-line chat-message__shimmer-line--medium" />
+                <div className="chat-message__shimmer-line chat-message__shimmer-line--short" />
+              </div>
+            ) : null}
+            {isStreaming && displayContent && (
+              <span className="chat-message__cursor" aria-hidden="true" />
+            )}
+          </>
         )}
       </div>
 
-      {/* Fullscreen modal expanded view */}
-      {isExpanded && (
-        <div className="chat-message__modal-overlay" onClick={() => setIsExpanded(false)}>
-          <div className="chat-message__modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="chat-message__modal-header">
-              <span className="chat-message__modal-title">Expanded Response</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <button type="button" className="chat-message__modal-action-btn" onClick={handleReadAloud}>
-                  {isSpeaking ? '⏹ Stop' : '🔊 Read aloud'}
-                </button>
-                <button type="button" className="chat-message__modal-action-btn" onClick={handleCopy}>
-                  {copied ? '✓ Copied' : 'Copy'}
-                </button>
-                <button type="button" className="chat-message__modal-action-btn" onClick={handleDownload}>
-                  Download
-                </button>
-                <button type="button" className="chat-message__modal-close" onClick={() => setIsExpanded(false)}>
-                  ✕ Close
-                </button>
-              </div>
-            </div>
-            <div className="chat-message__modal-body">
-              <FormattedContent content={displayContent} />
-            </div>
+      {/* Sleek, minimal action toolbar placed below completed assistant responses */}
+      {role === 'assistant' && !isStreaming && (
+        <div className="chat-message__action-row">
+          <div className="chat-message__attribution-badge">
+            <span className="chat-message__attribution-dot" />
+            <span className="chat-message__attribution-text">
+              {attribution?.model || attribution?.agentSlug || 'Roxy AI'}
+            </span>
+          </div>
+
+          <div className="chat-message__tools">
+            <button
+              type="button"
+              className="chat-message__tool-btn"
+              onClick={handleCopy}
+              title={copied ? 'Copied!' : 'Copy response'}
+              aria-label="Copy response"
+            >
+              {copied ? (
+                <>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span style={{ color: '#0d9488' }}>Copied</span>
+                </>
+              ) : (
+                <>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                  <span>Copy</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className={`chat-message__tool-btn ${isSpeaking ? 'chat-message__tool-btn--active' : ''}`}
+              onClick={handleReadAloud}
+              title={isSpeaking ? 'Stop speaking' : 'Read aloud'}
+              aria-label="Read aloud"
+            >
+              {isSpeaking ? (
+                <>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                  <span>Stop</span>
+                </>
+              ) : (
+                <>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                  </svg>
+                  <span>Listen</span>
+                </>
+              )}
+            </button>
+
+            {onRegenerate && (
+              <button
+                type="button"
+                className="chat-message__tool-btn"
+                onClick={onRegenerate}
+                title="Regenerate this response"
+                aria-label="Regenerate response"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+                <span>Retry</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="chat-message__tool-btn"
+              onClick={handleDownload}
+              title="Download as Markdown"
+              aria-label="Download response"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span>Export</span>
+            </button>
+
+            <button
+              type="button"
+              className={`chat-message__tool-btn ${isEditing ? 'chat-message__tool-btn--active' : ''}`}
+              onClick={() => setIsEditing(!isEditing)}
+              title="Edit response text"
+              aria-label="Edit response"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+              <span>Edit</span>
+            </button>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };

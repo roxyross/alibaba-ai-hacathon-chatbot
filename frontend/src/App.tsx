@@ -462,7 +462,7 @@ export function ChatScreen() {
                 <line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
               <span className="app__header-search-text">Search chats…</span>
-              <kbd className="app__header-search-kbd">⌘K</kbd>
+              <kbd className="app__header-search-kbd">Ctrl+K</kbd>
             </button>
           </div>
           <div className="app__header-right">
@@ -472,7 +472,7 @@ export function ChatScreen() {
                 type="button"
                 className={`app__pin-btn ${isPinnedMenuOpen ? 'app__pin-btn--active' : ''}`}
                 onClick={() => setIsPinnedMenuOpen((v) => !v)}
-                title="Pinned Chats & Statements (Click to view)"
+                title="Pinned Chats & Statements"
                 aria-label="Pinned Items"
               >
                 📌
@@ -551,19 +551,25 @@ export function ChatScreen() {
             </button>
 
             {user ? (
-              <>
-                <span className="app__user">{user.email}</span>
+              <div className="app__user-pill" title={user.email}>
+                <div className="app__user-avatar">
+                  {user.email ? user.email.slice(0, 2).toUpperCase() : 'AI'}
+                </div>
+                <span className="app__user-name">
+                  {user.email ? user.email.split('@')[0] : 'Account'}
+                </span>
                 <button
                   type="button"
-                  className="app__signout"
+                  className="app__signout-btn"
                   onClick={() => {
                     signOut();
                     handleNewChat();
                   }}
+                  title="Sign out"
                 >
                   Sign out
                 </button>
-              </>
+              </div>
             ) : (
               <div className="app__auth-actions">
                 <button

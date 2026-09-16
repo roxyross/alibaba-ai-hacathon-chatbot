@@ -65,15 +65,14 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const [showMoreTools, setShowMoreTools] = useState(false);
 
-  // Sync initialSearchQuery if updated externally
   React.useEffect(() => {
     if (initialSearchQuery !== undefined) {
       setSearchQuery(initialSearchQuery);
     }
   }, [initialSearchQuery]);
 
-  // Filter sessions strictly by selected mode and search query
   const filteredSessions = sessions.filter((s) => {
     const isTask = s.session_type === 'task' || s.title?.startsWith('[Task]') || s.model === 'code_generation';
     const matchesMode = mode === 'task' ? isTask : !isTask;
@@ -90,13 +89,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   return (
     <aside
       className={`session-sidebar${isCollapsed ? ' session-sidebar--collapsed' : ''}`}
-      aria-label="Chat history"
+      aria-label="Sidebar navigation"
       aria-hidden={isCollapsed}
     >
       <div className="session-sidebar__header">
         {/* Header bar with title and Close Sidebar button */}
         <div className="session-sidebar__top-controls">
-          <span className="session-sidebar__brand">Conversations</span>
+          <span className="session-sidebar__brand">Workspace</span>
           {onCloseSidebar && (
             <button
               type="button"
@@ -105,21 +104,24 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               title="Close Sidebar"
               aria-label="Close Sidebar"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 18 9 12 15 6" />
               </svg>
-              <span>Close Sidebar</span>
+              <span>Close</span>
             </button>
           )}
         </div>
 
         {/* Search Bar for previous conversations */}
         <div className="session-sidebar__search-box">
-          <span className="session-sidebar__search-icon" aria-hidden="true">🔍</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
           <input
             type="search"
             className="session-sidebar__search-input"
-            placeholder="Search chats & messages…"
+            placeholder="Search history (⌘K)…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             aria-label="Search conversations"
@@ -135,7 +137,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             </button>
           )}
         </div>
-        {/* Toggle between New Chat and New Task */}
+
+        {/* Toggle between Chat and Task mode */}
         <div className="session-sidebar__mode-toggle" role="tablist" aria-label="Workflow mode">
           <button
             type="button"
@@ -147,7 +150,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               if (activeView !== 'chat') onViewChange?.('chat');
             }}
           >
-            💬 Chat
+            <span>💬</span>
+            <span>Chat</span>
           </button>
           <button
             type="button"
@@ -159,13 +163,15 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               if (activeView !== 'chat') onViewChange?.('chat');
             }}
           >
-            ⚡ Task
+            <span>⚡</span>
+            <span>Task</span>
           </button>
         </div>
 
+        {/* + New Chat Button: Executive Dark Minimalist */}
         <button
           type="button"
-          className={`session-sidebar__new${mode === 'task' ? ' session-sidebar__new--task' : ''}`}
+          className="session-sidebar__new"
           onClick={() => {
             if (mode === 'task') {
               (onNewTask || onNewChat)();
@@ -175,26 +181,32 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             if (onViewChange) onViewChange('chat');
           }}
         >
-          {mode === 'task' ? '+ New task' : '+ New chat'}
+          <span className="session-sidebar__new-icon">+</span>
+          <span>{mode === 'task' ? 'New Task' : 'New Chat'}</span>
         </button>
+      </div>
 
-        {/* View navigation buttons moved under New Chat */}
-        {onViewChange && (
-          <nav className="session-sidebar__nav" aria-label="Modules">
+      {/* Primary Modules Group */}
+      {onViewChange && (
+        <div className="session-sidebar__nav-group">
+          <div className="session-sidebar__section-header">
+            <span>Modules</span>
+          </div>
+          <nav className="session-sidebar__nav" aria-label="Core Modules">
             <button
               type="button"
               className={`session-sidebar__nav-item${activeView === 'chat' ? ' session-sidebar__nav-item--active' : ''}`}
               onClick={() => onViewChange('chat')}
             >
-              <span className="session-sidebar__nav-icon">💬</span>
-              <span className="session-sidebar__nav-label">Chat</span>
+              <span className="session-sidebar__nav-dot" />
+              <span className="session-sidebar__nav-label">Chat &amp; Reasoning</span>
             </button>
             <button
               type="button"
               className={`session-sidebar__nav-item${activeView === 'image_studio' ? ' session-sidebar__nav-item--active' : ''}`}
               onClick={() => onViewChange('image_studio')}
             >
-              <span className="session-sidebar__nav-icon">🎨</span>
+              <span className="session-sidebar__nav-dot" />
               <span className="session-sidebar__nav-label">Image Studio</span>
             </button>
             <button
@@ -202,7 +214,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               className={`session-sidebar__nav-item${activeView === 'knowledge_vault' ? ' session-sidebar__nav-item--active' : ''}`}
               onClick={() => onViewChange('knowledge_vault')}
             >
-              <span className="session-sidebar__nav-icon">📚</span>
+              <span className="session-sidebar__nav-dot" />
               <span className="session-sidebar__nav-label">Knowledge Vault</span>
             </button>
             <button
@@ -210,7 +222,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               className={`session-sidebar__nav-item${activeView === 'workspace_hub' ? ' session-sidebar__nav-item--active' : ''}`}
               onClick={() => onViewChange('workspace_hub')}
             >
-              <span className="session-sidebar__nav-icon">🗂️</span>
+              <span className="session-sidebar__nav-dot" />
               <span className="session-sidebar__nav-label">Workspace Hub</span>
             </button>
             <button
@@ -218,7 +230,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               className={`session-sidebar__nav-item${activeView === 'jobs' ? ' session-sidebar__nav-item--active' : ''}`}
               onClick={() => onViewChange('jobs')}
             >
-              <span className="session-sidebar__nav-icon">⏰</span>
+              <span className="session-sidebar__nav-dot" />
               <span className="session-sidebar__nav-label">Scheduled Jobs</span>
             </button>
             <button
@@ -226,83 +238,107 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               className={`session-sidebar__nav-item${activeView === 'finance' ? ' session-sidebar__nav-item--active' : ''}`}
               onClick={() => onViewChange('finance')}
             >
-              <span className="session-sidebar__nav-icon">💰</span>
-              <span className="session-sidebar__nav-label">Finances</span>
+              <span className="session-sidebar__nav-dot" />
+              <span className="session-sidebar__nav-label">Finances (Raast / Plaid)</span>
             </button>
+          </nav>
+
+          {/* Collapsible Utility Tools */}
+          <div className="session-sidebar__more-toggle-row">
             <button
               type="button"
-              className={`session-sidebar__nav-item${activeView === 'voice' ? ' session-sidebar__nav-item--active' : ''}`}
-              onClick={() => onViewChange('voice')}
+              className="session-sidebar__more-toggle"
+              onClick={() => setShowMoreTools(!showMoreTools)}
             >
-              <span className="session-sidebar__nav-icon">🎙️</span>
-              <span className="session-sidebar__nav-label">Voice Mode</span>
+              <span>{showMoreTools ? '▾ Hide utilities' : '▸ Utilities (Voice, Docs…)'}</span>
             </button>
+          </div>
+
+          {showMoreTools && (
+            <nav className="session-sidebar__nav session-sidebar__nav--secondary">
+              <button
+                type="button"
+                className={`session-sidebar__nav-item${activeView === 'voice' ? ' session-sidebar__nav-item--active' : ''}`}
+                onClick={() => onViewChange('voice')}
+              >
+                <span className="session-sidebar__nav-sub-dot" />
+                <span className="session-sidebar__nav-label">Voice Mode</span>
+              </button>
+              <button
+                type="button"
+                className={`session-sidebar__nav-item${activeView === 'documents' ? ' session-sidebar__nav-item--active' : ''}`}
+                onClick={() => onViewChange('documents')}
+              >
+                <span className="session-sidebar__nav-sub-dot" />
+                <span className="session-sidebar__nav-label">Document Upload</span>
+              </button>
+              <button
+                type="button"
+                className={`session-sidebar__nav-item${activeView === 'email' ? ' session-sidebar__nav-item--active' : ''}`}
+                onClick={() => onViewChange('email')}
+              >
+                <span className="session-sidebar__nav-sub-dot" />
+                <span className="session-sidebar__nav-label">Email Send</span>
+              </button>
+              <button
+                type="button"
+                className={`session-sidebar__nav-item${activeView === 'calculator' ? ' session-sidebar__nav-item--active' : ''}`}
+                onClick={() => onViewChange('calculator')}
+              >
+                <span className="session-sidebar__nav-sub-dot" />
+                <span className="session-sidebar__nav-label">Calculator</span>
+              </button>
+              <button
+                type="button"
+                className={`session-sidebar__nav-item${activeView === 'calendar' ? ' session-sidebar__nav-item--active' : ''}`}
+                onClick={() => onViewChange('calendar')}
+              >
+                <span className="session-sidebar__nav-sub-dot" />
+                <span className="session-sidebar__nav-label">Calendar</span>
+              </button>
+            </nav>
+          )}
+
+          {/* Billing & Tier Quick Links */}
+          <div className="session-sidebar__section-header session-sidebar__section-header--border">
+            <span>Account</span>
+          </div>
+          <nav className="session-sidebar__nav">
             <button
               type="button"
               className={`session-sidebar__nav-item${activeView === 'usage' ? ' session-sidebar__nav-item--active' : ''}`}
               onClick={() => onViewChange('usage')}
             >
-              <span className="session-sidebar__nav-icon">📊</span>
-              <span className="session-sidebar__nav-label">Usage & Credits</span>
+              <span className="session-sidebar__nav-dot" />
+              <span className="session-sidebar__nav-label">Usage &amp; Telemetry</span>
             </button>
             <button
               type="button"
               className={`session-sidebar__nav-item${activeView === 'billing' ? ' session-sidebar__nav-item--active' : ''}`}
               onClick={() => onViewChange('billing')}
             >
-              <span className="session-sidebar__nav-icon">💳</span>
-              <span className="session-sidebar__nav-label">Billing</span>
+              <span className="session-sidebar__nav-dot" />
+              <span className="session-sidebar__nav-label">Billing &amp; Invoices</span>
             </button>
             <button
               type="button"
-              className={`session-sidebar__nav-item${activeView === 'pricing' ? ' session-sidebar__nav-item--active' : ''}`}
+              className={`session-sidebar__nav-item session-sidebar__nav-item--upgrade${activeView === 'pricing' ? ' session-sidebar__nav-item--active' : ''}`}
               onClick={() => onViewChange('pricing')}
             >
-              <span className="session-sidebar__nav-icon">⚡</span>
+              <span className="session-sidebar__nav-upgrade-badge">⚡</span>
               <span className="session-sidebar__nav-label">Upgrade Plans</span>
             </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-item${activeView === 'email' ? ' session-sidebar__nav-item--active' : ''}`}
-              onClick={() => onViewChange('email')}
-            >
-              <span className="session-sidebar__nav-icon">📧</span>
-              <span className="session-sidebar__nav-label">Email Send</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-item${activeView === 'documents' ? ' session-sidebar__nav-item--active' : ''}`}
-              onClick={() => onViewChange('documents')}
-            >
-              <span className="session-sidebar__nav-icon">📄</span>
-              <span className="session-sidebar__nav-label">Documents</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-item${activeView === 'calculator' ? ' session-sidebar__nav-item--active' : ''}`}
-              onClick={() => onViewChange('calculator')}
-            >
-              <span className="session-sidebar__nav-icon">🧮</span>
-              <span className="session-sidebar__nav-label">Calculator</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-item${activeView === 'calendar' ? ' session-sidebar__nav-item--active' : ''}`}
-              onClick={() => onViewChange('calendar')}
-            >
-              <span className="session-sidebar__nav-icon">📅</span>
-              <span className="session-sidebar__nav-label">Calendar</span>
-            </button>
           </nav>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className="session-sidebar__section-title">
-        {mode === 'task' ? 'Coding Tasks' : 'Recent Chats'}
+      {/* History section */}
+      <div className="session-sidebar__section-header session-sidebar__section-header--border">
+        <span>{mode === 'task' ? 'Coding Tasks' : 'Recent Chats'}</span>
       </div>
 
       {loading && (
-        <p className="session-sidebar__status">Loading…</p>
+        <p className="session-sidebar__status">Loading history…</p>
       )}
       {error && (
         <p className="session-sidebar__status session-sidebar__status--error">
@@ -348,49 +384,44 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               ) : (
                 <button
                   type="button"
-                  className="session-sidebar__select"
+                  className="session-sidebar__session-btn"
                   onClick={() => onSelect(s)}
+                  title={s.title || 'Untitled conversation'}
                 >
-                  <span className="session-sidebar__title">
-                    {s.title || (mode === 'task' ? 'Coding task' : 'New chat')}
+                  <span className="session-sidebar__session-title">
+                    {s.title || 'Untitled conversation'}
                   </span>
-                  <span className="session-sidebar__meta">
-                    {s.provider} · {s.model}
+                  <span className="session-sidebar__session-meta">
+                    {s.model || s.provider}
                   </span>
                 </button>
               )}
+
               <div className="session-sidebar__actions">
-                {!isRenaming && (
-                  <button
-                    type="button"
-                    className="session-sidebar__icon"
-                    title="Rename"
-                    aria-label="Rename session"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRenamingId(s.id);
-                      setRenameValue(s.title || '');
-                    }}
-                  >
-                    ✎
-                  </button>
-                )}
                 <button
                   type="button"
-                  className="session-sidebar__icon session-sidebar__icon--delete"
-                  title="Delete session"
-                  aria-label="Delete session"
-                  onClick={async (e) => {
+                  className="session-sidebar__action-btn"
+                  onClick={(e) => {
                     e.stopPropagation();
-                    if (isActive) {
-                      onNewChat();
-                    }
-                    try {
-                      await remove(s.id);
-                    } catch (err) {
-                      console.error('Failed to delete session:', err);
+                    setRenamingId(s.id);
+                    setRenameValue(s.title || '');
+                  }}
+                  title="Rename conversation"
+                  aria-label="Rename conversation"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  className="session-sidebar__action-btn session-sidebar__action-btn--delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm('Delete this conversation?')) {
+                      void remove(s.id);
                     }
                   }}
+                  title="Delete conversation"
+                  aria-label="Delete conversation"
                 >
                   ✕
                 </button>
@@ -398,11 +429,10 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             </li>
           );
         })}
-        {!loading && filteredSessions.length === 0 && (
+
+        {filteredSessions.length === 0 && !loading && (
           <li className="session-sidebar__empty">
-            {mode === 'task'
-              ? <>No coding tasks yet. Click <strong>+ New task</strong> to start.</>
-              : <>No chats yet. Click <strong>+ New chat</strong> to start.</>}
+            No {mode === 'task' ? 'tasks' : 'conversations'} yet
           </li>
         )}
       </ul>

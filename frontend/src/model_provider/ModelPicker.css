@@ -2,17 +2,18 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  background: var(--color-input-bg, #1e1e2e);
-  border: 1px solid var(--color-border, #313244);
-  border-radius: 1rem;
-  padding: 0.2rem 0.55rem;
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 9999px;
+  padding: 0.2rem 0.65rem;
   flex-shrink: 0;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .model-picker:hover {
-  border-color: var(--color-accent, #89b4fa);
-  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--color-accent, #0d9488);
+  background: var(--color-surface, #ffffff);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 .model-picker__label {
@@ -22,26 +23,28 @@
 .model-picker__select {
   background: transparent;
   border: none;
-  color: var(--color-text, #cdd6f4);
+  color: var(--color-text, #1e292b);
   font: inherit;
   font-size: 0.8125rem;
   font-weight: 500;
   padding: 0.1rem 0;
   outline: none;
   cursor: pointer;
-  max-width: 11rem;
+  max-width: 13.5rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-picker__select option,
 .model-picker__select optgroup {
-  background-color: #181825;
-  color: #cdd6f4;
+  background-color: var(--color-surface, #ffffff);
+  color: var(--color-text, #1e292b);
 }
 
-[data-theme="light"] .model-picker__select option,
-[data-theme="light"] .model-picker__select optgroup {
-  background-color: #ffffff;
-  color: #1e293b;
+[data-theme="dark"] .model-picker__select option,
+[data-theme="dark"] .model-picker__select optgroup {
+  background-color: #192222;
+  color: #e2e8e7;
 }
 
 .model-picker__select:disabled {
@@ -51,18 +54,18 @@
 
 .model-picker__error {
   margin: 0;
-  color: var(--color-error, #f38ba8);
+  color: var(--color-error, #ef4444);
   font-size: 0.75rem;
 }
 
 /* ─── Mobile (≤ 768px) ─────────────────────────────────────────── */
 @media (max-width: 768px) {
   .model-picker {
-    padding: 0.15rem 0.4rem;
+    padding: 0.15rem 0.45rem;
   }
 
   .model-picker__select {
     font-size: 0.75rem;
-    max-width: 7rem;
+    max-width: 8rem;
   }
 }

@@ -284,31 +284,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
           {/* Floating Bottom Single Input */}
           <div className="chat-window__bottom-bar">
-            {/* Quick action bar during streaming */}
-            {isStreaming && (
-              <div className="chat-window__streaming-bar">
-                <button
-                  type="button"
-                  className="chat-window__reply-now-btn"
-                  onClick={scrollToBottom}
-                  title="Scroll to the generating response"
-                >
-                  <span className="chat-window__reply-icon">⚡</span>
-                  <span>Reply now</span>
-                </button>
-                {onStop && (
-                  <button
-                    type="button"
-                    className="chat-window__stop-btn"
-                    onClick={onStop}
-                    title="Stop generating response (interrupt server)"
-                  >
-                    <span className="chat-window__stop-icon">⏹</span>
-                    <span>Stop generating</span>
-                  </button>
-                )}
-              </div>
-            )}
 
             <ChatInput
               onSend={onSend}
