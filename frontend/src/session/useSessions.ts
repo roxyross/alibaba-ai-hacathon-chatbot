@@ -7,6 +7,8 @@ export interface ChatSession {
   provider: string;
   model: string;
   session_type?: 'chat' | 'task';
+  pinned?: boolean;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
   message_count: number;
@@ -17,6 +19,7 @@ export interface CreateSessionInput {
   model: string;
   title?: string;
   session_type?: 'chat' | 'task';
+  pinned?: boolean;
 }
 
 export const SESSIONS_CHANGED_EVENT = 'roxy:sessions_changed';
@@ -33,11 +36,15 @@ export function useSessions() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async (sessionType?: 'chat' | 'task') => {
+  const refresh = useCallback(async (sessionType?: 'chat' | 'task', includeArchived = false) => {
     setLoading(true);
     setError(null);
     try {
-      const url = sessionType ? `/sessions?session_type=${sessionType}` : '/sessions';
+      const params = new URLSearchParams();
+      if (sessionType) params.append('session_type', sessionType);
+      if (includeArchived) params.append('include_archived', 'true');
+      const query = params.toString();
+      const url = query ? `/sessions?${query}` : '/sessions';
       const data = await authedFetch<ChatSession[]>(url);
       setSessions(data || []);
     } catch (err) {
@@ -89,6 +96,40 @@ export function useSessions() {
     [authedFetch],
   );
 
+  const togglePin = useCallback(
+    async (id: string, pinned: boolean): Promise<ChatSession> => {
+      // Optimistic update
+      setSessions((prev) =>
+        prev
+          .map((s) => (s.id === id ? { ...s, pinned } : s))
+          .sort((a, b) => (Number(b.pinned || false) - Number(a.pinned || false))),
+      );
+      notifySessionsChanged();
+      const updated = await authedFetch<ChatSession>(`/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ pinned }),
+      });
+      return updated;
+    },
+    [authedFetch],
+  );
+
+  const toggleArchive = useCallback(
+    async (id: string, archived: boolean): Promise<ChatSession> => {
+      // Optimistic update: if archiving, remove from active list
+      if (archived) {
+        setSessions((prev) => prev.filter((s) => s.id !== id));
+      }
+      notifySessionsChanged();
+      const updated = await authedFetch<ChatSession>(`/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ archived }),
+      });
+      return updated;
+    },
+    [authedFetch],
+  );
+
   const remove = useCallback(
     async (id: string): Promise<void> => {
       // Optimistic update: remove immediately so UI updates in 0ms
@@ -106,5 +147,5 @@ export function useSessions() {
     [authedFetch, refresh],
   );
 
-  return { sessions, loading, error, refresh, create, rename, remove };
+  return { sessions, loading, error, refresh, create, rename, togglePin, toggleArchive, remove };
 }

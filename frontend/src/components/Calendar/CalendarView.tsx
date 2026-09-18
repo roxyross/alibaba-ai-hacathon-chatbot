@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { VoiceInputControl, speakVoiceText } from '../common/VoiceInputControl';
 import './CalendarView.css';
-
 
 interface CalendarEventItem {
   id: string;
   summary: string;
-  start: string; // ISO or YYYY-MM-DDTHH:mm
+  start: string; // ISO timestamp
   end?: string;
   description?: string;
   location?: string;
@@ -42,94 +41,67 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   );
 
-  const [events, setEvents] = useState<CalendarEventItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('roxy_calendar_events');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => {
-    try {
-      const saved = localStorage.getItem('roxy_deleted_calendar_event_ids');
-      return saved ? new Set(JSON.parse(saved)) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
-
+  const [events, setEvents] = useState<CalendarEventItem[]>([]);
   const [loadingBackend, setLoadingBackend] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newEventSummary, setNewEventSummary] = useState('');
   const [newEventDate, setNewEventDate] = useState(selectedDate);
   const [newEventTime, setNewEventTime] = useState('10:00');
+  const [newEventLocation, setNewEventLocation] = useState('');
   const [newEventCategory, setNewEventCategory] = useState<'meeting' | 'hackathon' | 'deadline' | 'personal' | 'reminder'>('meeting');
   const [newEventDescription, setNewEventDescription] = useState('');
 
-  // Persist user events to local storage
-  useEffect(() => {
+  // AI Prompt Scheduling state
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isParsingAI, setIsParsingAI] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch live events from API
+  const fetchEvents = useCallback(async () => {
+    if (!accessToken) return;
+    setLoadingBackend(true);
     try {
-      localStorage.setItem('roxy_calendar_events', JSON.stringify(events));
-    } catch {
-      // ignore
-    }
-  }, [events]);
+      const res = await fetch(`${API_BASE}/calendar/events`, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
 
-  // Load demo & backend events from /api/v1/skills/calendar_read
-  useEffect(() => {
-    const fetchBackendEvents = async () => {
-      setLoadingBackend(true);
-      try {
-        const res = await fetch(`${API_BASE}/skills/calendar_read`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-          },
-          body: JSON.stringify({
-            start_date: `${currentYear}-01-01`,
-            end_date: `${currentYear}-12-31`,
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.events) && data.events.length > 0) {
-            const mapped: CalendarEventItem[] = data.events.map((e: {
-              uid?: string;
-              summary?: string;
-              start?: string;
-              end?: string;
-              description?: string;
-              location?: string;
-            }, idx: number) => ({
-              id: e.uid || `backend-evt-${idx}`,
-              summary: e.summary || 'Scheduled Event',
-              start: e.start || `${currentYear}-09-09T14:00:00`,
-              end: e.end,
-              description: e.description,
-              location: e.location,
-              category: (e.summary?.toLowerCase().includes('hackathon') ? 'hackathon' : 'meeting'),
-            }));
-
-            setEvents((prev) => {
-              const existingIds = new Set(prev.map((item) => item.id));
-              const newItems = mapped.filter((item) => !existingIds.has(item.id) && !deletedIds.has(item.id));
-              return [...prev, ...newItems];
-            });
-          }
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.events)) {
+          const mapped: CalendarEventItem[] = data.events.map((e: {
+            id: string;
+            title?: string;
+            start_time?: string;
+            end_time?: string;
+            description?: string;
+            location?: string;
+            category?: string;
+          }) => ({
+            id: e.id,
+            summary: e.title || 'Scheduled Event',
+            start: e.start_time || `${currentYear}-01-01T10:00:00`,
+            end: e.end_time,
+            description: e.description,
+            location: e.location,
+            category: (e.category as CalendarEventItem['category']) || 'meeting',
+          }));
+          setEvents(mapped);
         }
-      } catch {
-        // Backend calendar read optional fallback
-      } finally {
-        setLoadingBackend(false);
       }
-    };
+    } catch {
+      // Offline fallback
+    } finally {
+      setLoadingBackend(false);
+    }
+  }, [accessToken, currentYear]);
 
-    fetchBackendEvents();
-  }, [currentYear, accessToken]);
+  useEffect(() => {
+    fetchEvents();
+  }, [fetchEvents]);
 
   // Monthly grid calculations
   const daysInMonth = useMemo(() => {
@@ -171,39 +143,162 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     setNewEventDate(dateStr);
   };
 
-  const handleAddEvent = (e: React.FormEvent) => {
+  const handleAddEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEventSummary.trim()) return;
 
     const startDateTime = `${newEventDate}T${newEventTime}:00`;
-    const newEvt: CalendarEventItem = {
-      id: `custom-${Date.now()}`,
-      summary: newEventSummary.trim(),
-      start: startDateTime,
+    const payload = {
+      title: newEventSummary.trim(),
+      start_time: startDateTime,
       description: newEventDescription.trim() || undefined,
       category: newEventCategory,
+      location: newEventLocation.trim() || undefined,
     };
 
-    setEvents((prev) => [newEvt, ...prev]);
+    if (accessToken) {
+      try {
+        const res = await fetch(`${API_BASE}/calendar/events`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          await fetchEvents();
+        }
+      } catch {
+        // Fallback local addition
+        setEvents((prev) => [
+          {
+            id: `evt-${Date.now()}`,
+            summary: payload.title,
+            start: payload.start_time,
+            description: payload.description,
+            category: payload.category,
+            location: payload.location,
+          },
+          ...prev,
+        ]);
+      }
+    } else {
+      setEvents((prev) => [
+        {
+          id: `evt-${Date.now()}`,
+          summary: payload.title,
+          start: payload.start_time,
+          description: payload.description,
+          category: payload.category,
+          location: payload.location,
+        },
+        ...prev,
+      ]);
+    }
+
     setNewEventSummary('');
     setNewEventDescription('');
+    setNewEventLocation('');
     setShowAddModal(false);
-    void speakVoiceText(`Event added: ${newEvt.summary} on ${newEventDate}`);
+    void speakVoiceText(`Event added: ${payload.title} on ${newEventDate}`);
   };
 
-  const handleDeleteEvent = (id: string) => {
+  const handleDeleteEvent = async (id: string) => {
     setEvents((prev) => prev.filter((e) => e.id !== id));
-    setDeletedIds((prev) => {
-      const next = new Set(prev);
-      next.add(id);
+    if (accessToken) {
       try {
-        localStorage.setItem('roxy_deleted_calendar_event_ids', JSON.stringify(Array.from(next)));
+        await fetch(`${API_BASE}/calendar/events/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
       } catch {
         // ignore
       }
-      return next;
-    });
+    }
     void speakVoiceText('Event removed from calendar');
+  };
+
+  // AI Prompt Parsing
+  const handleParseAi = async () => {
+    if (!aiPrompt.trim() || !accessToken) return;
+    setIsParsingAI(true);
+    try {
+      const res = await fetch(`${API_BASE}/calendar/parse-ai`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ prompt: aiPrompt }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const d = data.draft_event;
+        if (d) {
+          setNewEventSummary(d.title || '');
+          if (d.start_time) {
+            const [dt, tm] = d.start_time.split('T');
+            setNewEventDate(dt);
+            if (tm) setNewEventTime(tm.slice(0, 5));
+          }
+          setNewEventCategory(d.category || 'meeting');
+          setNewEventLocation(d.location || '');
+          setNewEventDescription(d.description || '');
+          setShowAddModal(true);
+          setAiPrompt('');
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsParsingAI(false);
+    }
+  };
+
+  // Export iCalendar (.ics)
+  const handleExportIcs = async () => {
+    if (!accessToken) return;
+    try {
+      const res = await fetch(`${API_BASE}/calendar/export/ics`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'roxy_calendar.ics';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  // Import iCalendar (.ics)
+  const handleImportIcs = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !accessToken) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch(`${API_BASE}/calendar/import/ics`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: formData,
+      });
+      if (res.ok) {
+        await fetchEvents();
+      }
+    } catch {
+      // ignore
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   // Events on the currently selected date
@@ -214,7 +309,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     });
   }, [events, selectedDate]);
 
-  // Map of date string -> count of events for quick dot indicators
+  // Map of date string -> count of events for dot indicators
   const eventsByDate = useMemo(() => {
     const map: Record<string, number> = {};
     for (const e of events) {
@@ -245,12 +340,30 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               <span>📅</span> Calendar &amp; Schedule
             </h2>
             <span className="calendar-badge">
-              {loadingBackend ? 'Syncing…' : 'Sync Active'}
+              {loadingBackend ? 'Syncing…' : `${events.length} Events`}
             </span>
           </div>
         </div>
 
         <div className="calendar-header__actions">
+          <button
+            type="button"
+            className="calendar-btn-today"
+            onClick={handleExportIcs}
+            title="Download iCalendar (.ics)"
+          >
+            📥 Export .ics
+          </button>
+          <label className="calendar-btn-today" style={{ cursor: 'pointer', margin: 0 }} title="Upload iCalendar (.ics)">
+            📤 Import .ics
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".ics,text/calendar"
+              style={{ display: 'none' }}
+              onChange={handleImportIcs}
+            />
+          </label>
           <VoiceInputControl
             size="sm"
             showLangPicker={true}
@@ -268,13 +381,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 : `No events scheduled for ${selectedDate}.`
             }
             onTranscript={(spokenPrompt) => {
-              if (onScheduleWithAI) {
-                onScheduleWithAI(spokenPrompt);
-              } else {
-                setNewEventSummary(spokenPrompt);
-                setNewEventDate(selectedDate);
-                setShowAddModal(true);
-              }
+              setAiPrompt(spokenPrompt);
             }}
             label="Voice Calendar Assistant"
           />
@@ -298,6 +405,56 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </div>
       </header>
 
+      {/* AI Quick Scheduling Prompt Bar */}
+      <div style={{
+        display: 'flex',
+        gap: '0.5rem',
+        background: 'var(--color-surface, #1e1e2e)',
+        padding: '0.65rem 0.85rem',
+        borderRadius: '0.6rem',
+        border: '1px solid var(--color-border, #313244)',
+        alignItems: 'center',
+      }}>
+        <span style={{ fontSize: '1.1rem' }}>⚡</span>
+        <input
+          type="text"
+          placeholder='Schedule with AI: e.g. "Sprint sync with team tomorrow at 3pm for 45 minutes on Zoom"'
+          value={aiPrompt}
+          onChange={(e) => setAiPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleParseAi();
+            }
+          }}
+          style={{
+            flex: 1,
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            color: 'var(--color-text, #cdd6f4)',
+            fontSize: '0.9rem',
+          }}
+        />
+        <button
+          type="button"
+          onClick={handleParseAi}
+          disabled={!aiPrompt.trim() || isParsingAI}
+          style={{
+            background: 'var(--color-accent, #89b4fa)',
+            color: '#11111b',
+            border: 'none',
+            borderRadius: '0.4rem',
+            padding: '0.35rem 0.75rem',
+            fontWeight: 600,
+            fontSize: '0.82rem',
+            cursor: (!aiPrompt.trim() || isParsingAI) ? 'not-allowed' : 'pointer',
+            opacity: (!aiPrompt.trim() || isParsingAI) ? 0.6 : 1,
+          }}
+        >
+          {isParsingAI ? 'Analyzing…' : 'Plan Event'}
+        </button>
+      </div>
 
       {/* Main Layout: Left Calendar Grid, Right Agenda/Events Panel */}
       <div className="calendar-layout">
@@ -358,25 +515,30 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 today.getMonth() === currentMonth &&
                 today.getDate() === dayNum;
               const isSelected = selectedDate === dateStr;
-              const eventCount = eventsByDate[dateStr] || 0;
+              const count = eventsByDate[dateStr] || 0;
 
               return (
                 <button
+                  key={`cur-${dayNum}`}
                   type="button"
-                  key={`day-${dayNum}`}
-                  className={`calendar-day${isToday ? ' calendar-day--today' : ''}${isSelected ? ' calendar-day--selected' : ''}`}
-                  onClick={() => {
-                    setSelectedDate(dateStr);
-                    setNewEventDate(dateStr);
-                  }}
+                  className={[
+                    'calendar-day',
+                    isToday ? 'calendar-day--today' : '',
+                    isSelected ? 'calendar-day--selected' : '',
+                    count > 0 ? 'calendar-day--has-events' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={() => setSelectedDate(dateStr)}
+                  aria-label={`${dateStr} with ${count} events`}
                 >
                   <span className="calendar-day__number">{dayNum}</span>
-                  {eventCount > 0 && (
-                    <div className="calendar-day__dots" aria-label={`${eventCount} events`}>
-                      <span className="calendar-dot" />
-                      {eventCount > 1 && <span className="calendar-dot" />}
-                      {eventCount > 2 && <span className="calendar-dot" />}
-                    </div>
+                  {count > 0 && (
+                    <span className="calendar-day__dots">
+                      {Array.from({ length: Math.min(count, 3) }).map((__, dotIdx) => (
+                        <span key={dotIdx} className="calendar-day__dot" />
+                      ))}
+                    </span>
                   )}
                 </button>
               );
@@ -384,25 +546,26 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </div>
         </div>
 
-        {/* Right: Selected Date Agenda */}
-        <div className="calendar-agenda-card">
-          <div className="calendar-agenda-header">
+        {/* Right: Selected Date Agenda / Events */}
+        <div className="calendar-agenda">
+          <div className="calendar-agenda__header">
             <div>
-              <h3 className="calendar-agenda-title">
-                {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', {
-                  weekday: 'short',
+              <h3 className="calendar-agenda__title">
+                {new Date(`${selectedDate}T00:00:00`).toLocaleDateString('en-US', {
+                  weekday: 'long',
                   month: 'short',
                   day: 'numeric',
-                  year: 'numeric',
                 })}
               </h3>
-              <span className="calendar-agenda-subtitle">
-                {selectedDateEvents.length} {selectedDateEvents.length === 1 ? 'event' : 'events'} scheduled
-              </span>
+              <p className="calendar-agenda__subtitle">
+                {selectedDateEvents.length === 0
+                  ? 'No events scheduled'
+                  : `${selectedDateEvents.length} event${selectedDateEvents.length > 1 ? 's' : ''}`}
+              </p>
             </div>
             <button
               type="button"
-              className="calendar-agenda-quick-add"
+              className="calendar-agenda__add-btn"
               onClick={() => {
                 setNewEventDate(selectedDate);
                 setShowAddModal(true);
@@ -413,50 +576,56 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             </button>
           </div>
 
-          <div className="calendar-events-list">
+          <div className="calendar-agenda__list">
             {selectedDateEvents.length === 0 ? (
-              <div className="calendar-events-empty">
-                <span className="calendar-empty-icon">🏖️</span>
-                <p>No events scheduled for this day</p>
+              <div className="calendar-empty-day" style={{ padding: '2rem 1rem', textAlign: 'center' }}>
+                <span className="calendar-empty-icon" style={{ fontSize: '2.5rem', display: 'block', marginBottom: '0.75rem' }}>🗓️</span>
+                <p style={{ fontWeight: 600, color: 'var(--color-text)', margin: '0 0 0.5rem 0' }}>
+                  No events on this day
+                </p>
+                <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)', margin: '0 0 1rem 0' }}>
+                  Use the quick AI scheduling prompt above or add an event manually.
+                </p>
                 <button
                   type="button"
-                  className="calendar-btn-empty-add"
+                  className="calendar-btn-today"
                   onClick={() => {
                     setNewEventDate(selectedDate);
                     setShowAddModal(true);
                   }}
                 >
-                  Schedule an Event
+                  Schedule Event
                 </button>
               </div>
             ) : (
               selectedDateEvents.map((evt) => {
-                const time = evt.start.includes('T')
+                const timeStr = evt.start.includes('T')
                   ? evt.start.split('T')[1].slice(0, 5)
                   : 'All day';
+                const cat = evt.category || 'meeting';
 
                 return (
-                  <div key={evt.id} className={`calendar-event-card calendar-event-card--${evt.category || 'meeting'}`}>
-                    <div className="calendar-event-card__top">
-                      <span className="calendar-event-time">⏰ {time}</span>
-                      <span className={`calendar-event-badge calendar-event-badge--${evt.category || 'meeting'}`}>
-                        {evt.category || 'meeting'}
+                  <div key={evt.id} className={`calendar-event-card calendar-event-card--${cat}`}>
+                    <div className="calendar-event-card__time">
+                      <span className="calendar-event-time-badge">{timeStr}</span>
+                      <span className={`calendar-event-cat-badge calendar-event-cat-badge--${cat}`}>
+                        {cat}
                       </span>
                     </div>
 
-                    <h4 className="calendar-event-summary">{evt.summary}</h4>
+                    <div className="calendar-event-card__body">
+                      <h4 className="calendar-event-title">{evt.summary}</h4>
+                      {evt.location && (
+                        <p className="calendar-event-desc" style={{ color: 'var(--color-accent)' }}>
+                          📍 {evt.location}
+                        </p>
+                      )}
+                      {evt.description && (
+                        <p className="calendar-event-desc">{evt.description}</p>
+                      )}
+                    </div>
 
-                    {evt.description && (
-                      <p className="calendar-event-desc">{evt.description}</p>
-                    )}
-
-                    {evt.location && (
-                      <div className="calendar-event-location">
-                        📍 {evt.location}
-                      </div>
-                    )}
-
-                    <div className="calendar-event-actions">
+                    <div className="calendar-event-card__actions">
                       {onScheduleWithAI && (
                         <button
                           type="button"
@@ -548,20 +717,34 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 </div>
               </div>
 
-              <div className="calendar-form__group">
-                <label htmlFor="evt-category" className="calendar-form__label">Category</label>
-                <select
-                  id="evt-category"
-                  value={newEventCategory}
-                  onChange={(e) => setNewEventCategory(e.target.value as typeof newEventCategory)}
-                  className="calendar-form__select"
-                >
-                  <option value="meeting">🤝 Meeting</option>
-                  <option value="hackathon">🚀 Hackathon</option>
-                  <option value="deadline">🎯 Deadline</option>
-                  <option value="reminder">⏰ Reminder</option>
-                  <option value="personal">🌟 Personal</option>
-                </select>
+              <div className="calendar-form__row">
+                <div className="calendar-form__group">
+                  <label htmlFor="evt-category" className="calendar-form__label">Category</label>
+                  <select
+                    id="evt-category"
+                    value={newEventCategory}
+                    onChange={(e) => setNewEventCategory(e.target.value as typeof newEventCategory)}
+                    className="calendar-form__select"
+                  >
+                    <option value="meeting">🤝 Meeting</option>
+                    <option value="hackathon">🚀 Hackathon</option>
+                    <option value="deadline">🎯 Deadline</option>
+                    <option value="reminder">⏰ Reminder</option>
+                    <option value="personal">🌟 Personal</option>
+                  </select>
+                </div>
+
+                <div className="calendar-form__group">
+                  <label htmlFor="evt-loc" className="calendar-form__label">Location / Link</label>
+                  <input
+                    id="evt-loc"
+                    type="text"
+                    placeholder="e.g. Zoom, Google Meet, or Room 402"
+                    value={newEventLocation}
+                    onChange={(e) => setNewEventLocation(e.target.value)}
+                    className="calendar-form__input"
+                  />
+                </div>
               </div>
 
               <div className="calendar-form__group">
@@ -584,7 +767,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   className="calendar-form__textarea"
                 />
               </div>
-
 
               <div className="calendar-form__actions">
                 <button

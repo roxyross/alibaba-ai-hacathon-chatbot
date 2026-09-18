@@ -123,7 +123,7 @@ class MagicLinkService:
             if user is None:
                 return None
             user.last_login_at = now
-            jwt, ttl = create_session_token(user.id)
+            jwt, ttl = create_session_token(user.id, email=user.email)
             return user, jwt, ttl
 
         async with factory() as session:
@@ -145,7 +145,7 @@ class MagicLinkService:
             user.last_login_at = now
             await session.commit()
 
-        jwt, ttl = create_session_token(user.id)
+        jwt, ttl = create_session_token(user.id, email=user.email)
         return user, jwt, ttl
 
     async def get_user(self, user_id: str) -> User | None:
@@ -160,11 +160,17 @@ class MagicLinkService:
 
         try:
             import asyncio
-            async with asyncio.timeout(1.5):
+            async with asyncio.timeout(8.0):
                 async with factory() as session:
-                    return (
+                    user = (
                         await session.execute(select(User).where(User.id == user_id))
                     ).scalar_one_or_none()
-        except Exception:
+                    if user is not None:
+                        self._mem_users[user.email] = user
+                    return user
+        except Exception as exc:
+            import structlog
+            structlog.get_logger().warning("auth.get_user.failed", user_id=user_id, error=str(exc))
             return None
+
 

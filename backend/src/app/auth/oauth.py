@@ -298,7 +298,7 @@ async def _db_upsert(email: str) -> User:
         return _memory_upsert(email)
     try:
         import asyncio
-        async with asyncio.timeout(1.5):
+        async with asyncio.timeout(8.0):
             async with factory() as session:
                 existing = (
                     await session.execute(select(User).where(User.email == email))
@@ -326,8 +326,31 @@ async def _db_upsert(email: str) -> User:
                     pass
                 return user
     except Exception as exc:
-        log.warning("auth.oauth.db_upsert_failed_fallback_memory", error=str(exc))
-        return _memory_upsert(email)
+        log.warning("auth.oauth.db_upsert_failed_retry", error=str(exc))
+        # Retry once on connection hiccup before falling back
+        try:
+            import asyncio
+            async with asyncio.timeout(8.0):
+                async with factory() as session:
+                    existing = (
+                        await session.execute(select(User).where(User.email == email))
+                    ).scalar_one_or_none()
+                    if existing is not None:
+                        from datetime import datetime, timezone
+                        existing.last_login_at = datetime.now(timezone.utc)
+                        await session.commit()
+                        _MEM_USERS[email] = existing
+                        return existing
+                    user = User(email=email)
+                    session.add(user)
+                    await session.commit()
+                    await session.refresh(user)
+                    _MEM_USERS[email] = user
+                    return user
+        except Exception as retry_exc:
+            log.error("auth.oauth.db_upsert_retry_failed", error=str(retry_exc))
+            return _memory_upsert(email)
+
 
 
 async def upsert_user_by_email(email: str) -> User:

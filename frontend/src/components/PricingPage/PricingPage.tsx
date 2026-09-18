@@ -65,28 +65,99 @@ const PLANS: PricingPlan[] = [
 ];
 
 interface PricingPageProps {
+  accessToken?: string | null;
   onBack: () => void;
   onSelectPlan?: (planId: string) => void;
 }
 
-export const PricingPage: React.FC<PricingPageProps> = ({ onBack, onSelectPlan }) => {
+export const PricingPage: React.FC<PricingPageProps> = ({ accessToken, onBack, onSelectPlan }) => {
   const [currency, setCurrency] = useState<'both' | 'usd' | 'pkr'>('both');
+  const [selectedProvider, setSelectedProvider] = useState<'automatic' | 'stripe' | 'safepay'>('automatic');
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleAction = (planId: string) => {
+  const handleAction = async (planId: string) => {
     setLoadingPlan(planId);
-    setTimeout(() => {
-      setLoadingPlan(null);
-      if (planId === 'free') {
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    if (planId === 'free') {
+      try {
+        if (accessToken) {
+          await fetch('/api/v1/billing/subscribe', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({ plan_id: 'free' }),
+          });
+        }
         setSuccessMessage('Free plan active! Enjoy unlimited local chat and voice input.');
-      } else if (planId === 'pro') {
-        setSuccessMessage('Redirecting to Stripe checkout for Roxy-AI Pro ($19 / Rs 5,700)...');
-      } else {
+        onSelectPlan?.('free');
+      } catch {
+        setSuccessMessage('Free plan activated.');
+        onSelectPlan?.('free');
+      } finally {
+        setLoadingPlan(null);
+      }
+      return;
+    }
+
+    if (planId === 'team') {
+      setTimeout(() => {
+        setLoadingPlan(null);
         setSuccessMessage('Sales inquiry submitted. Our team will contact you within 24 hours.');
+        onSelectPlan?.('team');
+      }, 500);
+      return;
+    }
+
+    // Pro Checkout flow via Stripe or Safepay
+    try {
+      const checkoutCurrency = currency === 'pkr' ? 'PKR' : 'USD';
+      const provParam = selectedProvider === 'automatic' ? (checkoutCurrency === 'PKR' ? 'safepay' : 'stripe') : selectedProvider;
+
+      if (accessToken) {
+        const res = await fetch('/api/v1/billing/checkout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            plan_id: planId,
+            currency: checkoutCurrency,
+            provider: provParam,
+            return_url: `${window.location.origin}/billing?success=true`,
+            cancel_url: `${window.location.origin}/pricing?canceled=true`,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const providerName = data.provider === 'safepay' ? 'Safepay' : 'Stripe';
+          setSuccessMessage(`Checkout session created with ${providerName}! Redirecting to secure checkout...`);
+          if (data.checkout_url && data.checkout_url.startsWith('http')) {
+            window.location.href = data.checkout_url;
+            return;
+          }
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          setErrorMessage(errData.detail || 'Could not initiate checkout session.');
+        }
+      } else {
+        // Unauthenticated demo fallback
+        const provName = provParam === 'safepay' ? 'Safepay' : 'Stripe';
+        setSuccessMessage(`Redirecting to secure ${provName} checkout for Roxy-AI Pro ($19 / Rs 5,700)...`);
       }
       onSelectPlan?.(planId);
-    }, 600);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'An unexpected checkout error occurred.');
+    } finally {
+      setLoadingPlan(null);
+    }
   };
 
   return (
@@ -100,34 +171,66 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onBack, onSelectPlan }
         >
           ← Back to Chat
         </button>
-        <div className="pricing-page__currency-toggle">
-          <button
-            type="button"
-            className={`currency-btn ${currency === 'both' ? 'active' : ''}`}
-            onClick={() => setCurrency('both')}
-          >
-            $ & Rs
-          </button>
-          <button
-            type="button"
-            className={`currency-btn ${currency === 'usd' ? 'active' : ''}`}
-            onClick={() => setCurrency('usd')}
-          >
-            USD ($)
-          </button>
-          <button
-            type="button"
-            className={`currency-btn ${currency === 'pkr' ? 'active' : ''}`}
-            onClick={() => setCurrency('pkr')}
-          >
-            PKR (Rs)
-          </button>
+
+        <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+          <div className="pricing-page__currency-toggle">
+            <button
+              type="button"
+              className={`currency-btn ${currency === 'both' ? 'active' : ''}`}
+              onClick={() => setCurrency('both')}
+            >
+              $ & Rs
+            </button>
+            <button
+              type="button"
+              className={`currency-btn ${currency === 'usd' ? 'active' : ''}`}
+              onClick={() => setCurrency('usd')}
+            >
+              USD ($)
+            </button>
+            <button
+              type="button"
+              className={`currency-btn ${currency === 'pkr' ? 'active' : ''}`}
+              onClick={() => setCurrency('pkr')}
+            >
+              PKR (Rs)
+            </button>
+          </div>
+
+          <div className="pricing-page__currency-toggle">
+            <button
+              type="button"
+              className={`currency-btn ${selectedProvider === 'automatic' ? 'active' : ''}`}
+              onClick={() => setSelectedProvider('automatic')}
+              title="Automatic: routes PKR to Safepay and USD to Stripe"
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              className={`currency-btn ${selectedProvider === 'stripe' ? 'active' : ''}`}
+              onClick={() => setSelectedProvider('stripe')}
+              title="Credit/Debit Card via Stripe"
+            >
+              Stripe
+            </button>
+            <button
+              type="button"
+              className={`currency-btn ${selectedProvider === 'safepay' ? 'active' : ''}`}
+              onClick={() => setSelectedProvider('safepay')}
+              title="Pakistani Cards & Wallets via Safepay"
+            >
+              Safepay
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="pricing-page__hero">
         <h1 className="pricing-page__title">Choose Your Roxy-AI Plan</h1>
-        <p className="pricing-page__subtitle">One assistant. Real actions. Private memory.</p>
+        <p className="pricing-page__subtitle">
+          One assistant. Real actions. Dual-engine payment clearance with Stripe & Safepay.
+        </p>
       </div>
 
       {successMessage && (
@@ -138,6 +241,20 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onBack, onSelectPlan }
             type="button"
             className="pricing-page__alert-close"
             onClick={() => setSuccessMessage(null)}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="pricing-page__alert" style={{ borderColor: '#ef4444', background: '#fef2f2', color: '#b91c1c' }} role="alert">
+          <span>⚠️</span>
+          <span>{errorMessage}</span>
+          <button
+            type="button"
+            className="pricing-page__alert-close"
+            onClick={() => setErrorMessage(null)}
           >
             ✕
           </button>

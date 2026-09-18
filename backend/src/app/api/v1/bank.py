@@ -12,11 +12,13 @@ Access tokens are stored encrypted in the backend's database.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
-import structlog
 
 import httpx
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select, update
@@ -33,6 +35,20 @@ PLAID_SECRET = os.getenv("PLAID_SECRET")
 PLAID_ENV = os.getenv("PLAID_ENVIRONMENT", "sandbox")
 
 router = APIRouter(prefix="/bank", tags=["bank"])
+
+
+@dataclass
+class _MemBankConnection:
+    id: str
+    user_id: str
+    access_token: str
+    item_id: str
+    institution: str | None = None
+    revoked: bool = False
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+_MEM_BANK_CONNECTIONS: dict[str, _MemBankConnection] = {}
 
 # ---------------------------------------------------------------------------
 # Request/response schemas
@@ -132,7 +148,7 @@ async def create_link_token(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Plaid connection failed: {exc}",
-        )
+        ) from exc
 
 
 @router.post("/demo-connect", response_model=BankConnectResponse, status_code=status.HTTP_201_CREATED)
@@ -140,47 +156,157 @@ async def connect_demo_bank(
     current_user: User = Depends(get_current_user),
 ) -> BankConnectResponse:
     """Instantly connect demo bank accounts (Chase Premier Checking & High Yield Savings) for testing and evaluation."""
-    factory = get_session_factory()
-    if factory is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database not configured",
-        )
-
     user_id = str(current_user.id)
+    factory = get_session_factory()
+    conn_id = str(uuid4())
+    conn_created_at = datetime.now(UTC)
 
-    async with factory() as sess:
-        # Check if an existing demo connection exists for this user
-        result = await sess.execute(
-            select(BankConnection).where(
-                BankConnection.user_id == user_id,
-                BankConnection.item_id.like("demo_chase_%"),
-            )
-        )
-        existing = result.scalars().first()
-        if existing:
-            existing.revoked = False
-            existing.institution = "Chase Bank"
-            await sess.commit()
-            await sess.refresh(existing)
-            conn = existing
+    if factory is not None:
+        try:
+            async with factory() as sess:
+                result = await sess.execute(
+                    select(BankConnection).where(
+                        BankConnection.user_id == user_id,
+                        BankConnection.item_id.like("demo_chase_%"),
+                    )
+                )
+                existing = result.scalars().first()
+                if existing:
+                    existing.revoked = False
+                    existing.institution = "Chase Bank"
+                    await sess.commit()
+                    await sess.refresh(existing)
+                    conn_id = str(existing.id)
+                    conn_created_at = existing.created_at
+                else:
+                    db_conn = BankConnection(
+                        user_id=user_id,
+                        access_token=f"access-sandbox-demo-{uuid4().hex[:8]}",
+                        item_id=f"demo_chase_{uuid4().hex[:12]}",
+                        institution="Chase Bank",
+                        revoked=False,
+                    )
+                    sess.add(db_conn)
+                    await sess.commit()
+                    await sess.refresh(db_conn)
+                    conn_id = str(db_conn.id)
+                    conn_created_at = db_conn.created_at
+        except Exception as exc:
+            log.warning("bank.demo_connect.db_failed", error=str(exc))
+    else:
+        found = None
+        for mc in _MEM_BANK_CONNECTIONS.values():
+            if mc.user_id == user_id and mc.item_id.startswith("demo_chase_"):
+                mc.revoked = False
+                mc.institution = "Chase Bank"
+                found = mc
+                break
+        if found:
+            conn_id = found.id
+            conn_created_at = found.created_at
         else:
-            conn = BankConnection(
+            mem_c = _MemBankConnection(
+                id=conn_id,
                 user_id=user_id,
                 access_token=f"access-sandbox-demo-{uuid4().hex[:8]}",
                 item_id=f"demo_chase_{uuid4().hex[:12]}",
                 institution="Chase Bank",
-                revoked=False,
             )
-            sess.add(conn)
-            await sess.commit()
-            await sess.refresh(conn)
+            _MEM_BANK_CONNECTIONS[mem_c.id] = mem_c
+            conn_created_at = mem_c.created_at
 
     log.info("bank.demo_connect.success", user_id=user_id)
+
+    # Provision user's finance accounts and ledger transactions in FinanceRepository
+    from app.finance.repository import FinanceRepository
+    repo = FinanceRepository()
+    existing_accounts = await repo.list_accounts(user_id)
+    has_plaid = any(a.provider == "plaid" for a in existing_accounts)
+
+    if not has_plaid:
+        chk_acc = await repo.create_account(
+            user_id=user_id,
+            account_holder="Chase Premier Checking",
+            institution_name="Chase Bank",
+            account_type="checking",
+            account_number_full="DEP-4821-9982",
+            account_number_masked="••••••••4821",
+            balance_usd=4520.50,
+            balance_pkr=1356150.00,
+            budget_limit_usd=5000.00,
+            budget_limit_pkr=1500000.00,
+            provider="plaid",
+        )
+        await repo.create_account(
+            user_id=user_id,
+            account_holder="Chase High Yield Savings",
+            institution_name="Chase Bank",
+            account_type="savings",
+            account_number_full="SAV-9012-4411",
+            account_number_masked="••••••••9012",
+            balance_usd=12850.00,
+            balance_pkr=3855000.00,
+            budget_limit_usd=20000.00,
+            budget_limit_pkr=6000000.00,
+            provider="plaid",
+        )
+
+        # Seed initial transactions for the checking account
+        await repo.create_transaction(
+            user_id=user_id,
+            account_id=chk_acc.id,
+            description="Trader Joe's - Organic Groceries",
+            reason="Weekly groceries & essentials",
+            category="Groceries",
+            amount_usd=-84.20,
+            amount_pkr=-25260.00,
+            transaction_type="debit",
+        )
+        await repo.create_transaction(
+            user_id=user_id,
+            account_id=chk_acc.id,
+            description="Blue Bottle Coffee",
+            reason="Team coffee meeting",
+            category="Dining",
+            amount_usd=-6.50,
+            amount_pkr=-1950.00,
+            transaction_type="debit",
+        )
+        await repo.create_transaction(
+            user_id=user_id,
+            account_id=chk_acc.id,
+            description="GitHub Copilot Subscription",
+            reason="Developer tooling",
+            category="Software",
+            amount_usd=-10.00,
+            amount_pkr=-3000.00,
+            transaction_type="debit",
+        )
+        await repo.create_transaction(
+            user_id=user_id,
+            account_id=chk_acc.id,
+            description="Tech Salary Direct Deposit",
+            reason="Bi-weekly engineering compensation",
+            category="Income",
+            amount_usd=3450.00,
+            amount_pkr=1035000.00,
+            transaction_type="credit",
+        )
+        await repo.create_transaction(
+            user_id=user_id,
+            account_id=chk_acc.id,
+            description="PG&E Utility Bill",
+            reason="Monthly electricity & power",
+            category="Utilities",
+            amount_usd=-125.40,
+            amount_pkr=-37620.00,
+            transaction_type="debit",
+        )
+
     return BankConnectResponse(
-        connection_id=str(conn.id),
+        connection_id=conn_id,
         institution="Chase Bank",
-        connected_at=conn.created_at.isoformat(),
+        connected_at=conn_created_at.isoformat(),
     )
 
 
@@ -264,38 +390,65 @@ async def store_bank_connection(
         )
 
     factory = get_session_factory()
-    if factory is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database not configured",
-        )
+    conn_id = str(uuid4())
+    conn_created_at = datetime.now(UTC)
 
-    async with factory() as sess:
-        result = await sess.execute(
-            select(BankConnection).where(
-                BankConnection.item_id == body.item_id,
-            )
-        )
-        existing = result.scalars().first()
-        if existing:
-            existing.user_id = str(current_user.id)
-            existing.access_token = body.access_token
-            existing.institution = body.institution
-            existing.revoked = False
-            await sess.commit()
-            await sess.refresh(existing)
-            conn = existing
+    if factory is not None:
+        try:
+            async with factory() as sess:
+                result = await sess.execute(
+                    select(BankConnection).where(
+                        BankConnection.item_id == body.item_id,
+                    )
+                )
+                existing = result.scalars().first()
+                if existing:
+                    existing.user_id = str(current_user.id)
+                    existing.access_token = body.access_token
+                    existing.institution = body.institution
+                    existing.revoked = False
+                    await sess.commit()
+                    await sess.refresh(existing)
+                    conn_id = str(existing.id)
+                    conn_created_at = existing.created_at
+                else:
+                    db_conn = BankConnection(
+                        user_id=str(current_user.id),
+                        access_token=body.access_token,
+                        item_id=body.item_id,
+                        institution=body.institution,
+                        revoked=False,
+                    )
+                    sess.add(db_conn)
+                    await sess.commit()
+                    await sess.refresh(db_conn)
+                    conn_id = str(db_conn.id)
+                    conn_created_at = db_conn.created_at
+        except Exception as exc:
+            log.warning("bank.connect.db_failed", error=str(exc))
+    else:
+        found = None
+        for mc in _MEM_BANK_CONNECTIONS.values():
+            if mc.item_id == body.item_id:
+                mc.user_id = str(current_user.id)
+                mc.access_token = body.access_token
+                mc.institution = body.institution
+                mc.revoked = False
+                found = mc
+                break
+        if found:
+            conn_id = found.id
+            conn_created_at = found.created_at
         else:
-            conn = BankConnection(
+            mem_c = _MemBankConnection(
+                id=conn_id,
                 user_id=str(current_user.id),
                 access_token=body.access_token,
                 item_id=body.item_id,
                 institution=body.institution,
-                revoked=False,
             )
-            sess.add(conn)
-            await sess.commit()
-            await sess.refresh(conn)
+            _MEM_BANK_CONNECTIONS[mem_c.id] = mem_c
+            conn_created_at = mem_c.created_at
 
     log.info(
         "bank.connect.stored",
@@ -305,9 +458,9 @@ async def store_bank_connection(
     )
 
     return BankConnectResponse(
-        connection_id=str(conn.id),
+        connection_id=conn_id,
         institution=body.institution,
-        connected_at=conn.created_at.isoformat(),
+        connected_at=conn_created_at.isoformat(),
     )
 
 
@@ -320,27 +473,35 @@ async def list_bank_accounts(
     Returns mock data until the Plaid secret is configured in the backend.
     When PLAID_SECRET is set, this endpoint calls Plaid's Accounts API.
     """
+    connections_data: list[tuple[str, str]] = []
     factory = get_session_factory()
-    if factory is None:
-        return BankAccountsResponse(accounts=[])
+    if factory is not None:
+        try:
+            async with factory() as sess:
+                result = await sess.execute(
+                    select(BankConnection).where(
+                        BankConnection.user_id == str(current_user.id),
+                        BankConnection.revoked == False,  # noqa: E712
+                    )
+                )
+                connections = result.scalars().all()
+                for c in connections:
+                    connections_data.append((str(c.id), c.institution or "Chase Bank"))
+        except Exception as exc:
+            log.warning("bank.list_accounts.db_failed", error=str(exc))
 
-    async with factory() as sess:
-        result = await sess.execute(
-            select(BankConnection).where(
-                BankConnection.user_id == str(current_user.id),
-                BankConnection.revoked == False,  # noqa: E712
-            )
-        )
-        connections = result.scalars().all()
+    if not connections_data:
+        for mc in _MEM_BANK_CONNECTIONS.values():
+            if mc.user_id == str(current_user.id) and not mc.revoked:
+                connections_data.append((mc.id, mc.institution or "Chase Bank"))
 
     accounts: list[BankAccountResponse] = []
-    for conn in connections:
-        inst = conn.institution or "Chase Bank"
+    for conn_id, inst in connections_data:
         accounts.append(
             BankAccountResponse(
-                connection_id=str(conn.id),
+                connection_id=conn_id,
                 institution=inst,
-                account_id=f"{conn.id}-chk",
+                account_id=f"{conn_id}-chk",
                 name=f"{inst} Premier Checking",
                 type="depository",
                 mask="4821",
@@ -349,9 +510,9 @@ async def list_bank_accounts(
         )
         accounts.append(
             BankAccountResponse(
-                connection_id=str(conn.id),
+                connection_id=conn_id,
                 institution=inst,
-                account_id=f"{conn.id}-sav",
+                account_id=f"{conn_id}-sav",
                 name=f"{inst} High Yield Savings",
                 type="savings",
                 mask="9012",
@@ -373,19 +534,31 @@ async def remove_bank_connection(
 ) -> Response:
     """Remove all bank connections for the authenticated user (revoke tokens)."""
     factory = get_session_factory()
-    if factory is None:
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    if factory is not None:
+        try:
+            async with factory() as sess:
+                await sess.execute(
+                    update(BankConnection)
+                    .where(
+                        BankConnection.user_id == str(current_user.id),
+                        BankConnection.revoked == False,  # noqa: E712
+                    )
+                    .values(revoked=True)
+                )
+                await sess.commit()
+        except Exception as exc:
+            log.warning("bank.disconnect.db_failed", error=str(exc))
 
-    async with factory() as sess:
-        await sess.execute(
-            update(BankConnection)
-            .where(
-                BankConnection.user_id == str(current_user.id),
-                BankConnection.revoked == False,  # noqa: E712
-            )
-            .values(revoked=True)
-        )
-        await sess.commit()
+    for mc in _MEM_BANK_CONNECTIONS.values():
+        if mc.user_id == str(current_user.id):
+            mc.revoked = True
+
+    from app.finance.repository import FinanceRepository
+    repo = FinanceRepository()
+    accounts = await repo.list_accounts(str(current_user.id))
+    for acc in accounts:
+        if acc.provider == "plaid":
+            await repo.delete_account(acc.id, str(current_user.id))
 
     log.info("bank.disconnect", user_id=str(current_user.id))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

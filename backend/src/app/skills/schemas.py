@@ -414,6 +414,7 @@ class DocumentRagQueryRequest(BaseModel):
     top_k: Annotated[int, Field(ge=1, le=50)] = 8
     document_ids: list[str] | None = Field(default=None, description="Scope to specific uploaded docs")
     rerank: bool = Field(default=False, description="Re-rank results with a cross-encoder")
+    min_score: float = Field(default=0.0, description="Minimum relevance score threshold")
     user_id: str | None = Field(default=None, description="Stamped by the router from the authenticated user.")
 
 

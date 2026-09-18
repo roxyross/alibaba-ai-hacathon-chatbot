@@ -16,8 +16,10 @@ import os
 import re
 import urllib.parse
 import uuid
+from collections.abc import AsyncGenerator
+from datetime import UTC
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any
 
 import httpx
 import structlog
@@ -33,10 +35,10 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.auth.dependencies import get_current_user, get_optional_current_user
-from app.auth.models import User
 from app.ai_gateway.models.schemas import AIRequest, AIResponse, Message, MessageRole
 from app.ai_gateway.services.router import AIRouter
+from app.auth.dependencies import get_current_user, get_optional_current_user
+from app.auth.models import User
 from app.skills.critic_review import get_executor as critic_review_executor
 from app.skills.document_rag_query import DocumentRAGSkill
 from app.skills.schemas import CriticReviewRequest
@@ -77,6 +79,24 @@ _AUTOMATION_PATTERNS = [
     re.compile(r"\b(cron|定时|自动)\b", re.I),
 ]
 
+# Workspace keywords
+_WORKSPACE_PATTERNS = [
+    re.compile(r"\b(project|projects|workspace|workspaces|milestones?|kanban)\b", re.I),
+    re.compile(r"\b(action\s*item|action\s*items|deliverables?|deliverable)\b", re.I),
+]
+
+# Email keywords
+_EMAIL_PATTERNS = [
+    re.compile(r"\b(email|emails|outbox|drafts?|compose\s*email|send\s*email|write\s*email)\b", re.I),
+    re.compile(r"\b(mail\s*to|sent\s*mail|email\s*draft|email\s*message)\b", re.I),
+]
+
+# Voice & Audio keywords
+_VOICE_PATTERNS = [
+    re.compile(r"\b(voice\s*notes?|voice\s*recordings?|audio\s*recordings?|voice\s*transcripts?|audio\s*notes?)\b", re.I),
+    re.compile(r"\b(transcribe|speech\s*to\s*text|text\s*to\s*speech|voice\s*session|audio\s*intelligence)\b", re.I),
+]
+
 # Research keywords
 _RESEARCH_PATTERNS = [
     re.compile(r"\b(what.is|who.is|when.did|where.is|how.do)\b", re.I),
@@ -94,14 +114,31 @@ _CODING_PATTERNS = [
 
 # Study keywords
 _STUDY_PATTERNS = [
-    re.compile(r"\b(flashcard|study|quiz|learn| memorize|revision)\b", re.I),
+    re.compile(r"\b(flashcard|flashcards|study|quiz|quizzes|learn|memorize|revision|recall)\b", re.I),
+    re.compile(r"\b(spaced.repetition|leitner|study.deck|study.guide|exam.prep|practice.quiz|test.me)\b", re.I),
     re.compile(r"\b(chapter|course|lecture|textbook)\b", re.I),
 ]
 
 # Browser keywords
 _BROWSER_PATTERNS = [
-    re.compile(r"\b(browse|navigate|go.to|open.website|visit)\b", re.I),
-    re.compile(r"\b(fill.form|submit.form|login|download)\b", re.I),
+    re.compile(r"\b(browse|navigate|go.to|open.website|visit|browser)\b", re.I),
+    re.compile(r"\b(fill.form|submit.form|login|download|extract.table|inspect.dom|web.automation|browser.task)\b", re.I),
+]
+
+# Semantic memory keywords
+_MEMORY_PATTERNS = [
+    re.compile(r"\b(remember|recall|memories|memory|memorized)\b", re.I),
+    re.compile(r"\b(preference|preferences|prefer|preferred)\b", re.I),
+    re.compile(r"\b(don't\s+forget|do\s+not\s+forget|forget\s+that|forget\s+my)\b", re.I),
+    re.compile(r"\b(curator|curate|pruning|prune)\b", re.I),
+]
+
+# Audit and security activity keywords
+_AUDIT_PATTERNS = [
+    re.compile(r"\b(audit|audit\s*log|audit\s*trail|activity\s*log|security\s*log|history\s*of\s*actions)\b", re.I),
+    re.compile(r"\b(what\s+did\s+(you|jarvis|roxy)\s+do\s+(today|recently))\b", re.I),
+    re.compile(r"\b(what\s+actions\s+have\s+been\s+taken|what\s+actions\s+did\s+you\s+perform)\b", re.I),
+    re.compile(r"\b(actions\s+today|events\s+today|security\s+review)\b", re.I),
 ]
 
 
@@ -536,6 +573,9 @@ def classify_intent(message: str) -> str:
 
     # Count matches per category
     scores: dict[str, int] = {
+        "voice": sum(1 for p in _VOICE_PATTERNS if p.search(msg)),
+        "email": sum(1 for p in _EMAIL_PATTERNS if p.search(msg)),
+        "workspace": sum(1 for p in _WORKSPACE_PATTERNS if p.search(msg)),
         "finance": sum(1 for p in _FINANCE_PATTERNS if p.search(msg)),
         "critic": sum(1 for p in _CRITIC_PATTERNS if p.search(msg)),
         "automation": sum(1 for p in _AUTOMATION_PATTERNS if p.search(msg)),
@@ -543,6 +583,8 @@ def classify_intent(message: str) -> str:
         "coding": sum(1 for p in _CODING_PATTERNS if p.search(msg)),
         "study": sum(1 for p in _STUDY_PATTERNS if p.search(msg)),
         "browser": sum(1 for p in _BROWSER_PATTERNS if p.search(msg)),
+        "memory": sum(1 for p in _MEMORY_PATTERNS if p.search(msg)),
+        "audit": sum(1 for p in _AUDIT_PATTERNS if p.search(msg)),
     }
 
     # Pick the highest-scoring non-zero category
@@ -725,6 +767,45 @@ def _get_agent_prompt(slug: str) -> str:
     return _CACHED_PROMPTS[slug]
 
 
+async def _persist_runtime_interaction(
+    session_id: str | None,
+    user_id: str,
+    user_message: str,
+    assistant_message: str,
+    provider: str = "runtime",
+    model: str = "coordinator",
+) -> None:
+    """Safely persist runtime interaction turns into chat_messages."""
+    if not session_id:
+        return
+    try:
+        from app.chat_history.repository import ChatMessageRepository
+        from app.session.repository import ChatSessionRepository
+
+        sessions = ChatSessionRepository()
+        history = ChatMessageRepository()
+        session = await sessions.get_by_id(session_id)
+        if session is None:
+            return
+        if user_message:
+            await history.append(
+                session_id=session_id, role="user", content=user_message
+            )
+        if assistant_message:
+            await history.append(
+                session_id=session_id,
+                role="assistant",
+                content=assistant_message,
+                provider=provider,
+                model=model,
+            )
+        if (not session.title or session.title in ("New chat", "New task")) and user_message:
+            title = user_message.strip().splitlines()[0][:80]
+            await sessions.rename(session.id, session.user_id, title)
+    except Exception as exc:
+        log.warning("runtime.persist.failed", error=str(exc))
+
+
 async def _call_ai_for_agent(
     agent_slug: str,
     user_message: str,
@@ -741,7 +822,31 @@ async def _call_ai_for_agent(
     is_img, img_prompt = check_image_intent(user_message)
     if is_img or agent_slug == "image_generator":
         prompt = img_prompt or user_message
-        return generate_image_response(prompt), "roxy_vision", "flux-diffusion"
+        img_res = generate_image_response(prompt)
+        if user_id:
+            try:
+                from app.images.repository import ImageStudioRepository
+                img_repo = ImageStudioRepository()
+                cleaned_p = prompt.strip()
+                enc_p = urllib.parse.quote(cleaned_p)
+                i_url = f"https://image.pollinations.ai/prompt/{enc_p}?width=1024&height=1024&nologo=true&enhance=true"
+                await img_repo.create_generation(
+                    user_id=user_id,
+                    prompt=cleaned_p,
+                    media_url=i_url,
+                    style_preset="photorealistic",
+                    aspect_ratio="1:1",
+                    width=1024,
+                    height=1024,
+                    model="flux",
+                )
+            except Exception as exc:
+                log.warning("runtime.image_persist_failed", error=str(exc))
+        if session_id:
+            await _persist_runtime_interaction(
+                session_id, user_id or "", user_message, img_res, "roxy_vision", "flux-diffusion"
+            )
+        return img_res, "roxy_vision", "flux-diffusion"
 
     system_prompt = _get_agent_prompt(agent_slug)
 
@@ -766,7 +871,19 @@ async def _call_ai_for_agent(
         live_context = await fetch_live_weather(city)
         if not live_context:
             live_context = await fetch_live_search(f"current weather in {city or 'today'}")
-    elif is_search or agent_slug == "research":
+    elif (is_search or agent_slug == "research") and not any(
+        w in user_message.lower()
+        for w in (
+            "saved research",
+            "saved report",
+            "saved reports",
+            "my research",
+            "my reports",
+            "in my library",
+            "saved investigations",
+            "have any saved",
+        )
+    ):
         live_context = await fetch_live_search(search_q)
 
     if live_context:
@@ -780,6 +897,435 @@ async def _call_ai_for_agent(
                 ),
             )
         )
+
+    # ── Knowledge Vault RAG Grounding ──────────────────────────────────────
+    grounded_chunks: list[str] = []
+    try:
+        from app.skills.document_rag_query import DocumentRAGSkill
+        from app.skills.schemas import DocumentRagQueryRequest
+        rag_skill = DocumentRAGSkill()
+        rag_res = await rag_skill.execute(
+            DocumentRagQueryRequest(
+                query=user_message,
+                user_id=user_id or "guest_trial",
+                top_k=3,
+                min_score=0.20,
+            )
+        )
+        if rag_res.chunks:
+            grounded_chunks = [
+                f"[Source: {c.document_name}]\n{c.content}"
+                for c in rag_res.chunks
+                if c.relevance_score >= 0.20
+            ]
+            if grounded_chunks:
+                history_messages.append(
+                    Message(
+                        role=MessageRole.SYSTEM,
+                        content=(
+                            "[KNOWLEDGE VAULT CONTEXT — USER PRIVATE DOCUMENTS]:\n"
+                            + "\n\n".join(grounded_chunks)
+                            + "\n\nGround your answer using the excerpts above. Include citation [Source: <document_name>] when referencing document facts."
+                        ),
+                    )
+                )
+    except Exception as exc:
+        log.warning("runtime.rag_grounding_failed", error=str(exc))
+
+    # Phase 6: Financial Ledger Grounding for authenticated users
+    is_finance = (agent_slug == "finance") or any(
+        w in user_message.lower() for w in ("balance", "account", "bank", "raast", "plaid", "spending", "budget", "finance", "runway", "transaction")
+    )
+    if user_id and is_finance:
+        try:
+            from app.finance.repository import FinanceRepository
+            fin_repo = FinanceRepository()
+            fin_accs = await fin_repo.list_accounts(user_id)
+            if fin_accs:
+                tot_usd = sum(a.balance_usd for a in fin_accs)
+                tot_pkr = sum(a.balance_pkr for a in fin_accs)
+                acc_lines = [
+                    f"- {a.institution_name} ({a.account_holder}, {a.account_type}): ${a.balance_usd:,.2f} / Rs {a.balance_pkr:,.0f} [{a.provider.upper()}]"
+                    for a in fin_accs
+                ]
+                month_txs = await fin_repo.list_transactions(user_id, period="month", limit=5)
+                tx_lines = [
+                    f"  * {t.description}: ${abs(t.amount_usd):.2f} / Rs {abs(t.amount_pkr):.0f} ({t.category})"
+                    for t in month_txs[:5]
+                ]
+                fin_context = (
+                    "[FINANCIAL LEDGER CONTEXT — USER CONNECTED INSTITUTIONS & BALANCES]:\n"
+                    f"Total Combined Balance: ${tot_usd:,.2f} USD (Rs {tot_pkr:,.0f} PKR)\n"
+                    "Connected Accounts:\n" + "\n".join(acc_lines)
+                )
+                if tx_lines:
+                    fin_context += "\nRecent Monthly Transactions:\n" + "\n".join(tx_lines)
+                fin_context += "\n\nUse this live financial ledger data to accurately answer the user's inquiry regarding their balances, runway, transactions, and banking."
+                history_messages.append(Message(role=MessageRole.SYSTEM, content=fin_context))
+        except Exception as exc:
+            log.warning("runtime.finance_grounding_failed", error=str(exc))
+
+    # Phase 11: Calendar & Event Scheduling Grounding for authenticated users
+    is_calendar = (agent_slug in ("calendar", "scheduler")) or any(
+        w in user_message.lower()
+        for w in (
+            "calendar",
+            "appointment",
+            "agenda",
+            "events today",
+            "am i free",
+            "on my schedule",
+            "on my calendar",
+            "calendar schedule",
+        )
+    )
+    if user_id and is_calendar:
+        try:
+            from app.calendar.repository import CalendarRepository
+            cal_repo = CalendarRepository()
+            user_events = await cal_repo.list_events(user_id)
+            if user_events:
+                ev_lines = [
+                    f"- **{e['title']}** (Time: `{e['start_time']}`, Category: {e.get('category', 'meeting')}, Location: {e.get('location') or 'Not specified'})"
+                    for e in user_events[:10]
+                ]
+                cal_context = (
+                    "[CALENDAR CONTEXT — UPCOMING USER EVENTS & SCHEDULE]:\n"
+                    f"Total Scheduled Events: {len(user_events)}\n"
+                    "Events:\n" + "\n".join(ev_lines)
+                    + "\n\nUse this live schedule to answer the user's questions about their calendar, appointments, and availability."
+                )
+                history_messages.append(Message(role=MessageRole.SYSTEM, content=cal_context))
+        except Exception as exc:
+            log.warning("runtime.calendar_grounding_failed", error=str(exc))
+
+    # Phase 12: Email & Communications Grounding for authenticated users
+    is_email = (agent_slug in ("email", "communications")) or any(
+        w in user_message.lower()
+        for w in (
+            "email",
+            "emails",
+            "outbox",
+            "drafts",
+            "draft an email",
+            "sent email",
+            "sent mail",
+            "compose email",
+            "write an email",
+            "send an email",
+            "email draft",
+        )
+    )
+    if user_id and is_email:
+        try:
+            from app.emails.repository import EmailRepository
+            email_repo = EmailRepository()
+            user_emails = await email_repo.list_messages(user_id, limit=10)
+            drafts = [m for m in user_emails if m.get("status") == "draft"]
+            sent_msgs = [m for m in user_emails if m.get("status") == "sent"]
+            email_lines = [
+                f"- [{m.get('status', 'draft').upper()}] **{m.get('subject', 'No Subject')}** (To: `{m.get('to', '')}`, Date: `{m.get('created_at', '')}`)"
+                for m in user_emails[:10]
+            ]
+            email_context = (
+                "[EMAIL CONTEXT — RECENT OUTBOX & DRAFTS]:\n"
+                f"Total Messages: {len(user_emails)} (Drafts: {len(drafts)}, Sent: {len(sent_msgs)})\n"
+                "Recent Emails:\n" + ("\n".join(email_lines) if email_lines else "None")
+                + "\n\nUse this authentic email history to assist the user with composing, reviewing drafts, or checking sent communications."
+            )
+            history_messages.append(Message(role=MessageRole.SYSTEM, content=email_context))
+        except Exception as exc:
+            log.warning("runtime.email_grounding_failed", error=str(exc))
+
+    # Phase 13: Voice & Audio Transcripts Grounding for authenticated users
+    is_voice = (agent_slug in ("voice", "audio")) or any(
+        w in user_message.lower()
+        for w in (
+            "voice note",
+            "voice notes",
+            "voice recording",
+            "voice recordings",
+            "audio recording",
+            "audio recordings",
+            "audio transcript",
+            "voice transcript",
+            "transcribe",
+            "audio note",
+            "audio notes",
+            "recordings",
+        )
+    )
+    if user_id and is_voice:
+        try:
+            from app.voice.repository import VoiceRepository
+            voice_repo = VoiceRepository()
+            user_recs = await voice_repo.list_recordings(user_id, limit=10)
+            rec_lines = [
+                f"- **{r.get('title', 'Voice Note')}** (Date: `{r.get('created_at', '')}`, Duration: {r.get('duration_seconds') or 0}s, Summary: {r.get('summary') or r.get('transcript', '')[:100]}…)"
+                for r in user_recs[:10]
+            ]
+            voice_context = (
+                "[VOICE CONTEXT — RECENT AUDIO TRANSCRIPTS & RECORDINGS]:\n"
+                f"Total Saved Voice Notes: {len(user_recs)}\n"
+                "Recent Voice Recordings & Transcripts:\n" + ("\n".join(rec_lines) if rec_lines else "None")
+                + "\n\nUse this authentic voice recordings and audio transcripts library to assist the user with reviewing past voice notes, summaries, or finding audio intelligence."
+            )
+            history_messages.append(Message(role=MessageRole.SYSTEM, content=voice_context))
+        except Exception as exc:
+            log.warning("runtime.voice_grounding_failed", error=str(exc))
+
+    # Phase 14: Research & Saved Reports Grounding for authenticated users
+    is_saved_research = (agent_slug == "research") or any(
+        w in user_message.lower()
+        for w in (
+            "research report",
+            "research reports",
+            "saved research",
+            "my research",
+            "deep research",
+            "investigation",
+            "investigations",
+        )
+    )
+    if user_id and is_saved_research:
+        try:
+            from app.research.repository import ResearchRepository
+            research_repo = ResearchRepository()
+            user_reports = await research_repo.list_reports(user_id, limit=10)
+            rep_lines = [
+                f"- **{r.get('title', 'Research Report')}** (Topic: *\"{r.get('query', '')}\"*, Confidence: `{r.get('confidence', 'medium')}`, Summary: {str(r.get('summary') or '')[:120]}…)"
+                for r in user_reports[:10]
+            ]
+            research_context = (
+                "[RESEARCH CONTEXT — SAVED RESEARCH REPORTS & INVESTIGATIONS]:\n"
+                f"Total Saved Research Reports: {len(user_reports)}\n"
+                "Recent Research Reports:\n" + ("\n".join(rep_lines) if rep_lines else "None")
+                + "\n\nUse this authentic research reports library to assist the user with past findings, citations, and continuing investigations."
+            )
+            history_messages.append(Message(role=MessageRole.SYSTEM, content=research_context))
+        except Exception as exc:
+            log.warning("runtime.research_grounding_failed", error=str(exc))
+
+    # Phase 15: Browser & Web Automation Grounding for authenticated users
+    is_browser_task = (agent_slug == "browser") or any(
+        w in user_message.lower()
+        for w in (
+            "browser task",
+            "browser tasks",
+            "web automation",
+            "automation flow",
+            "web extraction",
+            "extract table",
+            "inspect dom",
+            "browse website",
+            "navigate to",
+            "fill form",
+        )
+    )
+    if user_id and is_browser_task:
+        try:
+            from app.browser.repository import BrowserRepository
+            browser_repo = BrowserRepository()
+            user_tasks = await browser_repo.list_tasks(user_id, limit=10)
+            task_lines = [
+                f"- **{t.get('title', 'Browser Task')}** (URL: `{t.get('url', '')}`, Status: `{t.get('status', 'pending')}`, Type: `{t.get('action_type', 'navigate')}`)"
+                for t in user_tasks[:10]
+            ]
+            browser_context = (
+                "[BROWSER CONTEXT — RECENT WEB AUTOMATION TASKS & EXTRACTIONS]:\n"
+                f"Total Saved Browser Tasks: {len(user_tasks)}\n"
+                "Recent Browser Tasks:\n" + ("\n".join(task_lines) if task_lines else "None")
+                + "\n\nUse this authentic browser automation library to assist the user with web tasks, DOM element inspection, data extraction, and form navigation."
+            )
+            history_messages.append(Message(role=MessageRole.SYSTEM, content=browser_context))
+        except Exception as exc:
+            log.warning("runtime.browser_grounding_failed", error=str(exc))
+
+    # Phase 16: Study & Learning Studio Grounding for authenticated users
+    is_study = (agent_slug == "study") or any(
+        w in user_message.lower()
+        for w in (
+            "study deck",
+            "study decks",
+            "flashcard",
+            "flashcards",
+            "quiz",
+            "quizzes",
+            "spaced repetition",
+            "practice quiz",
+            "exam prep",
+            "leitner",
+            "test me",
+            "study guide",
+        )
+    )
+    if user_id and is_study:
+        try:
+            from app.study.repository import StudyRepository
+            study_repo = StudyRepository()
+            user_decks = await study_repo.list_decks(user_id, limit=10)
+            deck_lines = [
+                f"- **{d.get('title', 'Study Deck')}** (Subject: `{d.get('subject', 'General')}`, Cards: {d.get('card_count', 0)}, Mastery: {d.get('mastery_percentage', 0.0)}%)"
+                for d in user_decks[:10]
+            ]
+            study_stats = await study_repo.get_study_stats(user_id)
+            study_context = (
+                "[STUDY CONTEXT — USER STUDY DECKS, FLASHCARDS & QUIZZES]:\n"
+                f"Total Study Decks: {study_stats.get('total_decks', 0)}\n"
+                f"Total Flashcards: {study_stats.get('total_cards', 0)}\n"
+                f"Cards Due for Review: {study_stats.get('cards_due_for_review', 0)}\n"
+                f"Average Mastery: {study_stats.get('average_mastery', 0.0)}%\n"
+                f"Completed Quizzes: {study_stats.get('completed_quizzes', 0)}\n"
+                "User Study Decks:\n" + ("\n".join(deck_lines) if deck_lines else "None")
+                + "\n\nUse this authentic study and learning library to assist the user with their flashcards, active recall reviews, quiz prep, and spaced repetition scheduling."
+            )
+            history_messages.append(Message(role=MessageRole.SYSTEM, content=study_context))
+        except Exception as exc:
+            log.warning("runtime.study_grounding_failed", error=str(exc))
+
+    # Phase 17: Coding & Developer Studio Grounding for authenticated users
+    is_coding = (agent_slug == "coding") or any(
+        w in user_message.lower()
+        for w in (
+            "write code",
+            "write a function",
+            "debug",
+            "fix bug",
+            "code snippet",
+            "code snippets",
+            "run code",
+            "execute code",
+            "coding playground",
+            "coding studio",
+            "python function",
+            "javascript function",
+            "code library",
+        )
+    )
+    if user_id and is_coding:
+        try:
+            from app.coding.repository import CodeRepository
+            coding_repo = CodeRepository()
+            user_snippets, snip_total = await coding_repo.list_snippets(user_id, limit=10)
+            user_executions, exec_total = await coding_repo.list_executions(user_id, limit=5)
+            coding_stats = await coding_repo.get_user_stats(user_id)
+            snip_lines = [
+                f"- **{s.get('title', 'Snippet')}** (Language: `{s.get('language', 'python')}`, Favorite: {s.get('is_favorite', False)})\n  *Code preview:* `{s.get('code', '')[:80]}...`"
+                for s in user_snippets[:5]
+            ]
+            coding_context = (
+                "[CODING CONTEXT — USER SAVED SNIPPETS & RECENT CODE RUNS]:\n"
+                f"Total Saved Snippets: {coding_stats.get('total_snippets', snip_total)}\n"
+                f"Total Code Executions: {coding_stats.get('total_executions', exec_total)}\n"
+                f"Execution Success Rate: {coding_stats.get('success_rate_percentage', 100.0)}%\n"
+                "User Code Snippets:\n" + ("\n".join(snip_lines) if snip_lines else "None")
+                + "\n\nUse this authentic developer library to assist the user with writing, debugging, explaining, and executing code."
+            )
+            history_messages.append(Message(role=MessageRole.SYSTEM, content=coding_context))
+        except Exception as exc:
+            log.warning("runtime.coding_grounding_failed", error=str(exc))
+
+    # Phase 18: Semantic Memory Grounding for authenticated users
+    is_memory = (agent_slug in ("memory", "curator", "memory-curator")) or any(
+        p.search(user_message) for p in _MEMORY_PATTERNS
+    )
+    if user_id and is_memory:
+        try:
+            from app.memory.repository import MemoryRepository
+            mem_repo = MemoryRepository()
+            user_mems, mem_total = await mem_repo.list_memories(user_id=user_id, include_soft_deleted=False, limit=10)
+            mem_stats = await mem_repo.get_stats(user_id)
+            if user_mems:
+                mem_lines = [
+                    f"- [{m.get('importance', 'normal').upper()}] {m.get('content')} (Tags: {', '.join(m.get('tags', []))})"
+                    for m in user_mems[:8]
+                ]
+                mem_context = (
+                    "[SEMANTIC MEMORY CONTEXT — USER PREFERENCES & STORED FACTS]:\n"
+                    f"Total Active Memories: {mem_stats.get('active_memories', len(user_mems))} (Forever Pinned: {mem_stats.get('forever_memories', 0)})\n"
+                    "Active Long-Term Memories:\n" + "\n".join(mem_lines)
+                    + "\n\nGround your answer in the user's stored memories and personal preferences."
+                )
+                history_messages.append(Message(role=MessageRole.SYSTEM, content=mem_context))
+        except Exception as exc:
+            log.warning("runtime.memory_grounding_failed", error=str(exc))
+
+    # Phase 19: Audit & Security Activity Grounding for authenticated users
+    is_audit = (agent_slug in ("audit", "security", "security-privacy")) or any(
+        p.search(user_message) for p in _AUDIT_PATTERNS
+    )
+    if user_id and is_audit:
+        try:
+            from app.audit.repository import AuditRepository
+            audit_repo = AuditRepository()
+            today_events = await audit_repo.list_today_events(user_id, limit=10)
+            audit_stats = await audit_repo.get_stats(user_id)
+            event_lines = [
+                f"- [{e.get('approval_tier', 'T1')}] **{e.get('agent_slug', 'coordinator').upper()}**: {e.get('action')} (Status: `{e.get('status_code', 'ok')}`, Latency: {e.get('latency_ms', 0)}ms)\n  *Summary:* {e.get('response_summary', '')[:100]}"
+                for e in today_events[:8]
+            ]
+            audit_context = (
+                "[AUDIT CONTEXT — ACTIONS PERFORMED TODAY & SECURITY LOG]:\n"
+                f"Total Actions Logged: {audit_stats.get('total_events', len(today_events))} (Today: {audit_stats.get('today_events', len(today_events))})\n"
+                f"Approval Tiers: {audit_stats.get('by_tier', {})}\n"
+                f"Status Breakdown: {audit_stats.get('by_status', {})}\n"
+                "Recent Today's Actions:\n" + ("\n".join(event_lines) if event_lines else "None recorded yet today.")
+                + "\n\nUse this authentic audit log data to answer the user's questions about what ROXY/Jarvis did today, action history, and security reviews."
+            )
+            history_messages.append(Message(role=MessageRole.SYSTEM, content=audit_context))
+        except Exception as exc:
+            log.warning("runtime.audit_grounding_failed", error=str(exc))
+
+    # Phase 7: Automation & Scheduled Jobs Grounding for authenticated users
+    is_automation = not is_calendar and not is_email and (
+        (agent_slug in ("automation", "planner")) or any(
+            w in user_message.lower() for w in ("scheduled", "schedule", "reminder", "cron", "recurring task", "recurring job", "scheduled job", "scheduled task", "automation", "automate")
+        )
+    )
+    if user_id and is_automation:
+        try:
+            from app.jobs.repository import JobRepository
+            job_repo = JobRepository()
+            user_jobs = await job_repo.list_jobs(user_id)
+            if user_jobs:
+                job_lines = [
+                    f"- {j.name} (Schedule: {j.schedule}, Timezone: {j.timezone}, Status: {j.status}, Next Run: {j.next_run})"
+                    for j in user_jobs
+                ]
+                job_context = (
+                    "[SCHEDULED AUTOMATION CONTEXT — USER ACTIVE TASKS & JOBS]:\n"
+                    f"Total Configured Tasks: {len(user_jobs)}\n"
+                    "Active Tasks:\n" + "\n".join(job_lines)
+                    + "\n\nUse this live scheduled automation data to accurately answer the user's inquiry regarding their scheduled tasks, reminders, and automation."
+                )
+                history_messages.append(Message(role=MessageRole.SYSTEM, content=job_context))
+        except Exception as exc:
+            log.warning("runtime.automation_grounding_failed", error=str(exc))
+
+    # Phase 9: Workspace & Project Management Grounding for authenticated users
+    is_workspace = (agent_slug in ("workspace", "project", "projects")) or any(
+        w in user_message.lower() for w in ("project", "workspace", "milestone", "action item", "kanban")
+    )
+    if user_id and is_workspace:
+        try:
+            from app.projects.repository import ProjectRepository
+            proj_repo = ProjectRepository()
+            user_projects = await proj_repo.list_projects(user_id)
+            if user_projects:
+                proj_lines = []
+                for p in user_projects:
+                    tasks = await proj_repo.list_tasks(user_id, p["id"]) or []
+                    t_summary = f"{sum(1 for t in tasks if t['status'] == 'done')}/{len(tasks)} tasks completed"
+                    proj_lines.append(f"- **{p['name']}** (Status: {p['status']}, Progress: {t_summary})")
+                proj_context = (
+                    "[WORKSPACE HUB CONTEXT — USER PROJECTS & ACTION ITEMS]:\n"
+                    f"Total Configured Projects: {len(user_projects)}\n"
+                    "Active Projects:\n" + "\n".join(proj_lines)
+                    + "\n\nUse this live workspace and project data to accurately answer the user's inquiry regarding their projects, deliverables, and tasks."
+                )
+                history_messages.append(Message(role=MessageRole.SYSTEM, content=proj_context))
+        except Exception as exc:
+            log.warning("runtime.workspace_grounding_failed", error=str(exc))
 
     lang_directive = detect_user_language_instruction(user_message)
     if lang_directive:
@@ -812,9 +1358,366 @@ async def _call_ai_for_agent(
         if live_context:
             prov = "maps_service" if is_maps else ("weather_service" if is_weather else "web_search")
             mod = "google_maps" if is_maps else ("open-meteo" if is_weather else "tavily")
+            if session_id:
+                await _persist_runtime_interaction(
+                    session_id, user_id or "", user_message, live_context, prov, mod
+                )
             return live_context, prov, mod
+        if grounded_chunks:
+            rag_fallback = (
+                "Based on your documents:\n\n"
+                + "\n\n".join(grounded_chunks)
+            )
+            if session_id:
+                await _persist_runtime_interaction(
+                    session_id, user_id or "", user_message, rag_fallback, "vault", "knowledge-agent"
+                )
+            return rag_fallback, "vault", "knowledge-agent"
+        if is_finance and user_id:
+            try:
+                from app.finance.repository import FinanceRepository
+                fin_repo = FinanceRepository()
+                fin_accs = await fin_repo.list_accounts(user_id)
+                if fin_accs:
+                    tot_usd = sum(a.balance_usd for a in fin_accs)
+                    tot_pkr = sum(a.balance_pkr for a in fin_accs)
+                    acc_names = ", ".join(f"{a.institution_name} ({a.account_holder})" for a in fin_accs)
+                    fin_resp = (
+                        f"Your total balance across connected accounts is ${tot_usd:,.2f} USD (Rs {tot_pkr:,.0f} PKR). "
+                        f"Active connected accounts include: {acc_names}."
+                    )
+                else:
+                    fin_resp = (
+                        "You currently have no bank accounts or payment services connected. "
+                        "You can connect an institution using Plaid or link a Raast account to track your balances and transactions."
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, fin_resp, "finance", "financial-agent"
+                    )
+                return fin_resp, "finance", "financial-agent"
+            except Exception:
+                pass
+        if is_calendar and user_id:
+            try:
+                from app.calendar.repository import CalendarRepository
+                cal_repo = CalendarRepository()
+                user_events = await cal_repo.list_events(user_id)
+                if user_events:
+                    ev_lines = [
+                        f"- **{e['title']}** (Time: `{e['start_time']}`, Category: {e.get('category', 'meeting')}, Location: {e.get('location') or 'Not specified'})"
+                        for e in user_events
+                    ]
+                    cal_resp = (
+                        f"You currently have {len(user_events)} event(s) on your calendar:\n\n"
+                        + "\n".join(ev_lines)
+                        + "\n\nYou can manage your appointments or export/import ICS files in your Calendar view."
+                    )
+                else:
+                    cal_resp = (
+                        "You currently have no events scheduled on your calendar. "
+                        "You can schedule a new meeting, reminder, or appointment anytime!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, cal_resp, "calendar", "calendar-agent"
+                    )
+                return cal_resp, "calendar", "calendar-agent"
+            except Exception:
+                pass
+        if is_email and user_id:
+            try:
+                from app.emails.repository import EmailRepository
+                email_repo = EmailRepository()
+                user_emails = await email_repo.list_messages(user_id, limit=10)
+                drafts = [m for m in user_emails if m.get("status") == "draft"]
+                sent_msgs = [m for m in user_emails if m.get("status") == "sent"]
+                if user_emails:
+                    msg_lines = [
+                        f"- [{m.get('status', 'draft').upper()}] **{m.get('subject', 'No Subject')}** (To: `{m.get('to', '')}`)"
+                        for m in user_emails[:5]
+                    ]
+                    email_resp = (
+                        f"You currently have {len(user_emails)} message(s) in your communications hub "
+                        f"({len(drafts)} draft(s), {len(sent_msgs)} sent):\n\n"
+                        + "\n".join(msg_lines)
+                        + "\n\nYou can manage your drafts, polish email copy, or dispatch messages in your Email panel."
+                    )
+                else:
+                    email_resp = (
+                        "You currently have no email drafts or sent messages in your communications hub. "
+                        "You can compose a new draft, choose a template, or ask me to draft one for you anytime!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, email_resp, "email", "email-specialist"
+                    )
+                return email_resp, "email", "email-specialist"
+            except Exception:
+                pass
+        if is_voice and user_id:
+            try:
+                from app.voice.repository import VoiceRepository
+                voice_repo = VoiceRepository()
+                user_recs = await voice_repo.list_recordings(user_id, limit=10)
+                if user_recs:
+                    v_lines = [
+                        f"- **{r.get('title', 'Voice Note')}** (Summary: {r.get('summary') or r.get('transcript', '')[:80]}…)"
+                        for r in user_recs[:5]
+                    ]
+                    voice_resp = (
+                        f"You currently have {len(user_recs)} saved voice recording(s) in your voice notes library:\n\n"
+                        + "\n".join(v_lines)
+                        + "\n\nYou can listen to recordings, review executive summaries, and search transcripts in your Voice Session view."
+                    )
+                else:
+                    voice_resp = (
+                        "You currently have no saved voice recordings or notes in your library. "
+                        "You can record spoken notes or start a voice session anytime to save audio transcripts!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, voice_resp, "voice", "voice-agent"
+                    )
+                return voice_resp, "voice", "voice-agent"
+            except Exception:
+                pass
+        if is_saved_research and user_id:
+            try:
+                from app.research.repository import ResearchRepository
+                research_repo = ResearchRepository()
+                user_reports = await research_repo.list_reports(user_id, limit=10)
+                if user_reports:
+                    r_lines = [
+                        f"- **{r.get('title', 'Research Report')}** (Topic: *{r.get('query', '')}*, Confidence: `{r.get('confidence', 'medium')}`)\n  *Summary:* {str(r.get('summary') or '')[:100]}…"
+                        for r in user_reports[:5]
+                    ]
+                    research_resp = (
+                        f"You currently have {len(user_reports)} saved research report(s) in your research library:\n\n"
+                        + "\n\n".join(r_lines)
+                        + "\n\nYou can launch new autonomous deep research investigations, inspect source citations, and review findings in your Research Hub."
+                    )
+                else:
+                    research_resp = (
+                        "You currently have no saved research reports in your library. "
+                        "You can launch an autonomous deep research investigation anytime in your Research Hub or ask me to research any topic!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, research_resp, "research", "research-specialist"
+                    )
+                return research_resp, "research", "research-specialist"
+            except Exception:
+                pass
+
+        if is_browser_task and user_id:
+            try:
+                from app.browser.repository import BrowserRepository
+                browser_repo = BrowserRepository()
+                user_tasks = await browser_repo.list_tasks(user_id, limit=10)
+                if user_tasks:
+                    t_lines = [
+                        f"- **{t.get('title', 'Browser Task')}** (Status: `{t.get('status', 'completed')}`, Type: `{t.get('action_type', 'navigate')}`)\n  *Target URL:* {t.get('url', '')}"
+                        for t in user_tasks[:5]
+                    ]
+                    browser_resp = (
+                        f"You currently have {len(user_tasks)} browser automation task(s) in your library:\n\n"
+                        + "\n\n".join(t_lines)
+                        + "\n\nYou can launch web flows, inspect live DOM elements, and extract structured data in your Browser Studio."
+                    )
+                else:
+                    browser_resp = (
+                        "You currently have no saved browser automation tasks in your library. "
+                        "You can launch a new web flow or inspect any webpage anytime in your Browser Studio!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, browser_resp, "browser", "browser-agent"
+                    )
+                return browser_resp, "browser", "browser-agent"
+            except Exception:
+                pass
+
+        if is_study and user_id:
+            try:
+                from app.study.repository import StudyRepository
+                study_repo = StudyRepository()
+                user_decks = await study_repo.list_decks(user_id, limit=10)
+                study_stats = await study_repo.get_study_stats(user_id)
+                if user_decks:
+                    d_lines = [
+                        f"- **{d.get('title', 'Study Deck')}** (Cards: {d.get('card_count', 0)}, Mastery: {d.get('mastery_percentage', 0.0)}%, Subject: `{d.get('subject', 'General')}`)"
+                        for d in user_decks[:5]
+                    ]
+                    study_resp = (
+                        f"You currently have {study_stats.get('total_decks', len(user_decks))} study deck(s) with {study_stats.get('total_cards', 0)} flashcards ({study_stats.get('cards_due_for_review', 0)} due for review):\n\n"
+                        + "\n".join(d_lines)
+                        + "\n\nYou can review flashcards with spaced repetition, generate quizzes, and track mastery in your Study Studio."
+                    )
+                else:
+                    study_resp = (
+                        "You currently have no study decks in your library. "
+                        "You can create a study deck, generate flashcards from lecture notes, or take practice quizzes anytime in your Study Studio!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, study_resp, "study", "study-agent"
+                    )
+                return study_resp, "study", "study-agent"
+            except Exception:
+                pass
+
+        if is_coding and user_id:
+            try:
+                from app.coding.repository import CodeRepository
+                coding_repo = CodeRepository()
+                user_snippets, snip_total = await coding_repo.list_snippets(user_id, limit=10)
+                coding_stats = await coding_repo.get_user_stats(user_id)
+                if user_snippets:
+                    s_lines = [
+                        f"- **{s.get('title', 'Snippet')}** (Language: `{s.get('language', 'python')}`, Favorite: {s.get('is_favorite', False)})"
+                        for s in user_snippets[:5]
+                    ]
+                    coding_resp = (
+                        f"You currently have {coding_stats.get('total_snippets', snip_total)} code snippet(s) in your library with {coding_stats.get('total_executions', 0)} sandbox execution(s) ({coding_stats.get('success_rate_percentage', 100.0)}% success rate):\n\n"
+                        + "\n".join(s_lines)
+                        + "\n\nYou can run code in the sandbox playground, generate solutions, or debug snippets in your Coding Studio."
+                    )
+                else:
+                    coding_resp = (
+                        "You currently have no saved code snippets in your library. "
+                        "You can write and run code in the interactive playground, generate functions, or debug errors anytime in your Coding Studio!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, coding_resp, "coding", "coding-agent"
+                    )
+                return coding_resp, "coding", "coding-agent"
+            except Exception:
+                pass
+
+        if is_memory and user_id:
+            try:
+                from app.memory.repository import MemoryRepository
+                mem_repo = MemoryRepository()
+                user_mems, mem_total = await mem_repo.list_memories(user_id=user_id, include_soft_deleted=False, limit=10)
+                mem_stats = await mem_repo.get_stats(user_id)
+                if user_mems:
+                    m_lines = [
+                        f"- [{m.get('importance', 'normal').upper()}] {m.get('content')} (Tags: {', '.join(m.get('tags', []))})"
+                        for m in user_mems[:5]
+                    ]
+                    mem_resp = (
+                        f"You currently have {mem_stats.get('active_memories', mem_total)} active long-term memories in your semantic vault "
+                        f"({mem_stats.get('forever_memories', 0)} forever pinned, {mem_stats.get('curator_runs_count', 0)} curator passes executed):\n\n"
+                        + "\n".join(m_lines)
+                        + "\n\nYou can review, edit, or curate your memories anytime in your Memory Studio."
+                    )
+                else:
+                    mem_resp = (
+                        "You currently have no saved long-term memories in your semantic vault. "
+                        "You can ask me to remember facts, preferences, or rules anytime, or manage them in your Memory Studio!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, mem_resp, "memory", "memory-curator"
+                    )
+                return mem_resp, "memory", "memory-curator"
+            except Exception:
+                pass
+
+        if is_audit and user_id:
+            try:
+                from app.audit.repository import AuditRepository
+                audit_repo = AuditRepository()
+                today_events = await audit_repo.list_today_events(user_id, limit=10)
+                audit_stats = await audit_repo.get_stats(user_id)
+                if today_events:
+                    ev_lines = [
+                        f"- [{e.get('approval_tier', 'T1')}] **{e.get('agent_slug', 'coordinator').upper()}**: {e.get('action')} (Status: `{e.get('status_code', 'ok')}`, Latency: {e.get('latency_ms', 0)}ms)"
+                        for e in today_events[:5]
+                    ]
+                    audit_resp = (
+                        f"Here is your activity and audit summary for today:\n\n"
+                        f"- **Total Events Recorded:** {audit_stats.get('total_events', len(today_events))}\n"
+                        f"- **Events Today:** {audit_stats.get('today_events', len(today_events))}\n"
+                        f"- **Retention Policy:** 1-Year Append-Only Log (§10.12)\n\n"
+                        f"**Recent Actions Today:**\n" + "\n".join(ev_lines)
+                        + "\n\nYou can inspect full details, filter by approval tier, and export your audit archive in the Audit & Security Studio."
+                    )
+                else:
+                    audit_resp = (
+                        f"Here is your activity and audit summary for today:\n\n"
+                        f"- **Total Events Recorded:** {audit_stats.get('total_events', 0)}\n"
+                        f"- **Events Today:** 0\n"
+                        f"- **Retention Policy:** 1-Year Append-Only Log (§10.12)\n\n"
+                        "No actions have been logged yet today. You can monitor your activity and security reviews in the Audit & Security Studio."
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, audit_resp, "audit", "security-auditor"
+                    )
+                return audit_resp, "audit", "security-auditor"
+            except Exception:
+                pass
+
+        if is_automation and user_id:
+            try:
+                from app.jobs.repository import JobRepository
+                job_repo = JobRepository()
+                user_jobs = await job_repo.list_jobs(user_id)
+                if user_jobs:
+                    job_lines = [
+                        f"- **{j.name}** (Schedule: `{j.schedule}`, Status: {j.status}, Next Run: {j.next_run})"
+                        for j in user_jobs
+                    ]
+                    auto_resp = (
+                        f"You currently have {len(user_jobs)} automated job(s) configured:\n\n"
+                        + "\n".join(job_lines)
+                        + "\n\nYou can trigger jobs manually via 'Run Now' or pause/resume them anytime in your Scheduled Jobs dashboard."
+                    )
+                else:
+                    auto_resp = (
+                        "You currently have no scheduled automated jobs. "
+                        "You can create automated recurring jobs in your Scheduled Jobs dashboard or ask me to schedule tasks for you!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, auto_resp, "automation", "scheduler-engine"
+                    )
+                return auto_resp, "automation", "scheduler-engine"
+            except Exception:
+                pass
+        if is_workspace and user_id:
+            try:
+                from app.projects.repository import ProjectRepository
+                proj_repo = ProjectRepository()
+                user_projects = await proj_repo.list_projects(user_id)
+                if user_projects:
+                    p_lines = []
+                    for p in user_projects:
+                        tasks = await proj_repo.list_tasks(user_id, p["id"]) or []
+                        c_done = sum(1 for t in tasks if t["status"] == "done")
+                        p_lines.append(f"- **{p['name']}** (Status: `{p['status']}`, Tasks: {c_done}/{len(tasks)} completed)")
+                    ws_resp = (
+                        f"You currently have {len(user_projects)} project(s) configured in your Workspace Hub:\n\n"
+                        + "\n".join(p_lines)
+                        + "\n\nYou can manage deliverables, track tasks, and link documents in your Workspace Hub dashboard."
+                    )
+                else:
+                    ws_resp = (
+                        "You currently have no active workspace projects. "
+                        "You can create a project in your Workspace Hub to organize multi-turn workflows, tasks, and documents!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, ws_resp, "workspace", "workspace-engine"
+                    )
+                return ws_resp, "workspace", "workspace-engine"
+            except Exception:
+                pass
         lower = user_message.lower()
-        if "python" in lower or "variable" in lower or "code" in lower:
+        if "python" in lower or "variable" in lower or "write code" in lower or "programming" in lower:
             fallback_code = (
                 "Here is a complete Python guide and code example on variables:\n\n"
                 "```python\n"
@@ -838,9 +1741,18 @@ async def _call_ai_for_agent(
                 "```\n\n"
                 "In Python, variables are dynamically typed and reference memory objects automatically."
             )
+            if session_id:
+                await _persist_runtime_interaction(
+                    session_id, user_id or "", user_message, fallback_code, "coding", "python-interpreter"
+                )
             return fallback_code, "coding", "python-interpreter"
         elif lower in ("i", "hi", "hello", "hey"):
-            return "Hello! I am ROXY, your autonomous AI assistant. How can I help you today?", "general", "assistant"
+            fallback_greeting = "Hello! I am ROXY, your autonomous AI assistant. How can I help you today?"
+            if session_id:
+                await _persist_runtime_interaction(
+                    session_id, user_id or "", user_message, fallback_greeting, "general", "assistant"
+                )
+            return fallback_greeting, "general", "assistant"
         raise
 
 
@@ -955,6 +1867,29 @@ async def runtime_chat_stream(
         prompt = img_prompt or body.message
         async def image_stream() -> AsyncGenerator[bytes, None]:
             img_res = generate_image_response(prompt)
+            if current_user:
+                try:
+                    from app.images.repository import ImageStudioRepository
+                    img_repo = ImageStudioRepository()
+                    cleaned_p = prompt.strip()
+                    enc_p = urllib.parse.quote(cleaned_p)
+                    i_url = f"https://image.pollinations.ai/prompt/{enc_p}?width=1024&height=1024&nologo=true&enhance=true"
+                    await img_repo.create_generation(
+                        user_id=effective_user_id,
+                        prompt=cleaned_p,
+                        media_url=i_url,
+                        style_preset="photorealistic",
+                        aspect_ratio="1:1",
+                        width=1024,
+                        height=1024,
+                        model="flux",
+                    )
+                except Exception as exc:
+                    log.warning("runtime.stream_image_persist_failed", error=str(exc))
+            if body.session_id:
+                await _persist_runtime_interaction(
+                    body.session_id, effective_user_id, body.message, img_res, "roxy_vision", "flux-diffusion"
+                )
             data = json.dumps({
                 "delta": img_res,
                 "provider": "roxy_vision",
@@ -1020,7 +1955,19 @@ async def runtime_chat_stream(
                 live_context = await fetch_live_weather(city)
                 if not live_context:
                     live_context = await fetch_live_search(f"current weather in {city or 'today'}")
-            elif is_search or agent_slug == "research":
+            elif (is_search or agent_slug == "research") and not any(
+                w in body.message.lower()
+                for w in (
+                    "saved research",
+                    "saved report",
+                    "saved reports",
+                    "my research",
+                    "my reports",
+                    "in my library",
+                    "saved investigations",
+                    "have any saved",
+                )
+            ):
                 live_context = await fetch_live_search(search_q)
 
             if live_context:
@@ -1034,6 +1981,350 @@ async def runtime_chat_stream(
                         ),
                     )
                 )
+
+            # ── Knowledge Vault RAG Grounding ──────────────────────────────
+            try:
+                from app.skills.document_rag_query import DocumentRAGSkill
+                from app.skills.schemas import DocumentRagQueryRequest
+                rag_skill = DocumentRAGSkill()
+                rag_res = await rag_skill.execute(
+                    DocumentRagQueryRequest(
+                        query=body.message,
+                        user_id=effective_user_id,
+                        top_k=3,
+                        min_score=0.20,
+                    )
+                )
+                if rag_res.chunks:
+                    grounded_chunks = [
+                        f"[Source: {c.document_name}]\n{c.content}"
+                        for c in rag_res.chunks
+                        if c.relevance_score >= 0.20
+                    ]
+                    if grounded_chunks:
+                        history_messages.append(
+                            Message(
+                                role=MessageRole.SYSTEM,
+                                content=(
+                                    "[KNOWLEDGE VAULT CONTEXT — USER PRIVATE DOCUMENTS]:\n"
+                                    + "\n\n".join(grounded_chunks)
+                                    + "\n\nGround your answer using the excerpts above. Include citation [Source: <document_name>] when referencing document facts."
+                                ),
+                            )
+                        )
+            except Exception as exc:
+                log.warning("runtime.stream_rag_grounding_failed", error=str(exc))
+
+            # Phase 11: Calendar & Event Scheduling Grounding for stream
+            is_calendar = (agent_slug in ("calendar", "scheduler")) or any(
+                w in body.message.lower()
+                for w in (
+                    "calendar",
+                    "meeting",
+                    "schedule",
+                    "appointment",
+                    "agenda",
+                    "events today",
+                    "am i free",
+                    "on my schedule",
+                    "on my calendar",
+                )
+            )
+            if effective_user_id and is_calendar:
+                try:
+                    from app.calendar.repository import CalendarRepository
+                    cal_repo = CalendarRepository()
+                    user_events = await cal_repo.list_events(effective_user_id)
+                    if user_events:
+                        ev_lines = [
+                            f"- **{e['title']}** (Time: `{e['start_time']}`, Category: {e.get('category', 'meeting')}, Location: {e.get('location') or 'Not specified'})"
+                            for e in user_events[:10]
+                        ]
+                        cal_context = (
+                            "[CALENDAR CONTEXT — UPCOMING USER EVENTS & SCHEDULE]:\n"
+                            f"Total Scheduled Events: {len(user_events)}\n"
+                            "Events:\n" + "\n".join(ev_lines)
+                            + "\n\nUse this live schedule to answer the user's questions about their calendar, appointments, and availability."
+                        )
+                        history_messages.append(Message(role=MessageRole.SYSTEM, content=cal_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_calendar_grounding_failed", error=str(exc))
+
+            # Phase 12: Email & Communications Grounding for stream
+            is_email = (agent_slug in ("email", "communications")) or any(
+                w in body.message.lower()
+                for w in (
+                    "email",
+                    "emails",
+                    "outbox",
+                    "drafts",
+                    "draft an email",
+                    "sent email",
+                    "sent mail",
+                    "compose email",
+                    "write an email",
+                    "send an email",
+                    "email draft",
+                )
+            )
+            if effective_user_id and is_email:
+                try:
+                    from app.emails.repository import EmailRepository
+                    email_repo = EmailRepository()
+                    user_emails = await email_repo.list_messages(effective_user_id, limit=10)
+                    drafts = [m for m in user_emails if m.get("status") == "draft"]
+                    sent_msgs = [m for m in user_emails if m.get("status") == "sent"]
+                    email_lines = [
+                        f"- [{m.get('status', 'draft').upper()}] **{m.get('subject', 'No Subject')}** (To: `{m.get('to', '')}`, Date: `{m.get('created_at', '')}`)"
+                        for m in user_emails[:10]
+                    ]
+                    email_context = (
+                        "[EMAIL CONTEXT — RECENT OUTBOX & DRAFTS]:\n"
+                        f"Total Messages: {len(user_emails)} (Drafts: {len(drafts)}, Sent: {len(sent_msgs)})\n"
+                        "Recent Emails:\n" + ("\n".join(email_lines) if email_lines else "None")
+                        + "\n\nUse this authentic email history to assist the user with composing, reviewing drafts, or checking sent communications."
+                    )
+                    history_messages.append(Message(role=MessageRole.SYSTEM, content=email_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_email_grounding_failed", error=str(exc))
+
+            # Phase 13: Voice & Audio Transcripts Grounding for stream
+            is_voice = (agent_slug in ("voice", "audio")) or any(
+                w in body.message.lower()
+                for w in (
+                    "voice note",
+                    "voice notes",
+                    "voice recording",
+                    "voice recordings",
+                    "audio recording",
+                    "audio recordings",
+                    "audio transcript",
+                    "voice transcript",
+                    "transcribe",
+                    "audio note",
+                    "audio notes",
+                    "recordings",
+                )
+            )
+            if effective_user_id and is_voice:
+                try:
+                    from app.voice.repository import VoiceRepository
+                    voice_repo = VoiceRepository()
+                    user_recs = await voice_repo.list_recordings(effective_user_id, limit=10)
+                    rec_lines = [
+                        f"- **{r.get('title', 'Voice Note')}** (Date: `{r.get('created_at', '')}`, Summary: {r.get('summary') or r.get('transcript', '')[:100]}…)"
+                        for r in user_recs[:10]
+                    ]
+                    voice_context = (
+                        "[VOICE CONTEXT — RECENT AUDIO TRANSCRIPTS & RECORDINGS]:\n"
+                        f"Total Saved Voice Notes: {len(user_recs)}\n"
+                        "Recent Voice Recordings & Transcripts:\n" + ("\n".join(rec_lines) if rec_lines else "None")
+                        + "\n\nUse this authentic voice recordings and audio transcripts library to assist the user with reviewing past voice notes, summaries, or finding audio intelligence."
+                    )
+                    history_messages.append(Message(role=MessageRole.SYSTEM, content=voice_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_voice_grounding_failed", error=str(exc))
+
+            # Phase 14: Research & Saved Reports Grounding for stream
+            is_saved_research = (agent_slug == "research") or any(
+                w in body.message.lower()
+                for w in (
+                    "research report",
+                    "research reports",
+                    "saved research",
+                    "my research",
+                    "deep research",
+                    "investigation",
+                    "investigations",
+                )
+            )
+            if effective_user_id and is_saved_research:
+                try:
+                    from app.research.repository import ResearchRepository
+                    research_repo = ResearchRepository()
+                    user_reports = await research_repo.list_reports(effective_user_id, limit=10)
+                    rep_lines = [
+                        f"- **{r.get('title', 'Research Report')}** (Topic: *\"{r.get('query', '')}\"*, Confidence: `{r.get('confidence', 'medium')}`, Summary: {str(r.get('summary') or '')[:120]}…)"
+                        for r in user_reports[:10]
+                    ]
+                    research_context = (
+                        "[RESEARCH CONTEXT — SAVED RESEARCH REPORTS & INVESTIGATIONS]:\n"
+                        f"Total Saved Research Reports: {len(user_reports)}\n"
+                        "Recent Research Reports:\n" + ("\n".join(rep_lines) if rep_lines else "None")
+                        + "\n\nUse this authentic research reports library to assist the user with past findings, citations, and continuing investigations."
+                    )
+                    history_messages.append(Message(role=MessageRole.SYSTEM, content=research_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_research_grounding_failed", error=str(exc))
+
+            # Phase 15: Browser & Web Automation Grounding for stream
+            is_browser_task = (agent_slug == "browser") or any(
+                w in body.message.lower()
+                for w in (
+                    "browser task",
+                    "browser tasks",
+                    "web automation",
+                    "automation flow",
+                    "web extraction",
+                    "extract table",
+                    "inspect dom",
+                    "browse website",
+                    "navigate to",
+                    "fill form",
+                )
+            )
+            if effective_user_id and is_browser_task:
+                try:
+                    from app.browser.repository import BrowserRepository
+                    browser_repo = BrowserRepository()
+                    user_tasks = await browser_repo.list_tasks(effective_user_id, limit=10)
+                    task_lines = [
+                        f"- **{t.get('title', 'Browser Task')}** (URL: `{t.get('url', '')}`, Status: `{t.get('status', 'pending')}`, Type: `{t.get('action_type', 'navigate')}`)"
+                        for t in user_tasks[:10]
+                    ]
+                    browser_context = (
+                        "[BROWSER CONTEXT — RECENT WEB AUTOMATION TASKS & EXTRACTIONS]:\n"
+                        f"Total Saved Browser Tasks: {len(user_tasks)}\n"
+                        "Recent Browser Tasks:\n" + ("\n".join(task_lines) if task_lines else "None")
+                        + "\n\nUse this authentic browser automation library to assist the user with web tasks, DOM element inspection, data extraction, and form navigation."
+                    )
+                    history_messages.append(Message(role=MessageRole.SYSTEM, content=browser_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_browser_grounding_failed", error=str(exc))
+
+            # Phase 16: Study & Learning Studio Grounding for stream
+            is_study = (agent_slug == "study") or any(
+                w in body.message.lower()
+                for w in (
+                    "study deck",
+                    "study decks",
+                    "flashcard",
+                    "flashcards",
+                    "quiz",
+                    "quizzes",
+                    "spaced repetition",
+                    "practice quiz",
+                    "exam prep",
+                    "leitner",
+                    "test me",
+                    "study guide",
+                )
+            )
+            if effective_user_id and is_study:
+                try:
+                    from app.study.repository import StudyRepository
+                    study_repo = StudyRepository()
+                    user_decks = await study_repo.list_decks(effective_user_id, limit=10)
+                    deck_lines = [
+                        f"- **{d.get('title', 'Study Deck')}** (Subject: `{d.get('subject', 'General')}`, Cards: {d.get('card_count', 0)}, Mastery: {d.get('mastery_percentage', 0.0)}%)"
+                        for d in user_decks[:10]
+                    ]
+                    study_stats = await study_repo.get_study_stats(effective_user_id)
+                    study_context = (
+                        "[STUDY CONTEXT — USER STUDY DECKS, FLASHCARDS & QUIZZES]:\n"
+                        f"Total Study Decks: {study_stats.get('total_decks', 0)}\n"
+                        f"Total Flashcards: {study_stats.get('total_cards', 0)}\n"
+                        f"Cards Due for Review: {study_stats.get('cards_due_for_review', 0)}\n"
+                        f"Average Mastery: {study_stats.get('average_mastery', 0.0)}%\n"
+                        f"Completed Quizzes: {study_stats.get('completed_quizzes', 0)}\n"
+                        "User Study Decks:\n" + ("\n".join(deck_lines) if deck_lines else "None")
+                        + "\n\nUse this authentic study and learning library to assist the user with their flashcards, active recall reviews, quiz prep, and spaced repetition scheduling."
+                    )
+                    history_messages.append(Message(role=MessageRole.SYSTEM, content=study_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_study_grounding_failed", error=str(exc))
+
+            # Phase 17: Coding & Developer Studio Grounding for stream
+            is_coding = (agent_slug == "coding") or any(
+                w in body.message.lower()
+                for w in (
+                    "write code",
+                    "write a function",
+                    "debug",
+                    "fix bug",
+                    "code snippet",
+                    "code snippets",
+                    "run code",
+                    "execute code",
+                    "coding playground",
+                    "coding studio",
+                    "python function",
+                    "javascript function",
+                    "code library",
+                )
+            )
+            if effective_user_id and is_coding:
+                try:
+                    from app.coding.repository import CodeRepository
+                    coding_repo = CodeRepository()
+                    user_snippets, snip_total = await coding_repo.list_snippets(effective_user_id, limit=10)
+                    user_executions, exec_total = await coding_repo.list_executions(effective_user_id, limit=5)
+                    coding_stats = await coding_repo.get_user_stats(effective_user_id)
+                    snip_lines = [
+                        f"- **{s.get('title', 'Snippet')}** (Language: `{s.get('language', 'python')}`, Favorite: {s.get('is_favorite', False)})\n  *Code preview:* `{s.get('code', '')[:80]}...`"
+                        for s in user_snippets[:5]
+                    ]
+                    coding_context = (
+                        "[CODING CONTEXT — USER SAVED SNIPPETS & RECENT CODE RUNS]:\n"
+                        f"Total Saved Snippets: {coding_stats.get('total_snippets', snip_total)}\n"
+                        f"Total Code Executions: {coding_stats.get('total_executions', exec_total)}\n"
+                        f"Execution Success Rate: {coding_stats.get('success_rate_percentage', 100.0)}%\n"
+                        "User Code Snippets:\n" + ("\n".join(snip_lines) if snip_lines else "None")
+                        + "\n\nUse this authentic developer library to assist the user with writing, debugging, explaining, and executing code."
+                    )
+                    history_messages.append(Message(role=MessageRole.SYSTEM, content=coding_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_coding_grounding_failed", error=str(exc))
+
+            # Phase 18: Semantic Memory Grounding for stream
+            is_memory = (agent_slug in ("memory", "curator", "memory-curator")) or any(
+                p.search(body.message) for p in _MEMORY_PATTERNS
+            )
+            if effective_user_id and is_memory:
+                try:
+                    from app.memory.repository import MemoryRepository
+                    mem_repo = MemoryRepository()
+                    user_mems, mem_total = await mem_repo.list_memories(user_id=effective_user_id, include_soft_deleted=False, limit=10)
+                    mem_stats = await mem_repo.get_stats(effective_user_id)
+                    mem_lines = [
+                        f"- [{m.get('importance', 'normal').upper()}] {m.get('content')} (Tags: {', '.join(m.get('tags', []))})"
+                        for m in user_mems[:8]
+                    ]
+                    mem_context = (
+                        "[SEMANTIC MEMORY CONTEXT — USER PREFERENCES & STORED FACTS]:\n"
+                        f"Total Active Memories: {mem_stats.get('active_memories', len(user_mems))} (Forever Pinned: {mem_stats.get('forever_memories', 0)})\n"
+                        "Active Long-Term Memories:\n" + ("\n".join(mem_lines) if mem_lines else "None")
+                        + "\n\nGround your answer in the user's stored memories and personal preferences."
+                    )
+                    history_messages.append(Message(role=MessageRole.SYSTEM, content=mem_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_memory_grounding_failed", error=str(exc))
+
+            # Phase 19: Audit & Security Grounding for stream
+            is_audit = (agent_slug in ("audit", "security", "security-privacy")) or any(
+                p.search(body.message) for p in _AUDIT_PATTERNS
+            )
+            if effective_user_id and is_audit:
+                try:
+                    from app.audit.repository import AuditRepository
+                    audit_repo = AuditRepository()
+                    today_events = await audit_repo.list_today_events(effective_user_id, limit=10)
+                    audit_stats = await audit_repo.get_stats(effective_user_id)
+                    event_lines = [
+                        f"- [{e.get('approval_tier', 'T1')}] **{e.get('agent_slug', 'coordinator').upper()}**: {e.get('action')} (Status: `{e.get('status_code', 'ok')}`, Latency: {e.get('latency_ms', 0)}ms)\n  *Summary:* {e.get('response_summary', '')[:100]}"
+                        for e in today_events[:8]
+                    ]
+                    audit_context = (
+                        "[AUDIT CONTEXT — ACTIONS PERFORMED TODAY & SECURITY LOG]:\n"
+                        f"Total Actions Logged: {audit_stats.get('total_events', len(today_events))} (Today: {audit_stats.get('today_events', len(today_events))})\n"
+                        f"Approval Tiers: {audit_stats.get('by_tier', {})}\n"
+                        f"Status Breakdown: {audit_stats.get('by_status', {})}\n"
+                        "Recent Today's Actions:\n" + ("\n".join(event_lines) if event_lines else "None recorded yet today.")
+                        + "\n\nUse this authentic audit log data to answer the user's questions about what ROXY/Jarvis did today, action history, and security reviews."
+                    )
+                    history_messages.append(Message(role=MessageRole.SYSTEM, content=audit_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_audit_grounding_failed", error=str(exc))
 
             lang_directive = detect_user_language_instruction(body.message)
             if lang_directive:
@@ -1208,13 +2499,13 @@ async def _ingest_document(
     user_id: str,
 ) -> RuntimeUploadResponse:
     """Shared ingest logic used by the upload endpoint."""
-    from app.skills.document_parser import parse_document
     from app.skills.document_ingest import (
         _chunk_store,
         _chunk_text,
         _document_meta,
         _make_embedding,
     )
+    from app.skills.document_parser import parse_document
 
     if not document_name:
         document_name = filename or "unnamed"
@@ -1243,9 +2534,9 @@ async def _ingest_document(
     embeddings = [_make_embedding(c) for c in chunks]
 
     # Store
-    from datetime import datetime, timezone
+    from datetime import datetime
     chunk_ids: list[str] = []
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     if user_id not in _document_meta:
         _document_meta[user_id] = {}
@@ -1257,7 +2548,7 @@ async def _ingest_document(
         "chunk_ids": [],
     }
 
-    for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
+    for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
         chunk_id = str(uuid.uuid4())
         chunk_ids.append(chunk_id)
         _chunk_store[chunk_id] = {
@@ -1376,7 +2667,7 @@ async def runtime_delete_document(
 ) -> RuntimeDocumentDeleteResponse:
     """Delete a document and all its chunks from the RAG store."""
     user_id = str(current_user.id)
-    from app.skills.document_ingest import _document_meta, _chunk_store
+    from app.skills.document_ingest import _chunk_store, _document_meta
 
     user_docs = _document_meta.get(user_id, {})
 

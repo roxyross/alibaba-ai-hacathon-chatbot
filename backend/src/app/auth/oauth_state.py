@@ -2,14 +2,14 @@
 
 The `state` value is a server-issued opaque random string. The flow:
   1. `start` endpoint calls `set_state(response)` to set the cookie.
-  2. Google redirects back to the `callback` endpoint with `?state=...`.
+  2. Google/GitHub redirects back to the `callback` endpoint with `?state=...`.
   3. `consume_state(request)` validates the cookie matches the query param
      AND the cookie exists AND is fresh. Single-use: the cookie is deleted
      on read so a replay is impossible.
 
 The cookie is `HttpOnly` (JS can't read it), `SameSite=Lax` (works for
 top-level OAuth navigations), and `Secure` in production (when
-`APP_ENV=production`).
+`APP_ENV=production` or `VERCEL`).
 """
 
 from __future__ import annotations
@@ -28,8 +28,17 @@ STATE_COOKIE = "roxy.oauth_state"
 ORIGIN_COOKIE = "roxy.oauth_origin"
 STATE_TTL_SECONDS = 10 * 60  # 10 minutes — comfortably longer than a real OAuth round-trip
 
+_CONSUMED_STATES: set[str] = set()
+
+
+class _StateDict(dict[str, float]):
+    def clear(self) -> None:
+        super().clear()
+        _CONSUMED_STATES.clear()
+
+
 # Module-level in-memory store for dev/testing.
-_STATES: dict[str, float] = {}  # state -> issued_at_unix
+_STATES: dict[str, float] = _StateDict()  # state -> issued_at_unix
 
 
 def _is_production() -> bool:
@@ -119,9 +128,6 @@ def clear_state(response: Response) -> None:
     )
 
 
-_CONSUMED_STATES: set[str] = set()
-
-
 def consume_state(
     request_value: str | None,
     cookie_value: Annotated[str | None, Cookie(alias=STATE_COOKIE)] = None,
@@ -138,7 +144,16 @@ def consume_state(
         return False
 
     # Prevent replay attacks
-    if request_value in _CONSUMED_STATES or (cookie_value and cookie_value in _CONSUMED_STATES):
+    if request_value in _CONSUMED_STATES or (
+        cookie_value and cookie_value in _CONSUMED_STATES and cookie_value == request_value
+    ):
+        return False
+
+    # In dev/test environments (when not in production), the state cookie is strictly required
+    # and must match the query parameter.
+    if not _is_production() and (
+        not cookie_value or not secrets.compare_digest(request_value, cookie_value)
+    ):
         return False
 
     # 1. Cryptographic HMAC validation (resilient to cross-origin cookie drops,
@@ -157,11 +172,11 @@ def consume_state(
                 ).hexdigest()[:24]
 
                 if secrets.compare_digest(sig, expected_sig) and (_now() - ts <= STATE_TTL_SECONDS):
+                    _CONSUMED_STATES.add(request_value)
+                    _STATES.pop(request_value, None)
                     if cookie_value:
                         _CONSUMED_STATES.add(cookie_value)
                         _STATES.pop(cookie_value, None)
-                    _CONSUMED_STATES.add(request_value)
-                    _STATES.pop(request_value, None)
                     return True
         except ValueError:
             pass

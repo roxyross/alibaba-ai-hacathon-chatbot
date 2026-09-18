@@ -1,15 +1,23 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import './ImageStudio.css';
 
 interface MediaItem {
   id: string;
   url: string;
   prompt: string;
+  revised_prompt?: string;
   type: 'image' | 'video';
+  style_preset?: string;
   quality: string;
   aspectRatio: string;
   speed: string;
   date: string;
+  is_favorite?: boolean;
+  vault_document_id?: string;
+  width?: number;
+  height?: number;
+  seed?: number;
+  model?: string;
 }
 
 interface ImageStudioProps {
@@ -17,33 +25,98 @@ interface ImageStudioProps {
   onBack: () => void;
 }
 
-export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessToken, onBack }) => {
-  const [activeTab, setActiveTab] = useState<'generations' | 'uploads'>('generations');
+const STYLE_CHIPS = [
+  { id: 'photorealistic', label: '📸 Photorealistic' },
+  { id: 'cinematic', label: '🎬 Cinematic' },
+  { id: 'anime', label: '🌸 Anime' },
+  { id: 'cyberpunk', label: '🌆 Cyberpunk' },
+  { id: '3d_render', label: '🧸 3D Render' },
+  { id: 'oil_painting', label: '🎨 Oil Painting' },
+  { id: 'minimalist', label: '📐 Minimalist' },
+  { id: 'watercolor', label: '💧 Watercolor' },
+];
+
+export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack }) => {
+  const [activeTab, setActiveTab] = useState<'generations' | 'favorites' | 'uploads'>('generations');
   const [prompt, setPrompt] = useState('');
+  const [selectedStyle, setSelectedStyle] = useState('photorealistic');
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
   const [speed, setSpeed] = useState('Fast');
   const [quality, setQuality] = useState('Quality 2.0');
-  const [aspectRatio, setAspectRatio] = useState('2:3');
-  const [selectedModel, setSelectedModel] = useState('imagen-3.0');
+  const [aspectRatio, setAspectRatio] = useState('1:1');
+  const [selectedModel, setSelectedModel] = useState('flux');
   const [showPlusPopup, setShowPlusPopup] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [selectedModalItem, setSelectedModalItem] = useState<MediaItem | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [generations, setGenerations] = useState<MediaItem[]>([
-    {
-      id: 'gen-1',
-      url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80',
-      prompt: 'Minimalist architecture with soft teal glass reflection and cinematic ambient light',
-      type: 'image',
-      quality: 'Quality 2.0',
-      aspectRatio: '2:3',
-      speed: 'Fast',
-      date: 'Just now',
-    },
-  ]);
-
+  const [generations, setGenerations] = useState<MediaItem[]>([]);
   const [uploads, setUploads] = useState<MediaItem[]>([]);
+
+  const fetchGenerations = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const res = await fetch('/api/v1/images/generations', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const mapped: MediaItem[] = (data.generations || []).map((g: any) => ({
+          id: g.id,
+          url: g.media_url,
+          prompt: g.prompt,
+          revised_prompt: g.revised_prompt,
+          type: g.media_type || 'image',
+          style_preset: g.style_preset || 'photorealistic',
+          quality: g.quality || 'Quality 2.0',
+          aspectRatio: g.aspect_ratio || '1:1',
+          speed: g.speed || 'Fast',
+          date: g.created_at ? new Date(g.created_at).toLocaleDateString() : 'Recently',
+          is_favorite: Boolean(g.is_favorite),
+          vault_document_id: g.vault_document_id,
+          width: g.width,
+          height: g.height,
+          seed: g.seed,
+          model: g.model,
+        }));
+        setGenerations(mapped);
+      }
+    } catch {
+      // Offline fallback
+    }
+  }, [accessToken]);
+
+  const fetchUploads = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const res = await fetch('/api/v1/images/uploads', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const mapped: MediaItem[] = (data.uploads || []).map((u: any) => ({
+          id: u.id,
+          url: u.media_url,
+          prompt: u.filename,
+          type: u.media_type || 'image',
+          quality: 'Source',
+          aspectRatio: 'Original',
+          speed: 'Direct',
+          date: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Recently',
+        }));
+        setUploads(mapped);
+      }
+    } catch {
+      // Offline fallback
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    fetchGenerations();
+    fetchUploads();
+  }, [fetchGenerations, fetchUploads]);
 
   // Speech Recognition integration
   const toggleSpeech = () => {
@@ -83,50 +156,214 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
     }
   };
 
-  const handleGenerate = () => {
+  const handleEnhancePrompt = async () => {
+    if (!prompt.trim() || isEnhancing) return;
+    setIsEnhancing(true);
+    try {
+      if (accessToken) {
+        const res = await fetch('/api/v1/images/enhance-prompt', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ prompt, style_preset: selectedStyle }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.enhanced_prompt) {
+            setPrompt(data.enhanced_prompt);
+          }
+        }
+      } else {
+        setPrompt((prev) => `${prev}, volumetric dramatic lighting, intricate textures, 8k uhd masterpiece`);
+      }
+    } catch {
+      // Fallback
+      setPrompt((prev) => `${prev}, volumetric dramatic lighting, 8k uhd`);
+    } finally {
+      setIsEnhancing(false);
+    }
+  };
+
+  const handleGenerate = async () => {
     if (!prompt.trim() || isGenerating) return;
     setIsGenerating(true);
 
-    setTimeout(() => {
-      const samplePool = [
-        'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?auto=format&fit=crop&w=800&q=80',
-        'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?auto=format&fit=crop&w=800&q=80',
-        'https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=800&q=80',
-      ];
-      const newMedia: MediaItem = {
+    try {
+      if (accessToken) {
+        const res = await fetch('/api/v1/images/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            prompt,
+            media_type: mediaType,
+            style_preset: selectedStyle,
+            speed,
+            quality,
+            aspect_ratio: aspectRatio,
+            model: selectedModel,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const g = data.generation;
+          const newItem: MediaItem = {
+            id: g.id,
+            url: g.media_url,
+            prompt: g.prompt,
+            revised_prompt: g.revised_prompt,
+            type: g.media_type || 'image',
+            style_preset: g.style_preset,
+            quality: g.quality,
+            aspectRatio: g.aspect_ratio,
+            speed: g.speed,
+            date: 'Just now',
+            is_favorite: false,
+            width: g.width,
+            height: g.height,
+            seed: g.seed,
+            model: g.model,
+          };
+          setGenerations((prev) => [newItem, ...prev]);
+          setPrompt('');
+          setActiveTab('generations');
+          return;
+        }
+      }
+
+      // Offline synthesis simulation
+      const cleanP = encodeURIComponent(prompt.trim());
+      const offlineUrl = `https://image.pollinations.ai/prompt/${cleanP}?width=1024&height=1024&nologo=true&enhance=true`;
+      const newItem: MediaItem = {
         id: `gen-${Date.now()}`,
-        url: samplePool[generations.length % samplePool.length],
+        url: offlineUrl,
         prompt,
         type: mediaType,
+        style_preset: selectedStyle,
         quality,
         aspectRatio,
         speed,
         date: 'Just now',
+        is_favorite: false,
       };
-      setGenerations((prev) => [newMedia, ...prev]);
-      setIsGenerating(false);
+      setGenerations((prev) => [newItem, ...prev]);
       setPrompt('');
-    }, 1200);
+      setActiveTab('generations');
+    } catch {
+      // Error handling
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleToggleFavorite = async (itemId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (accessToken) {
+        const res = await fetch(`/api/v1/images/${itemId}/favorite`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setGenerations((prev) =>
+            prev.map((it) => (it.id === itemId ? { ...it, is_favorite: data.generation.is_favorite } : it))
+          );
+          return;
+        }
+      }
+      setGenerations((prev) =>
+        prev.map((it) => (it.id === itemId ? { ...it, is_favorite: !it.is_favorite } : it))
+      );
+    } catch {
+      // Fallback
+    }
+  };
+
+  const handleDelete = async (itemId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this artwork?')) return;
+    try {
+      if (accessToken) {
+        await fetch(`/api/v1/images/${itemId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      }
+      setGenerations((prev) => prev.filter((it) => it.id !== itemId));
+      if (selectedModalItem?.id === itemId) setSelectedModalItem(null);
+    } catch {
+      // Fallback
+    }
+  };
+
+  const handleSaveToVault = async (itemId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (accessToken) {
+        const res = await fetch(`/api/v1/images/${itemId}/save-to-vault`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setGenerations((prev) =>
+            prev.map((it) => (it.id === itemId ? { ...it, vault_document_id: data.vault_document_id } : it))
+          );
+          alert('Artwork successfully indexed into your Knowledge Vault!');
+        }
+      }
+    } catch {
+      alert('Could not save artwork to Knowledge Vault.');
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const dummyUrl = URL.createObjectURL(file);
-    const newUpload: MediaItem = {
-      id: `upl-${Date.now()}`,
-      url: dummyUrl,
-      prompt: file.name,
-      type: file.type.startsWith('video') ? 'video' : 'image',
-      quality: 'Source',
-      aspectRatio: 'Original',
-      speed: 'Direct',
-      date: 'Just now',
-    };
-    setUploads((prev) => [newUpload, ...prev]);
-    setActiveTab('uploads');
+    try {
+      if (accessToken) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/api/v1/images/upload', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: formData,
+        });
+        if (res.ok) {
+          await fetchUploads();
+          setActiveTab('uploads');
+          return;
+        }
+      }
+
+      const dummyUrl = URL.createObjectURL(file);
+      const newUpload: MediaItem = {
+        id: `upl-${Date.now()}`,
+        url: dummyUrl,
+        prompt: file.name,
+        type: file.type.startsWith('video') ? 'video' : 'image',
+        quality: 'Source',
+        aspectRatio: 'Original',
+        speed: 'Direct',
+        date: 'Just now',
+      };
+      setUploads((prev) => [newUpload, ...prev]);
+      setActiveTab('uploads');
+    } catch {
+      // Fallback
+    }
   };
+
+  const displayedGenerations = activeTab === 'favorites'
+    ? generations.filter((g) => g.is_favorite)
+    : generations;
 
   return (
     <div className="image-studio">
@@ -146,14 +383,21 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
               className={`image-studio__sidebar-btn ${activeTab === 'generations' ? 'active' : ''}`}
               onClick={() => setActiveTab('generations')}
             >
-              🖼️ Generations
+              🖼️ Generations ({generations.length})
+            </button>
+            <button
+              type="button"
+              className={`image-studio__sidebar-btn ${activeTab === 'favorites' ? 'active' : ''}`}
+              onClick={() => setActiveTab('favorites')}
+            >
+              ⭐ Favorites ({generations.filter((g) => g.is_favorite).length})
             </button>
             <button
               type="button"
               className={`image-studio__sidebar-btn ${activeTab === 'uploads' ? 'active' : ''}`}
               onClick={() => setActiveTab('uploads')}
             >
-              📤 Uploads
+              📤 Reference Uploads ({uploads.length})
             </button>
           </nav>
 
@@ -164,7 +408,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
               className="image-studio__upload-media-btn"
               onClick={() => fileInputRef.current?.click()}
             >
-              📁 Upload media
+              📁 Upload Reference
             </button>
             <input
               type="file"
@@ -192,47 +436,35 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
                   type="button"
                   className="image-studio__plus-btn"
                   onClick={() => setShowPlusPopup((v) => !v)}
-                  title="Generation Options"
+                  title="Creative Model Controls"
                 >
-                  +
+                  ⚙️
                 </button>
 
-                {/* "+" Popup inside Image Studio */}
                 {showPlusPopup && (
                   <div className="image-studio__popup-menu">
                     <div className="image-studio__popup-title">Creative Controls</div>
-                    <button
-                      type="button"
-                      className="image-studio__popup-item"
-                      onClick={() => {
-                        fileInputRef.current?.click();
-                        setShowPlusPopup(false);
-                      }}
-                    >
-                      <span>📸</span> Generate from picture
-                    </button>
-                    <button
-                      type="button"
-                      className="image-studio__popup-item"
-                      onClick={() => {
-                        fileInputRef.current?.click();
-                        setShowPlusPopup(false);
-                      }}
-                    >
-                      <span>🎥</span> Generate from video
-                    </button>
-
-                    <div className="image-studio__popup-divider" />
-
+                    <div className="image-studio__popup-row">
+                      <label>Media</label>
+                      <select
+                        value={mediaType}
+                        onChange={(e) => setMediaType(e.target.value as 'image' | 'video')}
+                      >
+                        <option value="image">Still Image</option>
+                        <option value="video">Short Video</option>
+                      </select>
+                    </div>
                     <div className="image-studio__popup-row">
                       <label>Model</label>
                       <select
                         value={selectedModel}
                         onChange={(e) => setSelectedModel(e.target.value)}
                       >
-                        <option value="imagen-3.0">Imagen 3.0</option>
-                        <option value="flux-schnell">FLUX.1 Schnell</option>
-                        <option value="sd-xl">Stable Diffusion XL</option>
+                        <option value="flux">FLUX.1 Schnell (Fast)</option>
+                        <option value="flux-realism">Flux Realism (Photo)</option>
+                        <option value="flux-anime">Flux Anime / Manga</option>
+                        <option value="flux-3d">Flux 3D Cinematic</option>
+                        <option value="turbo">Diffusion Turbo</option>
                       </select>
                     </div>
 
@@ -260,11 +492,12 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
                         value={aspectRatio}
                         onChange={(e) => setAspectRatio(e.target.value)}
                       >
-                        <option value="2:3">2:3 (Portrait)</option>
                         <option value="1:1">1:1 (Square)</option>
                         <option value="16:9">16:9 (Landscape)</option>
-                        <option value="9:16">9:16 (Story)</option>
-                        <option value="3:2">3:2 (Classic)</option>
+                        <option value="9:16">9:16 (Story / Mobile)</option>
+                        <option value="2:3">2:3 (Portrait)</option>
+                        <option value="3:2">3:2 (Classic 35mm)</option>
+                        <option value="4:5">4:5 (Social Feed)</option>
                       </select>
                     </div>
                   </div>
@@ -275,7 +508,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
               <input
                 type="text"
                 className="image-studio__text-input"
-                placeholder="Describe what you want to imagine..."
+                placeholder="Describe what you want to imagine with neural precision..."
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => {
@@ -285,47 +518,15 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
 
               {/* Inline Controls */}
               <div className="image-studio__inline-controls">
-                {/* Image / Video toggle */}
-                <div className="image-studio__type-toggle">
-                  <button
-                    type="button"
-                    className={`type-btn ${mediaType === 'image' ? 'active' : ''}`}
-                    onClick={() => setMediaType('image')}
-                  >
-                    Image
-                  </button>
-                  <button
-                    type="button"
-                    className={`type-btn ${mediaType === 'video' ? 'active' : ''}`}
-                    onClick={() => setMediaType('video')}
-                  >
-                    Video
-                  </button>
-                </div>
-
-                {/* Speed selector */}
-                <select
-                  className="image-studio__select"
-                  value={speed}
-                  onChange={(e) => setSpeed(e.target.value)}
-                  title="Speed selector"
+                <button
+                  type="button"
+                  className="image-studio__enhance-btn"
+                  onClick={handleEnhancePrompt}
+                  disabled={!prompt.trim() || isEnhancing}
+                  title="Enhance prompt with AI"
                 >
-                  <option value="Fast">Fast</option>
-                  <option value="Quality">Quality</option>
-                  <option value="Cinematic">Cinematic</option>
-                </select>
-
-                {/* Quality selector */}
-                <select
-                  className="image-studio__select"
-                  value={quality}
-                  onChange={(e) => setQuality(e.target.value)}
-                  title="Quality selector"
-                >
-                  <option value="Quality 1.0">Quality 1.0</option>
-                  <option value="Quality 2.0">Quality 2.0</option>
-                  <option value="Ultra HD">Ultra HD</option>
-                </select>
+                  {isEnhancing ? '✨ Enhancing...' : '✨ Enhance'}
+                </button>
 
                 {/* Aspect ratio selector */}
                 <select
@@ -334,10 +535,11 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
                   onChange={(e) => setAspectRatio(e.target.value)}
                   title="Aspect ratio selector"
                 >
-                  <option value="2:3">2:3</option>
                   <option value="1:1">1:1</option>
                   <option value="16:9">16:9</option>
                   <option value="9:16">9:16</option>
+                  <option value="2:3">2:3</option>
+                  <option value="3:2">3:2</option>
                 </select>
 
                 {/* Microphone Icon */}
@@ -351,7 +553,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
                   🎤
                 </button>
 
-                {/* Circular Send Button (soft teal) */}
+                {/* Circular Send Button */}
                 <button
                   type="button"
                   className="image-studio__send-btn"
@@ -371,40 +573,92 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
                 </button>
               </div>
             </div>
+
+            {/* Style Presets Strip */}
+            <div className="image-studio__styles-strip">
+              {STYLE_CHIPS.map((chip) => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  className={`image-studio__style-chip ${selectedStyle === chip.id ? 'active' : ''}`}
+                  onClick={() => setSelectedStyle(chip.id)}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Main Gallery Area */}
           <div className="image-studio__gallery-section">
             <div className="image-studio__gallery-header">
               <h2 className="image-studio__gallery-title">
-                {activeTab === 'generations' ? 'Generations' : 'Uploads'}
+                {activeTab === 'generations'
+                  ? 'Recent Generations'
+                  : activeTab === 'favorites'
+                  ? 'Favorite Artwork'
+                  : 'Uploaded Reference Media'}
               </h2>
-              {/* Black "+ Upload" button */}
               <button
                 type="button"
                 className="image-studio__black-upload-btn"
                 onClick={() => fileInputRef.current?.click()}
               >
-                + Upload
+                + Upload Reference
               </button>
             </div>
 
-            {activeTab === 'generations' ? (
-              generations.length === 0 ? (
+            {activeTab === 'generations' || activeTab === 'favorites' ? (
+              displayedGenerations.length === 0 ? (
                 <div className="image-studio__empty-state">
                   <div className="image-studio__empty-icon">🎨</div>
-                  <p>Your recent generations will appear here</p>
+                  <p>
+                    {activeTab === 'favorites'
+                      ? 'No favorite artworks yet. Click the heart icon on any generation to save it here.'
+                      : 'Your neural studio gallery is clean and ready. Describe any concept above to synthesize artwork.'}
+                  </p>
                 </div>
               ) : (
                 <div className="image-studio__grid">
-                  {generations.map((item) => (
-                    <div key={item.id} className="image-studio__card">
+                  {displayedGenerations.map((item) => (
+                    <div
+                      key={item.id}
+                      className="image-studio__card"
+                      onClick={() => setSelectedModalItem(item)}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <img src={item.url} alt={item.prompt} className="image-studio__card-img" />
                       <div className="image-studio__card-footer">
                         <p className="image-studio__card-prompt">{item.prompt}</p>
                         <div className="image-studio__card-tags">
                           <span>{item.aspectRatio}</span>
-                          <span>{item.quality}</span>
+                          <span>{item.style_preset || item.quality}</span>
+                        </div>
+                        <div className="image-studio__card-bar">
+                          <button
+                            type="button"
+                            className="image-studio__icon-btn"
+                            onClick={(e) => handleToggleFavorite(item.id, e)}
+                            title={item.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+                          >
+                            {item.is_favorite ? '❤️' : '🤍'}
+                          </button>
+                          <button
+                            type="button"
+                            className={`image-studio__vault-btn ${item.vault_document_id ? 'saved' : ''}`}
+                            onClick={(e) => handleSaveToVault(item.id, e)}
+                            title="Save artwork and specifications to Knowledge Vault"
+                          >
+                            {item.vault_document_id ? '✓ In Vault' : '📑 Save to Vault'}
+                          </button>
+                          <button
+                            type="button"
+                            className="image-studio__icon-btn"
+                            onClick={(e) => handleDelete(item.id, e)}
+                            title="Delete artwork"
+                          >
+                            🗑️
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -414,7 +668,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
             ) : uploads.length === 0 ? (
               <div className="image-studio__empty-state">
                 <div className="image-studio__empty-icon">📤</div>
-                <p>No uploaded media yet. Click "+ Upload" above to start.</p>
+                <p>No uploaded reference media yet. Click "+ Upload Reference" above to begin.</p>
               </div>
             ) : (
               <div className="image-studio__grid">
@@ -423,6 +677,10 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
                     <img src={item.url} alt={item.prompt} className="image-studio__card-img" />
                     <div className="image-studio__card-footer">
                       <p className="image-studio__card-prompt">{item.prompt}</p>
+                      <div className="image-studio__card-tags">
+                        <span>{item.type}</span>
+                        <span>{item.date}</span>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -431,6 +689,65 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken: _accessTo
           </div>
         </main>
       </div>
+
+      {/* Lightbox / Detail Modal */}
+      {selectedModalItem && (
+        <div className="image-studio__modal-overlay" onClick={() => setSelectedModalItem(null)}>
+          <div className="image-studio__modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="image-studio__modal-header">
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>
+                🎨 Artwork Specifications
+              </h3>
+              <button
+                type="button"
+                className="image-studio__icon-btn"
+                onClick={() => setSelectedModalItem(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="image-studio__modal-body">
+              <img
+                src={selectedModalItem.url}
+                alt={selectedModalItem.prompt}
+                className="image-studio__modal-img"
+              />
+              <div>
+                <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.9rem', color: '#64748b' }}>Original Prompt</h4>
+                <p style={{ margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 600 }}>{selectedModalItem.prompt}</p>
+                {selectedModalItem.revised_prompt && (
+                  <>
+                    <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.9rem', color: '#64748b' }}>Enhanced Neural Prompt</h4>
+                    <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: '#475569', fontStyle: 'italic' }}>
+                      {selectedModalItem.revised_prompt}
+                    </p>
+                  </>
+                )}
+                <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.82rem', color: '#64748b', flexWrap: 'wrap' }}>
+                  <span><strong>Style:</strong> {selectedModalItem.style_preset || 'Photorealistic'}</span>
+                  <span><strong>Aspect Ratio:</strong> {selectedModalItem.aspectRatio}</span>
+                  {selectedModalItem.width && selectedModalItem.height && (
+                    <span><strong>Resolution:</strong> {selectedModalItem.width}x{selectedModalItem.height}</span>
+                  )}
+                  <span><strong>Model:</strong> {selectedModalItem.model || 'flux'}</span>
+                  {selectedModalItem.seed && <span><strong>Seed:</strong> {selectedModalItem.seed}</span>}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <a
+                  href={selectedModalItem.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="image-studio__black-upload-btn"
+                  style={{ textDecoration: 'none', display: 'inline-block' }}
+                >
+                  🔗 Open High-Res Image
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

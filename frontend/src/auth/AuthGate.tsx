@@ -72,12 +72,28 @@ export const AuthGate: React.FC<AuthGateProps> = ({
   const [devToken, setDevToken] = useState<string | null>(null);
   const [oauthErrorMessage, setOauthErrorMessage] = useState<string | null>(null);
 
-  // Close modal when authentication succeeds
+  // Close modal and reset phase when authentication succeeds
   useEffect(() => {
-    if (isModal && isOpen && user && accessToken) {
-      onClose?.();
+    if (user && accessToken) {
+      setPhase('request');
+      if (isModal && isOpen) {
+        onClose?.();
+      }
     }
   }, [isModal, isOpen, user, accessToken, onClose]);
+
+  // Watchdog timer: If stuck in 'verifying' for > 6 seconds without completing, reset back to 'request'
+  useEffect(() => {
+    if (phase === 'verifying') {
+      const timer = setTimeout(() => {
+        if (!user || !accessToken) {
+          setPhase('request');
+          setOauthErrorMessage('Verification timed out or server took too long. Please try again.');
+        }
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [phase, user, accessToken]);
 
   // Handle deep links from both auth flows on initial render:
   //   - Magic link: /auth/callback?token=...
@@ -95,6 +111,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
       console.error('OAuth error:', oauthError);
       setOauthErrorMessage(`OAuth failed: ${oauthError.replace(/_/g, ' ')}`);
       window.history.replaceState({}, '', '/');
+      setPhase('request');
       return;
     }
 
@@ -103,6 +120,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
       setOauthErrorMessage(null);
       completeOAuth(oauthToken)
         .then(() => {
+          setPhase('request');
           window.history.replaceState({}, '', '/');
         })
         .catch((err) => {
@@ -118,6 +136,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     setOauthErrorMessage(null);
     verify(token)
       .then(() => {
+        setPhase('request');
         window.history.replaceState({}, '', '/');
       })
       .catch((err) => {
@@ -468,7 +487,19 @@ export const AuthGate: React.FC<AuthGateProps> = ({
         )}
 
         {phase === 'verifying' && (
-          <p className="auth-gate__info">Verifying…</p>
+          <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+            <p className="auth-gate__info" style={{ marginBottom: '1rem' }}>Verifying your session…</p>
+            <button
+              type="button"
+              className="auth-gate__link"
+              onClick={() => {
+                setPhase('request');
+                setOauthErrorMessage(null);
+              }}
+            >
+              ← Return to sign in
+            </button>
+          </div>
         )}
     </div>
   );

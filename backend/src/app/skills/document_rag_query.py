@@ -34,9 +34,30 @@ class DocumentRAGSkill(SkillExecutor[DocumentRagQueryRequest, DocumentRagQueryRe
         user_id = input_data.user_id or "anonymous"
 
         # Lazy import to avoid circular import at module load time
-        from app.skills.document_ingest import _document_meta, _chunk_store
+        from app.skills.document_ingest import _chunk_store, _document_meta
 
         user_docs = _document_meta.get(user_id, {})
+
+        # If user has no documents in memory, attempt to rehydrate from database
+        if not user_docs:
+            try:
+                from app.documents.repository import DocumentRepository
+                from app.skills.document_ingest import rehydrate_user_document
+                repo = DocumentRepository()
+                db_docs = await repo.list_for_user(user_id)
+                for d in db_docs:
+                    ext_text = getattr(d, "extracted_text", None)
+                    if ext_text:
+                        rehydrate_user_document(
+                            user_id=user_id,
+                            document_id=d.id,
+                            document_name=getattr(d, "filename", d.id),
+                            text=ext_text,
+                            doc_type=getattr(d, "mime_type", "txt"),
+                        )
+                user_docs = _document_meta.get(user_id, {})
+            except Exception as exc:
+                log.debug("rag_query.rehydrate_check_failed", error=str(exc))
 
         query = input_data.query.lower()
         top_k = input_data.top_k
@@ -79,7 +100,7 @@ class DocumentRAGSkill(SkillExecutor[DocumentRagQueryRequest, DocumentRagQueryRe
             )
 
         # Score each chunk against the query
-        from app.skills.document_ingest import _make_embedding, _cosine_sim
+        from app.skills.document_ingest import _cosine_sim, _make_embedding
 
         query_embedding = _make_embedding(query)
 

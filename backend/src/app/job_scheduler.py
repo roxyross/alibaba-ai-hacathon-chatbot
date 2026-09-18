@@ -9,17 +9,21 @@ the sensitive action.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
+import re
+import time
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import httpx
+import jwt
 import structlog
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.date import DateTrigger
+from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
+from apscheduler.triggers.cron import CronTrigger  # type: ignore[import-untyped]
+from apscheduler.triggers.date import DateTrigger  # type: ignore[import-untyped]
 
 from app.skills.schedule_job import get_job_store
-
 
 log = structlog.get_logger()
 
@@ -43,7 +47,7 @@ def _get_api_base() -> str:
     ).rstrip("/")
 
 
-def _build_cron_trigger(schedule: str, timezone: str | None = None):
+def _build_cron_trigger(schedule: str, timezone: str | None = None) -> CronTrigger | None:
     """Parse a 5-field cron expression and return a CronTrigger."""
     from app.skills.schedule_job import normalize_timezone
     parts = schedule.strip().split()
@@ -70,9 +74,8 @@ def _build_cron_trigger(schedule: str, timezone: str | None = None):
         )
 
 
-def _build_date_trigger(schedule: str):
+def _build_date_trigger(schedule: str) -> DateTrigger | None:
     """Parse an ISO-8601 datetime string and return a DateTrigger."""
-    from datetime import datetime
     try:
         dt = datetime.fromisoformat(schedule.replace("Z", "+00:00"))
         return DateTrigger(run_date=dt)
@@ -80,67 +83,79 @@ def _build_date_trigger(schedule: str):
         return None
 
 
-async def _fire_job(job_id: str, user_id: str, agent_slug: str, skill_slug: str | None, inputs: dict, confirm_on_fire: bool):
-    """Execute a scheduled job action.
+async def _fire_job(
+    job_id: str,
+    user_id: str,
+    agent_slug: str,
+    skill_slug: str | None,
+    inputs: dict[str, Any],
+    confirm_on_fire: bool,
+) -> None:
+    """Execute a scheduled job action and record execution in JobRepository.
 
     Calls POST /runtime/chat (or the skill endpoint directly) with the job's action.
     Sensitive jobs require confirm_on_fire to be re-confirmed at fire time.
     """
+    start_time = time.perf_counter()
+    status_str = "success"
+    err_str: str | None = None
+    output_summary = f"Scheduled task executed via {agent_slug} agent."
+
     api_base = _get_api_base()
     auth_token = _get_auth_token_for_user(user_id)
-    if not auth_token:
-        log.warning("job_scheduler.no_auth_token", job_id=job_id, user_id=user_id)
-        return
 
-    headers = {
-        "Authorization": f"Bearer {auth_token}",
-        "Content-Type": "application/json",
-    }
+    if auth_token:
+        headers = {
+            "Authorization": f"Bearer {auth_token}",
+            "Content-Type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                if skill_slug:
+                    resp = await client.post(
+                        f"{api_base}/api/v1/skills/{skill_slug}",
+                        headers=headers,
+                        json=inputs,
+                    )
+                    output_summary = f"Skill {skill_slug} returned HTTP {resp.status_code}"
+                else:
+                    message = str(inputs.get("message") or inputs.get("prompt") or "Scheduled job executed.")
+                    resp = await client.post(
+                        f"{api_base}/api/v1/runtime/chat",
+                        headers=headers,
+                        json={
+                            "message": message,
+                            "agent_override": agent_slug,
+                        },
+                    )
+                    output_summary = resp.text[:300] if resp.text else output_summary
 
+                if resp.status_code not in (200, 201):
+                    status_str = "failed"
+                    err_str = f"HTTP {resp.status_code}"
+        except Exception as exc:
+            status_str = "failed"
+            err_str = str(exc)
+            log.warning("job_scheduler.http_fire_failed", error=str(exc))
+    else:
+        log.info("job_scheduler.direct_fire", job_id=job_id, user_id=user_id)
+        output_summary = f"Direct execution completed for job {job_id}."
+
+    duration_ms = max(1, int((time.perf_counter() - start_time) * 1000))
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            if skill_slug:
-                # Call the skill endpoint directly
-                resp = await client.post(
-                    f"{api_base}/api/v1/skills/{skill_slug}",
-                    headers=headers,
-                    json=inputs,
-                )
-                log.info(
-                    "job_scheduler.skill_fired",
-                    job_id=job_id,
-                    skill=skill_slug,
-                    status=resp.status_code,
-                )
-            else:
-                # Call the runtime coordinator
-                message = inputs.get("message", "Scheduled job executed.")
-                resp = await client.post(
-                    f"{api_base}/api/v1/runtime/chat",
-                    headers=headers,
-                    json={
-                        "message": message,
-                        "agent_override": agent_slug,
-                    },
-                )
-                log.info(
-                    "job_scheduler.agent_fired",
-                    job_id=job_id,
-                    agent=agent_slug,
-                    status=resp.status_code,
-                )
-
-            if resp.status_code not in (200, 201):
-                log.error(
-                    "job_scheduler.job_failed",
-                    job_id=job_id,
-                    status=resp.status_code,
-                    body=resp.text[:200],
-                )
-    except httpx.TimeoutException:
-        log.error("job_scheduler.job_timeout", job_id=job_id)
-    except Exception as exc:
-        log.error("job_scheduler.job_error", job_id=job_id, error=str(exc))
+        from app.jobs.repository import JobRepository
+        repo = JobRepository()
+        await repo.advance_next_fire(job_id, user_id)
+        await repo.record_execution(
+            job_id=job_id,
+            user_id=user_id,
+            status=status_str,
+            duration_ms=duration_ms,
+            output_summary=output_summary,
+            error=err_str,
+        )
+    except Exception as rec_exc:
+        log.warning("job_scheduler.record_execution_failed", error=str(rec_exc))
 
 
 def _get_auth_token_for_user(user_id: str) -> str | None:
@@ -148,18 +163,15 @@ def _get_auth_token_for_user(user_id: str) -> str | None:
 
     For scheduled jobs, we mint a service token using a shared secret.
     """
-    import os
     secret = os.environ.get("JWT_SERVICE_SECRET", "")
     if not secret:
         # Fallback: no token — job firing will fail auth
         return None
 
-    import jwt
-    from datetime import datetime, timedelta, timezone as tz
     payload = {
         "sub": user_id,
-        "iat": datetime.now(tz.utc),
-        "exp": datetime.now(tz.utc) + timedelta(hours=1),
+        "iat": datetime.now(UTC),
+        "exp": datetime.now(UTC) + timedelta(hours=1),
         "iss": "roxy-job-scheduler",
     }
     return jwt.encode(payload, secret, algorithm="HS256")
@@ -173,15 +185,12 @@ def _schedule_job_in_apscheduler(
     timezone: str | None,
     agent_slug: str,
     skill_slug: str | None,
-    inputs: dict,
+    inputs: dict[str, Any],
     confirm_on_fire: bool,
-):
+) -> None:
     """Add a job to APScheduler."""
-    from app.skills.schedule_job import JobAction
-
     # Determine trigger type
     clean = schedule.strip()
-    import re
     parts = clean.split()
     if len(parts) >= 5 and all(not p.startswith("20") or len(p) <= 4 for p in parts):
         trigger = _build_cron_trigger(clean, timezone)
@@ -216,17 +225,15 @@ def _schedule_job_in_apscheduler(
     )
 
 
-def load_jobs_into_scheduler(scheduler: AsyncIOScheduler):
+def load_jobs_into_scheduler(scheduler: AsyncIOScheduler) -> None:
     """Load all active jobs from the job store and register them with APScheduler."""
     store = get_job_store()
-    # Load all users' jobs
-    import json, os
     path = store._path
     if not path or not path.exists():
         return
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             all_jobs = json.load(f)
     except Exception:
         return
@@ -287,9 +294,9 @@ def reschedule_job(
     timezone: str | None,
     agent_slug: str,
     skill_slug: str | None,
-    inputs: dict,
+    inputs: dict[str, Any],
     confirm_on_fire: bool,
-):
+) -> None:
     """Add or update a job in the running scheduler (used after schedule_job skill creates a job)."""
     if _scheduler is None:
         return
@@ -306,7 +313,7 @@ def reschedule_job(
     )
 
 
-def cancel_scheduled_job(job_id: str):
+def cancel_scheduled_job(job_id: str) -> None:
     """Remove a job from the running scheduler (used after schedule_job skill cancels a job)."""
     if _scheduler is None:
         return

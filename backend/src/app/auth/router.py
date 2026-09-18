@@ -212,13 +212,19 @@ async def oauth_callback(
 
     if not code or not state:
         log.warning("auth.oauth.callback.missing_params", provider=provider)
-        return _redirect_with_error(provider, "missing_code_or_state", frontend_base=frontend_base)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing required code or state parameter",
+        )
 
     # Pull the state cookie and compare. consume_state is single-use.
     state_cookie = request.cookies.get(oauth_state.STATE_COOKIE)
     if not oauth_state.consume_state(state, state_cookie):
         log.warning("auth.oauth.callback.bad_state", provider=provider)
-        return _redirect_with_error(provider, "invalid_or_expired_state", frontend_base=frontend_base)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OAuth state",
+        )
 
     if provider == "google":
         google_config = oauth_svc.GoogleConfig.from_env()

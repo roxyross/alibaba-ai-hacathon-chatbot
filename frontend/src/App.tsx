@@ -26,6 +26,12 @@ import { FinanceView } from './components/FinanceView/FinanceView';
 import { UsageView } from './components/UsageView/UsageView';
 import { BillingView } from './components/BillingView/BillingView';
 import { PaymentMethodView } from './components/PaymentMethodView/PaymentMethodView';
+import { ResearchHub } from './components/ResearchHub/ResearchHub';
+import { BrowserStudio } from './components/BrowserStudio/BrowserStudio';
+import { StudyStudio } from './components/StudyStudio/StudyStudio';
+import { CodingStudio } from './components/CodingStudio/CodingStudio';
+import { MemoryStudio } from './components/MemoryStudio/MemoryStudio';
+import { AuditStudio } from './components/AuditStudio/AuditStudio';
 import './App.css';
 import './components/DocumentUpload/DocumentUpload.css';
 
@@ -414,6 +420,12 @@ export function ChatScreen() {
               documents: 'Document Upload',
               calculator: 'Calculator',
               calendar: 'Calendar View',
+              research: 'Deep Research',
+              browser: 'Browser Studio',
+              study: 'Study Studio',
+              coding: 'Coding Studio',
+              memory: 'Memory Studio',
+              audit: 'Audit & Security Studio',
             };
             openAuth('signin', `Please sign in to access ${viewLabels[view] || 'this feature'}.`);
             return;
@@ -623,6 +635,7 @@ export function ChatScreen() {
 
         {activeView === 'pricing' ? (
           <PricingPage
+            accessToken={accessToken}
             onBack={() => setActiveView('chat')}
             onSelectPlan={(plan) => {
               addToast('success', `Plan ${plan} selected!`);
@@ -700,6 +713,40 @@ export function ChatScreen() {
               setActiveView('chat');
               handleSend(prompt);
             }}
+          />
+        ) : activeView === 'research' ? (
+          <ResearchHub
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onSendToChat={(text) => handleSend(text)}
+          />
+        ) : activeView === 'browser' ? (
+          <BrowserStudio
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onSendToChat={(text) => handleSend(text)}
+          />
+        ) : activeView === 'study' ? (
+          <StudyStudio
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onSendToChat={(text) => handleSend(text)}
+          />
+        ) : activeView === 'coding' ? (
+          <CodingStudio
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onSendToChat={(text) => handleSend(text)}
+          />
+        ) : activeView === 'memory' ? (
+          <MemoryStudio
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onSendToChat={(text) => handleSend(text)}
+          />
+        ) : activeView === 'audit' ? (
+          <AuditStudio
+            onBack={() => setActiveView('chat')}
           />
         ) : (
           <div className="app__chat">

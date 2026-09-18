@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import TYPE_CHECKING, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 import structlog
+
 from app.ai_gateway.adapters.base import (
     AIProviderAdapter,
     AllProvidersUnavailableError,
@@ -102,6 +104,9 @@ class AIRouter:
         except PromptInjectionError:
             raise  # re-raise sanitization errors
 
+        # Inject grounded knowledge vault context if user has relevant documents
+        await self._inject_rag_context(request)
+
         # Resolve override
         provider_override = self._resolve_override(request)
 
@@ -159,6 +164,9 @@ class AIRouter:
         except PromptInjectionError:
             raise
 
+        # Inject grounded knowledge vault context if user has relevant documents
+        await self._inject_rag_context(request)
+
         provider_override = self._resolve_override(request)
         if provider_override:
             providers = [provider_override] + [p for p in _sorted_providers() if p != provider_override]
@@ -166,18 +174,54 @@ class AIRouter:
             providers = _sorted_providers()
 
         last_error: str | None = None
-        last_response: AIResponse | None = None
         for provider_name in providers:
             try:
                 adapter = _get_adapter(provider_name)
+                accumulated_text: list[str] = []
+                last_chunk = None
+                start_time = asyncio.get_event_loop().time()
+
                 async for chunk in adapter.chatCompletionStream(request):
-                    last_response = chunk
+                    last_chunk = chunk
+                    delta = getattr(chunk, "delta", None)
+                    if delta is None:
+                        delta = getattr(chunk, "content", "")
+                    if delta:
+                        accumulated_text.append(str(delta))
                     yield chunk
-                # Log token usage after successful stream (fire-and-forget via create_task)
-                # Tokens may be 0 for streaming; cost will reflect input only
-                if last_response is not None:
-                    asyncio.create_task(self._token_logger.log(request, last_response))
-                    await self._persist_turn(request, last_response)
+
+                full_content = "".join(accumulated_text)
+
+                # Construct complete synthetic AIResponse for logging and turn persistence
+                final_response: AIResponse
+                if isinstance(last_chunk, AIResponse):
+                    final_response = last_chunk.model_copy(
+                        update={
+                            "content": full_content,
+                            "response": full_content,
+                            "output_tokens": len(full_content.split()),
+                        }
+                    )
+                else:
+                    prov = getattr(last_chunk, "provider", provider_name)
+                    mod = getattr(last_chunk, "model", request.model or "unknown")
+                    final_response = AIResponse(
+                        user_id=request.user_id,
+                        content=full_content,
+                        response=full_content,
+                        provider=prov,
+                        model=mod,
+                        agent_id=request.agent_id or "unknown",
+                        input_tokens=0,
+                        output_tokens=len(full_content.split()),
+                        cost_usd=0.0,
+                        latency_ms=int((asyncio.get_event_loop().time() - start_time) * 1000),
+                        request_id=getattr(request, "request_id", None) or uuid.uuid4(),
+                    )
+
+                if last_chunk is not None:
+                    asyncio.create_task(self._token_logger.log(request, final_response))
+                    await self._persist_turn(request, final_response)
                 return  # stream ended normally
             except ProviderUnavailableError as exc:
                 err_msg = exc.reason or str(exc)
@@ -205,6 +249,53 @@ class AIRouter:
 
         return None
 
+    async def _inject_rag_context(self, request: AIRequest) -> None:
+        """Query user's Knowledge Vault and inject grounded context if relevant chunks exist."""
+        if not getattr(request, "user_id", None):
+            return
+        try:
+            user_text = ""
+            if request.messages:
+                for m in reversed(request.messages):
+                    role_val = getattr(getattr(m, "role", None), "value", getattr(m, "role", None))
+                    if role_val == "user":
+                        user_text = getattr(m, "content", "")
+                        break
+            if not user_text:
+                return
+
+            from app.ai_gateway.models.schemas import Message, MessageRole
+            from app.skills.document_rag_query import DocumentRAGSkill
+            from app.skills.schemas import DocumentRagQueryRequest
+
+            rag_skill = DocumentRAGSkill()
+            rag_res = await rag_skill.execute(
+                DocumentRagQueryRequest(
+                    query=user_text,
+                    user_id=str(request.user_id),
+                    top_k=3,
+                    min_score=0.20,
+                )
+            )
+            if rag_res.chunks:
+                grounded = [
+                    f"[Source: {c.document_name}]\n{c.content}"
+                    for c in rag_res.chunks
+                    if c.relevance_score >= 0.20
+                ]
+                if grounded:
+                    rag_msg = Message(
+                        role=MessageRole.SYSTEM,
+                        content=(
+                            "[KNOWLEDGE VAULT CONTEXT — USER PRIVATE DOCUMENTS]:\n"
+                            + "\n\n".join(grounded)
+                            + "\n\nAnswer using the documents above. Cite consulted documents using [Source: <document_name>]."
+                        ),
+                    )
+                    request.messages.insert(0, rag_msg)
+        except Exception as exc:
+            log.warning("router.rag_inject_failed", error=str(exc))
+
     # -------------------------------------------------------------------------
     # Chat history persistence (best-effort, fire-and-forget)
     # -------------------------------------------------------------------------
@@ -226,7 +317,13 @@ class AIRouter:
             from app.session.repository import ChatSessionRepository
             sessions = ChatSessionRepository()
             history = ChatMessageRepository()
-            session = await sessions.get(request.session_id, request.user_id or "")
+
+            session = None
+            if request.user_id:
+                session = await sessions.get(request.session_id, request.user_id)
+            if session is None:
+                session = await sessions.get_by_id(request.session_id)
+
             if session is None:
                 log.warning(
                     "ai.persist.session_not_found",
@@ -235,28 +332,36 @@ class AIRouter:
                 return
 
             user_text = ""
-            if request.messages and request.messages[-1].role.value == "user":
-                user_text = request.messages[-1].content
+            if request.messages:
+                for m in reversed(request.messages):
+                    role_val = getattr(getattr(m, "role", None), "value", getattr(m, "role", None))
+                    if role_val == "user":
+                        user_text = getattr(m, "content", "")
+                        break
+
             if user_text:
                 await history.append(
                     session_id=request.session_id,
                     role="user",
                     content=user_text,
                 )
+
+            assistant_text = getattr(response, "content", None) or getattr(response, "response", "") or ""
             await history.append(
                 session_id=request.session_id,
                 role="assistant",
-                content=response.content,
-                provider=response.provider,
-                model=response.model,
-                input_tokens=response.input_tokens,
-                output_tokens=response.output_tokens,
-                cost_usd=response.cost_usd,
+                content=assistant_text,
+                provider=getattr(response, "provider", session.provider),
+                model=getattr(response, "model", session.model),
+                input_tokens=getattr(response, "input_tokens", 0) or 0,
+                output_tokens=getattr(response, "output_tokens", 0) or 0,
+                cost_usd=getattr(response, "cost_usd", 0.0) or 0.0,
             )
 
-            # Auto-title the session from the first user message.
-            if session.title is None and user_text:
+            # Auto-title the session from the first user message if untitled or generic title.
+            current_title = getattr(session, "title", None)
+            if (not current_title or current_title in ("New chat", "New task")) and user_text:
                 title = user_text.strip().splitlines()[0][:80]
-                await sessions.rename(request.session_id, request.user_id or "", title)
+                await sessions.rename(session.id, session.user_id, title)
         except Exception as exc:  # noqa: BLE001
             log.error("ai.persist.failed", error=str(exc))

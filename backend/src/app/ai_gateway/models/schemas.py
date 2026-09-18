@@ -7,11 +7,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 
 # -----------------------------------------------------------------------------
 # Enums
@@ -48,7 +46,7 @@ class MessageRole(str, Enum):
 class Message(BaseModel):
     """A single chat message."""
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=False)
 
     role: MessageRole
     content: str
@@ -80,7 +78,7 @@ class AIRequest(BaseModel):
 class AIResponse(BaseModel):
     """Outbound chat response with attribution and telemetry."""
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=False)
 
     user_id: str | None = None
     content: str
@@ -95,21 +93,33 @@ class AIResponse(BaseModel):
     request_id: UUID
 
     @model_validator(mode="after")
-    def populate_response(self) -> "AIResponse":
+    def populate_response(self) -> AIResponse:
         if not self.response and self.content:
             self.response = self.content
         return self
+
+    @property
+    def delta(self) -> str:
+        return self.content
+
+    @property
+    def done(self) -> bool:
+        return False
 
 
 class StreamingChunk(BaseModel):
     """A single chunk in a streaming SSE response."""
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=False)
 
     delta: str
     provider: str
     model: str
     done: bool = False
+
+    @property
+    def content(self) -> str:
+        return self.delta
 
 
 # -----------------------------------------------------------------------------

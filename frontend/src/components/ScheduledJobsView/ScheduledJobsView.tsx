@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import './ScheduledJobsView.css';
 
 interface ScheduledJobItem {
@@ -8,6 +8,19 @@ interface ScheduledJobItem {
   schedule: string;
   timezone: string;
   status: 'Active' | 'Pause';
+  next_run?: string;
+  last_status?: string;
+}
+
+interface JobExecutionItem {
+  id: string;
+  job_id: string;
+  status: string;
+  triggered_by: string;
+  duration_ms: number;
+  result_summary: string | null;
+  error_message: string | null;
+  created_at: string;
 }
 
 interface ScheduledJobsViewProps {
@@ -17,7 +30,7 @@ interface ScheduledJobsViewProps {
 }
 
 export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
-  accessToken: _accessToken,
+  accessToken,
   onBack,
   onNavigateView,
 }) => {
@@ -35,32 +48,49 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
     },
   ]);
 
-  const [jobs, setJobs] = useState<ScheduledJobItem[]>([
-    {
-      id: 'job-1',
-      name: 'Daily Market & Portfolio Summary',
-      description: 'Scrapes market closing indices, summarizes portfolio shifts, and delivers briefing at 09:00 AM.',
-      schedule: 'Every day at 09:00 AM',
-      timezone: 'Asia/Karachi (PKT, UTC+5)',
-      status: 'Active',
-    },
-    {
-      id: 'job-2',
-      name: 'Weekly Cloud & Subscription Expense Audit',
-      description: 'Queries Plaid and Raast accounts for recurring billing anomalies and posts audit alert.',
-      schedule: 'Every Monday at 10:00 AM',
-      timezone: 'UTC',
-      status: 'Active',
-    },
-    {
-      id: 'job-3',
-      name: 'Nightly Git Repo Sync & Backup',
-      description: 'Automated snapshot of active repositories to private backup storage.',
-      schedule: 'Every day at 02:00 AM',
-      timezone: 'America/New_York (EST, UTC-5)',
-      status: 'Pause',
-    },
-  ]);
+  const [jobs, setJobs] = useState<ScheduledJobItem[]>([]);
+  const [_isLoading, setIsLoading] = useState(false);
+  const [runningJobId, setRunningJobId] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // History Drawer / Modal state
+  const [historyModalJob, setHistoryModalJob] = useState<ScheduledJobItem | null>(null);
+  const [executions, setExecutions] = useState<JobExecutionItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const fetchJobs = async () => {
+    setIsLoading(true);
+    try {
+      const headers: Record<string, string> = {};
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      const res = await fetch('/api/v1/jobs', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.jobs)) {
+          setJobs(
+            data.jobs.map((j: any) => ({
+              id: j.id,
+              name: j.name,
+              description: j.description || '',
+              schedule: j.schedule || 'Daily',
+              timezone: j.timezone || 'UTC',
+              status: j.status === 'Pause' ? 'Pause' : 'Active',
+              next_run: j.next_run || '',
+              last_status: j.last_status,
+            }))
+          );
+        }
+      }
+    } catch {
+      // Keep empty
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchJobs();
+  }, [accessToken]);
 
   // Voice input support
   const toggleSpeech = () => {
@@ -100,42 +130,174 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
     }
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!promptText.trim()) return;
     const userPrompt = promptText.trim();
     setChatMessages((prev) => [...prev, { sender: 'user', text: userPrompt }]);
     setPromptText('');
 
-    setTimeout(() => {
-      const newJob: ScheduledJobItem = {
-        id: `job-${Date.now()}`,
-        name: userPrompt.length > 35 ? `${userPrompt.slice(0, 35)}...` : userPrompt,
-        description: `Automated scheduled action configured via prompt: "${userPrompt}". Model: ${selectedModel}`,
-        schedule: 'Every day at 08:00 AM',
-        timezone: selectedTimezone,
-        status: 'Active',
-      };
-      setJobs((prev) => [newJob, ...prev]);
+    const jobName = userPrompt.length > 35 ? `${userPrompt.slice(0, 35)}...` : userPrompt;
+    const jobDesc = `Automated scheduled action configured via prompt: "${userPrompt}". Model: ${selectedModel}`;
 
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          sender: 'assistant',
-          text: `✅ Scheduled task created: **"${newJob.name}"** running on schedule (${selectedTimezone}). Added to your active jobs below.`,
-        },
-      ]);
-    }, 700);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      const res = await fetch('/api/v1/jobs', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          name: jobName,
+          description: jobDesc,
+          schedule: 'Every day at 08:00 AM',
+          timezone: selectedTimezone,
+          prompt: userPrompt,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const created = data.job;
+        const newJob: ScheduledJobItem = {
+          id: created.id,
+          name: created.name,
+          description: created.description,
+          schedule: created.schedule,
+          timezone: created.timezone,
+          status: created.status === 'Pause' ? 'Pause' : 'Active',
+          next_run: created.next_run,
+        };
+        setJobs((prev) => [newJob, ...prev]);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            sender: 'assistant',
+            text: `✅ Scheduled task created: **"${newJob.name}"** running on schedule (${selectedTimezone}). Added to your active jobs below.`,
+          },
+        ]);
+        return;
+      }
+    } catch {
+      // fallback local
+    }
+
+    const localJob: ScheduledJobItem = {
+      id: `job-${Date.now()}`,
+      name: jobName,
+      description: jobDesc,
+      schedule: 'Every day at 08:00 AM',
+      timezone: selectedTimezone,
+      status: 'Active',
+    };
+    setJobs((prev) => [localJob, ...prev]);
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        sender: 'assistant',
+        text: `✅ Scheduled task created: **"${localJob.name}"** running on schedule (${selectedTimezone}). Added to your active jobs below.`,
+      },
+    ]);
   };
 
-  const toggleJobStatus = (id: string) => {
+  const toggleJobStatus = async (id: string) => {
+    const job = jobs.find((j) => j.id === id);
+    if (!job) return;
+    const newStatus: 'Active' | 'Pause' = job.status === 'Active' ? 'Pause' : 'Active';
     setJobs((prev) =>
-      prev.map((j) => (j.id === id ? { ...j, status: j.status === 'Active' ? 'Pause' : 'Active' } : j))
+      prev.map((j) => (j.id === id ? { ...j, status: newStatus } : j))
     );
+
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      const res = await fetch(`/api/v1/jobs/${id}/status`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.job?.next_run) {
+          setJobs((prev) =>
+            prev.map((j) => (j.id === id ? { ...j, next_run: data.job.next_run } : j))
+          );
+        }
+      }
+    } catch {
+      // local state already toggled
+    }
   };
 
-  const deleteJob = (id: string) => {
-    if (confirm('Are you sure you want to delete this scheduled job?')) {
-      setJobs((prev) => prev.filter((j) => j.id !== id));
+  const handleRunNow = async (id: string, name: string) => {
+    setRunningJobId(id);
+    setActionNotice(null);
+    try {
+      const headers: Record<string, string> = {};
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      const res = await fetch(`/api/v1/jobs/${id}/run`, {
+        method: 'POST',
+        headers,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const duration = data.execution?.duration_ms ? ` (${data.execution.duration_ms}ms)` : '';
+        setActionNotice({
+          type: 'success',
+          text: `Task "${name}" ran successfully${duration}! ${data.execution?.result_summary || ''}`,
+        });
+        if (data.job?.next_run) {
+          setJobs((prev) =>
+            prev.map((j) => (j.id === id ? { ...j, next_run: data.job.next_run } : j))
+          );
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setActionNotice({
+          type: 'error',
+          text: `Failed to run task: ${err.detail || 'Execution error'}`,
+        });
+      }
+    } catch (err: any) {
+      setActionNotice({
+        type: 'error',
+        text: `Execution failed: ${err.message || 'Network error'}`,
+      });
+    } finally {
+      setRunningJobId(null);
+      setTimeout(() => setActionNotice(null), 6000);
+    }
+  };
+
+  const handleOpenHistory = async (job: ScheduledJobItem) => {
+    setHistoryModalJob(job);
+    setLoadingHistory(true);
+    setExecutions([]);
+    try {
+      const headers: Record<string, string> = {};
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      const res = await fetch(`/api/v1/jobs/${job.id}/history`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setExecutions(data.executions || []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const deleteJob = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this scheduled job?')) return;
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+
+    try {
+      const headers: Record<string, string> = {};
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      await fetch(`/api/v1/jobs/${id}`, {
+        method: 'DELETE',
+        headers,
+      });
+    } catch {
+      // local state already deleted
     }
   };
 
@@ -147,18 +309,31 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
           <button type="button" className="sched-view__back-btn" onClick={onBack}>
             ← Back to Chat
           </button>
-          {/* Top left title */}
-          <h1 className="sched-view__title">Scheduled</h1>
+          <h1 className="sched-view__title">Scheduled Automation</h1>
         </div>
-        {/* Top right status badge: Active (soft teal pill) */}
-        <span className="sched-view__status-pill">Active</span>
+        <span className="sched-view__status-pill">Engine Active</span>
       </header>
 
       <div className="sched-view__body">
         {/* Description */}
         <p className="sched-view__desc">
-          Ask Roxy-AI to schedule tasks, set reminders, or monitor for updates.
+          Ask Roxy-AI to schedule background tasks, set recurring reminders, or monitor APIs autonomously.
         </p>
+
+        {/* Global Notice Toast */}
+        {actionNotice && (
+          <div className={`sched-notice sched-notice--${actionNotice.type}`}>
+            <span>{actionNotice.type === 'success' ? '⚡' : '⚠️'}</span>
+            <span className="sched-notice__text">{actionNotice.text}</span>
+            <button
+              type="button"
+              className="sched-notice__close"
+              onClick={() => setActionNotice(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Chat Messages area */}
         <div className="sched-view__chat-box">
@@ -307,7 +482,7 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
             <input
               type="text"
               className="sched-view__input"
-              placeholder="Schedule a task"
+              placeholder="Schedule an autonomous task (e.g. 'Daily recap at 8 AM')"
               value={promptText}
               onChange={(e) => setPromptText(e.target.value)}
               onKeyDown={(e) => {
@@ -346,54 +521,170 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
         <div className="sched-view__jobs-section">
           <h2 className="sched-view__section-title">Active & Configured Jobs</h2>
 
-          <div className="sched-view__rows">
-            {jobs.map((job) => (
-              <div key={job.id} className="sched-job-row">
-                <div className="sched-job-row__left">
-                  <div className="sched-job-row__title-wrap">
-                    <h3 className="sched-job-row__name">{job.name}</h3>
-                    <span className={`sched-job-badge sched-job-badge--${job.status.toLowerCase()}`}>
-                      {job.status}
-                    </span>
+          {jobs.length === 0 ? (
+            <div className="sched-view__empty-state">
+              <div className="sched-view__empty-icon">⏱️</div>
+              <h3 className="sched-view__empty-title">No scheduled jobs yet</h3>
+              <p className="sched-view__empty-desc">
+                Type or speak a prompt like "Run daily market briefing at 9am" or "Audit cloud expenses every Monday" to schedule an autonomous recurring task.
+              </p>
+            </div>
+          ) : (
+            <div className="sched-view__rows">
+              {jobs.map((job) => (
+                <div key={job.id} className="sched-job-row">
+                  <div className="sched-job-row__left">
+                    <div className="sched-job-row__title-wrap">
+                      <h3 className="sched-job-row__name">{job.name}</h3>
+                      <span className={`sched-job-badge sched-job-badge--${job.status.toLowerCase()}`}>
+                        {job.status}
+                      </span>
+                    </div>
+                    <p className="sched-job-row__desc">{job.description}</p>
+                    <div className="sched-job-row__meta">
+                      <span>🕒 Schedule: {job.schedule}</span>
+                      <span>•</span>
+                      <span>🌐 {job.timezone}</span>
+                      {job.next_run && (
+                        <>
+                          <span>•</span>
+                          <span className="sched-job-row__next-run">⏳ Next: {new Date(job.next_run).toLocaleString()}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <p className="sched-job-row__desc">{job.description}</p>
-                  <div className="sched-job-row__meta">
-                    <span>🕒 {job.schedule}</span>
-                    <span>•</span>
-                    <span>🌐 {job.timezone}</span>
-                  </div>
-                </div>
 
-                {/* Buttons: Active | Pause | Delete */}
-                <div className="sched-job-row__actions">
-                  <button
-                    type="button"
-                    className={`job-btn ${job.status === 'Active' ? 'job-btn--active' : 'job-btn--pause'}`}
-                    onClick={() => toggleJobStatus(job.id)}
-                  >
-                    {job.status === 'Active' ? 'Active' : 'Pause'}
-                  </button>
-                  <button
-                    type="button"
-                    className="job-btn job-btn--toggle"
-                    onClick={() => toggleJobStatus(job.id)}
-                  >
-                    {job.status === 'Active' ? 'Pause' : 'Resume'}
-                  </button>
-                  <button
-                    type="button"
-                    className="job-btn job-btn--delete"
-                    onClick={() => deleteJob(job.id)}
-                    title="Delete scheduled task"
-                  >
-                    Delete
-                  </button>
+                  {/* Buttons: Run Now | History | Pause/Resume | Delete */}
+                  <div className="sched-job-row__actions">
+                    <button
+                      type="button"
+                      className="job-btn job-btn--run"
+                      onClick={() => handleRunNow(job.id, job.name)}
+                      disabled={runningJobId === job.id}
+                      title="Trigger execution immediately"
+                    >
+                      {runningJobId === job.id ? '⏳ Running...' : '▶ Run Now'}
+                    </button>
+                    <button
+                      type="button"
+                      className="job-btn job-btn--history"
+                      onClick={() => handleOpenHistory(job)}
+                      title="View execution run logs"
+                    >
+                      ⏱ History
+                    </button>
+                    <button
+                      type="button"
+                      className={`job-btn ${job.status === 'Active' ? 'job-btn--active' : 'job-btn--pause'}`}
+                      onClick={() => toggleJobStatus(job.id)}
+                      title={job.status === 'Active' ? 'Click to Pause' : 'Click to Resume'}
+                    >
+                      {job.status === 'Active' ? 'Pause' : 'Resume'}
+                    </button>
+                    <button
+                      type="button"
+                      className="job-btn job-btn--delete"
+                      onClick={() => deleteJob(job.id)}
+                      title="Delete scheduled task"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Execution History Modal / Drawer */}
+      {historyModalJob && (
+        <div className="sched-modal-overlay" onClick={() => setHistoryModalJob(null)}>
+          <div className="sched-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="sched-modal__header">
+              <div>
+                <h3 className="sched-modal__title">Execution History</h3>
+                <p className="sched-modal__subtitle">{historyModalJob.name}</p>
+              </div>
+              <button
+                type="button"
+                className="sched-modal__close"
+                onClick={() => setHistoryModalJob(null)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="sched-modal__body">
+              {loadingHistory ? (
+                <div className="sched-modal__loading">
+                  <span className="sched-spinner" />
+                  <p>Loading execution history...</p>
+                </div>
+              ) : executions.length === 0 ? (
+                <div className="sched-modal__empty">
+                  <p>No execution records found for this job yet.</p>
+                  <p className="sched-modal__hint">Click "Run Now" to trigger a manual run and generate execution logs.</p>
+                </div>
+              ) : (
+                <div className="sched-modal__list">
+                  {executions.map((item) => (
+                    <div key={item.id} className="sched-history-item">
+                      <div className="sched-history-item__header">
+                        <span className={`sched-history-badge sched-history-badge--${item.status}`}>
+                          {item.status.toUpperCase()}
+                        </span>
+                        <span className="sched-history-trigger">
+                          Triggered by: <strong>{item.triggered_by}</strong>
+                        </span>
+                        <span className="sched-history-duration">
+                          {item.duration_ms}ms
+                        </span>
+                        <span className="sched-history-time">
+                          {new Date(item.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="sched-history-item__content">
+                        {item.result_summary && (
+                          <div className="sched-history-result">
+                            <strong>Result:</strong> {item.result_summary}
+                          </div>
+                        )}
+                        {item.error_message && (
+                          <div className="sched-history-error">
+                            <strong>Error:</strong> {item.error_message}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="sched-modal__footer">
+              <button
+                type="button"
+                className="sched-modal__btn-secondary"
+                onClick={() => setHistoryModalJob(null)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="job-btn job-btn--run"
+                disabled={runningJobId === historyModalJob.id}
+                onClick={async () => {
+                  await handleRunNow(historyModalJob.id, historyModalJob.name);
+                  await handleOpenHistory(historyModalJob);
+                }}
+              >
+                {runningJobId === historyModalJob.id ? 'Running...' : '▶ Run Now Again'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

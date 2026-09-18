@@ -22,7 +22,9 @@ elif Path(".env").exists():
 from app.api.v1.ai import router as ai_router
 from app.api.v1.bank import router as bank_router
 from app.api.v1.billing import router as billing_router
+from app.api.v1.calendar import router as calendar_router
 from app.api.v1.documents import router as documents_router
+from app.api.v1.emails import router as emails_router
 from app.api.v1.finance import router as finance_router
 from app.api.v1.greeting import router as greeting_router
 from app.api.v1.images import router as images_router
@@ -31,11 +33,19 @@ from app.api.v1.projects import router as projects_router
 from app.api.v1.raast import router as raast_router
 from app.api.v1.runtime import router as runtime_router
 from app.api.v1.usage import router as usage_router
+from app.api.v1.voice import router as voice_router
+from app.api.v1.research import router as research_router
+from app.api.v1.browser import router as browser_router
+from app.api.v1.study import router as study_router
+from app.api.v1.coding import router as coding_router
+from app.api.v1.memory import router as memory_router
+from app.api.v1.audit import router as audit_router
 from app.auth.router import router as auth_router
 from app.chat_history.router import router as chat_history_router
 from app.model_provider.router import router as model_provider_router
 from app.providers.router import router as providers_router
 from app.session.router import router as session_router
+from app.settings.router import router as settings_router
 from app.skills.router import router as skills_router
 
 app = FastAPI(
@@ -73,6 +83,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(model_provider_router, prefix="/api/v1")
 app.include_router(providers_router, prefix="/api/v1")
 app.include_router(session_router, prefix="/api/v1")
+app.include_router(settings_router, prefix="/api/v1")
 app.include_router(chat_history_router, prefix="/api/v1")
 app.include_router(ai_router, prefix="/api/v1")
 app.include_router(skills_router, prefix="/api/v1")
@@ -87,6 +98,15 @@ app.include_router(projects_router, prefix="/api/v1")
 app.include_router(images_router, prefix="/api/v1")
 app.include_router(raast_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
+app.include_router(calendar_router, prefix="/api/v1")
+app.include_router(emails_router, prefix="/api/v1")
+app.include_router(voice_router, prefix="/api/v1")
+app.include_router(research_router, prefix="/api/v1")
+app.include_router(browser_router, prefix="/api/v1")
+app.include_router(study_router, prefix="/api/v1")
+app.include_router(coding_router, prefix="/api/v1")
+app.include_router(memory_router, prefix="/api/v1")
+app.include_router(audit_router, prefix="/api/v1")
 
 
 @app.on_event("startup")
@@ -96,19 +116,28 @@ async def on_startup() -> None:
     try:
         import app.auth.models  # noqa: F401
         import app.chat_history.models  # noqa: F401
+        import app.models.audit_log  # noqa: F401
         import app.models.bank_connection  # noqa: F401
+        import app.models.browser_task  # noqa: F401
         import app.models.budget  # noqa: F401
+        import app.models.calendar_event  # noqa: F401
+        import app.models.code_snippet  # noqa: F401
         import app.models.document_vault  # noqa: F401
+        import app.models.email_message  # noqa: F401
         import app.models.finance_account  # noqa: F401
         import app.models.generated_image  # noqa: F401
         import app.models.model  # noqa: F401
         import app.models.project  # noqa: F401
         import app.models.provider  # noqa: F401
+        import app.models.research_report  # noqa: F401
         import app.models.scheduled_job  # noqa: F401
+        import app.models.semantic_memory  # noqa: F401
         import app.models.spending_alert  # noqa: F401
+        import app.models.study_deck  # noqa: F401
         import app.models.subscription  # noqa: F401
         import app.models.token_usage  # noqa: F401
         import app.models.user_preference  # noqa: F401
+        import app.models.voice_recording  # noqa: F401
         import app.session.models  # noqa: F401
         from app.db import Base, get_engine
 

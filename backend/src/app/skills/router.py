@@ -86,6 +86,28 @@ from app.skills.web_search import get_executor as web_search_executor
 # Sensitive skills that require security-privacy confirmation gate
 SENSITIVE_SKILLS = {"email_draft", "email_send", "browser_fill_form", "bank_connect"}
 
+# Centralized registry of all skill executor factories
+_SKILL_EXECUTORS: dict[str, Any] = {
+    "bank_connect": bank_connect_executor,
+    "browser_fill_form": browser_fill_form_executor,
+    "browser_navigate": browser_navigate_executor,
+    "calculator": calculator_executor,
+    "calendar_read": calendar_read_executor,
+    "critic_review": critic_review_executor,
+    "document_ingest": document_ingest_executor,
+    "document_rag_query": document_rag_query_executor,
+    "email_draft": email_draft_executor,
+    "email_send": email_send_executor,
+    "flashcard_generate": flashcard_generate_executor,
+    "quiz_generate": quiz_generate_executor,
+    "retrieve_memory": retrieve_memory_executor,
+    "schedule_job": schedule_job_executor,
+    "speech_to_text": speech_to_text_executor,
+    "store_memory": store_memory_executor,
+    "text_to_speech": text_to_speech_executor,
+    "web_search": web_search_executor,
+}
+
 router = APIRouter(prefix="/skills", tags=["skills"])
 
 

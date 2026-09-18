@@ -320,3 +320,38 @@
 .security-icon {
   font-size: 1.25rem;
 }
+
+/* Empty State Card */
+.pm-empty-card {
+  background: var(--color-surface, #ffffff);
+  border: 1px dashed var(--color-border, #e2e8e6);
+  border-radius: 1.1rem;
+  padding: 2.25rem 1.75rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.pm-empty-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.pm-empty-card h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-text, #1e292b);
+}
+
+.pm-empty-card p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--color-muted, #64748b);
+  max-width: 440px;
+  line-height: 1.45;
+}
+

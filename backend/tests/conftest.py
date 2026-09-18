@@ -9,12 +9,12 @@ Provides:
 
 from __future__ import annotations
 
+import itertools
 import os
 import sys
-import asyncio
-import itertools
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
+import httpx
 import pytest
 import pytest_asyncio
 
@@ -64,8 +64,7 @@ def anyio_backend() -> str:
 # HTTP client fixtures
 # ---------------------------------------------------------------------------
 
-async def _make_client() -> tuple["httpx.AsyncClient", "object"]:
-    import httpx
+async def _make_client() -> tuple[httpx.AsyncClient, object]:
     from app.main import app
 
     client = httpx.AsyncClient(
@@ -76,7 +75,7 @@ async def _make_client() -> tuple["httpx.AsyncClient", "object"]:
 
 
 @pytest_asyncio.fixture
-async def async_client() -> AsyncIterator["httpx.AsyncClient"]:
+async def async_client() -> AsyncIterator[httpx.AsyncClient]:
     """Plain ASGI-wired httpx client (no auth)."""
     client, _ = await _make_client()
     try:
@@ -86,14 +85,13 @@ async def async_client() -> AsyncIterator["httpx.AsyncClient"]:
 
 
 @pytest_asyncio.fixture
-async def authed_client() -> AsyncIterator["httpx.AsyncClient"]:
+async def authed_client() -> AsyncIterator[httpx.AsyncClient]:
     """ASGI-wired httpx client with a valid Bearer JWT.
 
     Mints a magic link, verifies it, and stores the issued JWT on the
     client. Tests using this fixture can hit routes protected by
     `get_current_user` (chat history, sessions, etc.) without further setup.
     """
-    import httpx
     from app.auth.service import MagicLinkService
 
     client, _ = await _make_client()
@@ -122,7 +120,7 @@ async def authed_client() -> AsyncIterator["httpx.AsyncClient"]:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _reset_provider_flags():
+def _reset_provider_flags() -> Iterator[None]:
     """Ensure each test starts with all providers in the known enabled state.
 
     The toggle test modifies os.environ[PROVIDER_DEEPSEEK_ENABLED] directly.
@@ -132,11 +130,3 @@ def _reset_provider_flags():
     os.environ["PROVIDER_OPENAI_ENABLED"] = "true"
     yield
     # No cleanup needed — each test gets a fresh known state.
-
-
-# ---------------------------------------------------------------------------
-# Compatibility shim: let tests keep using the bare `async_client` name.
-# This overrides the per-file fixtures via pytest's fixture precedence so
-# `authed_client` can be requested where needed. The local `async_client`
-# fixtures in test files still work unchanged.
-# ---------------------------------------------------------------------------

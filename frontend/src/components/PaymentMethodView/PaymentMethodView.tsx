@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './PaymentMethodView.css';
 
 interface PaymentMethodViewProps {
@@ -6,54 +6,129 @@ interface PaymentMethodViewProps {
   onBack: () => void;
 }
 
-export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToken: _accessToken, onBack }) => {
+interface SavedMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  expiry: string;
+  isPrimary: boolean;
+}
+
+export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToken, onBack }) => {
   const [cardNumber, setCardNumber] = useState('');
   const [expiry, setExpiry] = useState('');
   const [cvc, setCvc] = useState('');
   const [nameOnCard, setNameOnCard] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [savedMethods, setSavedMethods] = useState<SavedMethod[]>([]);
+  const [_isLoading, setIsLoading] = useState(false);
 
-  const [savedMethods, setSavedMethods] = useState([
-    {
-      id: 'pm-1',
-      brand: 'Visa',
-      last4: '4242',
-      expiry: '12/28',
-      isPrimary: true,
-    },
-    {
-      id: 'pm-2',
-      brand: 'Mastercard',
-      last4: '8899',
-      expiry: '08/27',
-      isPrimary: false,
-    },
-  ]);
+  const fetchMethods = useCallback(async () => {
+    if (!accessToken) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/v1/billing/payment-methods', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const primary = data.primary;
+        const saved = data.saved_methods || [];
+        const items: SavedMethod[] = [];
 
-  const handleAddCard = (e: React.FormEvent) => {
+        if (primary) {
+          const exp = primary.expiry || `${String(primary.exp_month || 12).padStart(2, '0')}/${String(primary.exp_year || 2028).slice(-2)}`;
+          items.push({
+            id: primary.id,
+            brand: (primary.brand || 'Card').toUpperCase(),
+            last4: primary.last4 || '4242',
+            expiry: exp,
+            isPrimary: true,
+          });
+        }
+        saved.forEach((m: any) => {
+          const exp = m.expiry || `${String(m.exp_month || 12).padStart(2, '0')}/${String(m.exp_year || 2028).slice(-2)}`;
+          items.push({
+            id: m.id,
+            brand: (m.brand || 'Card').toUpperCase(),
+            last4: m.last4 || '0000',
+            expiry: exp,
+            isPrimary: false,
+          });
+        });
+        setSavedMethods(items);
+      }
+    } catch (err) {
+      console.error('Failed to fetch payment methods', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    fetchMethods();
+  }, [fetchMethods]);
+
+  const handleAddCard = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cardNumber || !expiry || !cvc) return;
     setIsProcessing(true);
 
-    setTimeout(() => {
+    try {
       const cleanNum = cardNumber.replace(/\s+/g, '');
-      const newMethod = {
+      const [expM, expY] = expiry.split('/').map((s) => parseInt(s.trim(), 10));
+      const expMonth = isNaN(expM) ? 12 : expM;
+      const expYear = isNaN(expY) ? 2028 : (expY < 100 ? 2000 + expY : expY);
+      const brand = cleanNum.startsWith('4') ? 'Visa' : 'Mastercard';
+      const last4 = cleanNum.slice(-4) || '1234';
+
+      if (accessToken) {
+        const res = await fetch('/api/v1/billing/payment-methods', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            brand,
+            last4,
+            exp_month: expMonth,
+            exp_year: expYear,
+            set_as_default: savedMethods.length === 0,
+          }),
+        });
+        if (res.ok) {
+          await fetchMethods();
+          setSuccessMessage('Card saved securely via Stripe Elements.');
+          setCardNumber('');
+          setExpiry('');
+          setCvc('');
+          setNameOnCard('');
+          setTimeout(() => setSuccessMessage(null), 5000);
+          return;
+        }
+      }
+
+      const newMethod: SavedMethod = {
         id: `pm-${Date.now()}`,
-        brand: cleanNum.startsWith('4') ? 'Visa' : 'Mastercard',
-        last4: cleanNum.slice(-4) || '1234',
+        brand,
+        last4,
         expiry: expiry || '05/29',
-        isPrimary: false,
+        isPrimary: savedMethods.length === 0,
       };
       setSavedMethods((prev) => [...prev, newMethod]);
-      setIsProcessing(false);
+      setSuccessMessage('Card saved securely via Stripe Elements.');
       setCardNumber('');
       setExpiry('');
       setCvc('');
       setNameOnCard('');
-      setSuccessMessage('Card saved securely via Stripe Elements.');
       setTimeout(() => setSuccessMessage(null), 5000);
-    }, 900);
+    } catch (err) {
+      console.error('Failed to save card', err);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleSetPrimary = (id: string) => {
@@ -62,13 +137,22 @@ export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToke
     );
   };
 
-  const handleDeleteMethod = (id: string) => {
-    if (confirm('Remove this saved card?')) {
+  const handleDeleteMethod = async (id: string) => {
+    if (!confirm('Remove this saved card?')) return;
+    try {
+      if (accessToken) {
+        await fetch(`/api/v1/billing/payment-methods/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      }
       setSavedMethods((prev) => prev.filter((m) => m.id !== id));
+    } catch (err) {
+      console.error('Failed to remove card', err);
     }
   };
 
-  const primaryMethod = savedMethods.find((m) => m.isPrimary) || savedMethods[0];
+  const primaryMethod = savedMethods.find((m) => m.isPrimary) || (savedMethods.length > 0 ? savedMethods[0] : null);
   const otherMethods = savedMethods.filter((m) => m.id !== primaryMethod?.id);
 
   return (
@@ -88,8 +172,8 @@ export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToke
           </div>
         )}
 
-        {/* Primary Payment Method Card */}
-        {primaryMethod && (
+        {/* Primary Payment Method Card or Empty State */}
+        {primaryMethod ? (
           <div className="pm-primary-card">
             <div className="pm-primary-card__top">
               <span className="pm-badge">Primary Payment Method</span>
@@ -114,6 +198,14 @@ export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToke
                 </div>
               </div>
             </div>
+          </div>
+        ) : (
+          <div className="pm-empty-card">
+            <div className="pm-empty-icon">💳</div>
+            <h3>No Saved Payment Methods</h3>
+            <p>
+              Add a payment method below to top up token credits, unlock autonomous scheduled jobs, or upgrade your plan.
+            </p>
           </div>
         )}
 

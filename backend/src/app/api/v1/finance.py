@@ -1,38 +1,26 @@
-"""FastAPI router for Finance API — budgets, spending alerts, and financial summaries.
+"""FastAPI router for Finance API — accounts, budgets, spending alerts, and financial summaries.
 
-Finance Agent uses these as primitives:
-  GET  /finance/summary         — accounts, spending, budget status
-  GET  /finance/transactions    — raw transactions (proxied from bank_connect skill)
-  GET  /finance/budgets        — list all budgets
-  POST /finance/budgets        — create budget
-  PUT  /finance/budgets/{id}   — update budget
-  DELETE /finance/budgets/{id}  — delete budget
-  GET  /finance/alerts         — list spending alerts
-  POST /finance/alerts          — create alert
-  DELETE /finance/alerts/{id}   — delete alert
-
-All endpoints require authentication (user_id stamped from JWT).
+Backed by live NeonDB PostgreSQL tables (finance_accounts, finance_transactions, finance_alerts,
+budgets) and FinanceRepository, enforcing strict multi-tenant isolation and dual-currency support.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import CursorResult, delete, select, update
+from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.db import get_session_factory
+from app.finance.repository import FinanceRepository
 from app.models.budget import Budget
 from app.models.spending_alert import SpendingAlert
-from app.models import BankConnection
-from app.skills.bank_connect import get_executor as bank_connect_executor
-from app.skills.schemas import BankConnectRequest
 
 log = structlog.get_logger()
 
@@ -40,7 +28,7 @@ router = APIRouter(prefix="/finance", tags=["finance"])
 
 
 # ---------------------------------------------------------------------------
-# Shared schemas
+# Schemas
 # ---------------------------------------------------------------------------
 
 # Budget schemas
@@ -89,7 +77,7 @@ class BudgetListResponse(BaseModel):
 class AlertCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     alert_type: str = Field(
-        ..., pattern="^(over_budget|unusual_charge|bill_reminder)$"
+        ..., pattern="^(over_budget|unusual_charge|bill_reminder|budget_warning)$"
     )
     threshold_amount: float | None = Field(default=None, gt=0)
     category: str | None = Field(default=None, max_length=100)
@@ -105,6 +93,7 @@ class AlertResponse(BaseModel):
     category: str | None
     institution: str | None
     enabled: bool
+    status: str
     last_triggered_at: datetime | None
     created_at: datetime
 
@@ -118,6 +107,7 @@ class AlertResponse(BaseModel):
             category=a.category,
             institution=a.institution,
             enabled=a.enabled,
+            status="Active" if a.enabled else "Pause",
             last_triggered_at=a.last_triggered_at,
             created_at=a.created_at,
         )
@@ -127,15 +117,33 @@ class AlertListResponse(BaseModel):
     alerts: list[AlertResponse]
 
 
-# Transaction schemas (from bank_connect)
+# Transaction schemas
+
+class TransactionCreate(BaseModel):
+    account_id: str
+    description: str = Field(..., min_length=1, max_length=255)
+    reason: str = "Operational expense"
+    category: str = "General"
+    amount_usd: float
+    amount_pkr: float | None = None
+    transaction_type: str = "debit"
+    is_pinned: bool = False
+
 
 class TransactionResponse(BaseModel):
+    id: str
     account_id: str
     date: str
+    time: str = ""
     description: str
+    reason: str = ""
     amount: float
+    amount_usd: float
+    amount_pkr: float
     category: str
-    pending: bool
+    pending: bool = False
+    is_pinned: bool = False
+    transaction_type: str = "debit"
 
 
 class TransactionListResponse(BaseModel):
@@ -143,7 +151,7 @@ class TransactionListResponse(BaseModel):
     total: int
 
 
-# Finance summary
+# Account & Summary schemas
 
 class AccountSummary(BaseModel):
     connection_id: str
@@ -153,18 +161,27 @@ class AccountSummary(BaseModel):
     type: str
     mask: str | None
     balance: float | None
+    balance_usd: float
+    balance_pkr: float
+    budget_usd: float
+    budget_pkr: float
+    provider: str
 
 
 class FinanceSummary(BaseModel):
     accounts: list[AccountSummary]
     total_balance: float
+    total_balance_usd: float
+    total_balance_pkr: float
     budgets: list[BudgetResponse]
     alerts: list[AlertResponse]
     month_spending: float
+    month_spending_usd: float
+    month_spending_pkr: float
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helper
 # ---------------------------------------------------------------------------
 
 def _get_factory_or_503() -> async_sessionmaker[AsyncSession]:
@@ -177,91 +194,6 @@ def _get_factory_or_503() -> async_sessionmaker[AsyncSession]:
     return factory
 
 
-async def _fetch_transactions_from_bank(
-    user_id: str,
-    start_date: str | None = None,
-    end_date: str | None = None,
-) -> list[dict[str, Any]]:
-    """Fetch transactions for connected accounts with realistic entries."""
-    from app.models.bank_connection import BankConnection
-    factory = get_session_factory()
-    if factory is not None:
-        async with factory() as sess:
-            db_result = await sess.execute(
-                select(BankConnection).where(
-                    BankConnection.user_id == user_id,
-                    BankConnection.revoked == False,
-                )
-            )
-            conns = db_result.scalars().all()
-            if conns:
-                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                return [
-                    {
-                        "account_id": f"{conns[0].id}-chk",
-                        "date": today,
-                        "description": "Trader Joe's - Organic Groceries",
-                        "amount": -84.20,
-                        "category": "Groceries",
-                        "pending": False,
-                    },
-                    {
-                        "account_id": f"{conns[0].id}-chk",
-                        "date": today,
-                        "description": "Blue Bottle Coffee",
-                        "amount": -6.50,
-                        "category": "Dining",
-                        "pending": False,
-                    },
-                    {
-                        "account_id": f"{conns[0].id}-chk",
-                        "date": today,
-                        "description": "GitHub Copilot Subscription",
-                        "amount": -10.00,
-                        "category": "Software",
-                        "pending": False,
-                    },
-                    {
-                        "account_id": f"{conns[0].id}-chk",
-                        "date": today,
-                        "description": "Direct Deposit - Tech Salary",
-                        "amount": 3450.00,
-                        "category": "Income",
-                        "pending": False,
-                    },
-                    {
-                        "account_id": f"{conns[0].id}-chk",
-                        "date": today,
-                        "description": "Pacific Gas & Electric (Utility)",
-                        "amount": -125.40,
-                        "category": "Utilities",
-                        "pending": False,
-                    },
-                ]
-
-    executor = bank_connect_executor()
-    req = BankConnectRequest(
-        op="get_transactions",
-        user_id=user_id,
-        start_date=start_date,
-        end_date=end_date,
-    )
-    result = await executor.execute(req)
-    if not result.success or not result.transactions:
-        return []
-    return [
-        {
-            "account_id": t.account_id,
-            "date": t.date,
-            "description": t.description,
-            "amount": t.amount,
-            "category": t.category,
-            "pending": t.pending,
-        }
-        for t in result.transactions
-    ]
-
-
 # ---------------------------------------------------------------------------
 # GET /finance/summary
 # ---------------------------------------------------------------------------
@@ -271,77 +203,93 @@ async def get_finance_summary(
     current_user: User = Depends(get_current_user),
 ) -> FinanceSummary:
     """Return a full financial snapshot: accounts, budgets, alerts, month spending."""
-    factory = _get_factory_or_503()
     user_id = str(current_user.id)
+    repo = FinanceRepository()
 
-    # Fetch accounts from connected banks in DB
-    accounts: list[AccountSummary] = []
-    async with factory() as sess:
-        result = await sess.execute(
-            select(BankConnection).where(
-                BankConnection.user_id == user_id,
-                BankConnection.revoked == False,  # noqa: E712
+    # 1. Fetch user accounts from FinanceRepository
+    db_accounts = await repo.list_accounts(user_id)
+    accounts: list[AccountSummary] = [
+        AccountSummary(
+            connection_id=a.id,
+            institution=a.institution_name,
+            account_id=a.id,
+            name=f"{a.institution_name} {a.account_holder}",
+            type=a.account_type,
+            mask=a.account_number_masked[-4:] if len(a.account_number_masked) >= 4 else a.account_number_masked,
+            balance=a.balance_usd,
+            balance_usd=a.balance_usd,
+            balance_pkr=a.balance_pkr,
+            budget_usd=a.budget_limit_usd,
+            budget_pkr=a.budget_limit_pkr,
+            provider=a.provider,
+        )
+        for a in db_accounts
+    ]
+
+    total_balance_usd = sum(a.balance_usd for a in accounts)
+    total_balance_pkr = sum(a.balance_pkr for a in accounts)
+
+    # 2. Fetch budgets
+    factory = get_session_factory()
+    budgets: list[BudgetResponse] = []
+    if factory is not None:
+        try:
+            async with factory() as sess:
+                budgets_res = await sess.execute(
+                    select(Budget).where(Budget.user_id == user_id)
+                )
+                budgets_orm = budgets_res.scalars().all()
+                budgets = [BudgetResponse.from_orm(b) for b in budgets_orm]
+        except Exception as exc:
+            log.warning("finance.summary.budgets_failed", error=str(exc))
+
+    # 3. Fetch alerts
+    alerts: list[AlertResponse] = []
+    if factory is not None:
+        try:
+            async with factory() as sess:
+                alerts_res = await sess.execute(
+                    select(SpendingAlert).where(SpendingAlert.user_id == user_id)
+                )
+                alerts_orm = alerts_res.scalars().all()
+                alerts = [AlertResponse.from_orm(a) for a in alerts_orm]
+        except Exception as exc:
+            log.warning("finance.summary.alerts_failed", error=str(exc))
+
+    # Also check repo alerts if SQL returned none
+    if not alerts:
+        repo_alerts = await repo.list_alerts(user_id)
+        alerts = [
+            AlertResponse(
+                id=al.id,
+                name=al.description,
+                alert_type=al.alert_type,
+                threshold_amount=al.threshold_usd,
+                category=None,
+                institution=None,
+                enabled=(al.status == "active"),
+                status="Active" if al.status == "active" else "Pause",
+                last_triggered_at=None,
+                created_at=al.created_at,
             )
-        )
-        connections = result.scalars().all()
+            for al in repo_alerts
+        ]
 
-    for conn in connections:
-        inst = conn.institution or "Chase Bank"
-        accounts.append(
-            AccountSummary(
-                connection_id=str(conn.id),
-                institution=inst,
-                account_id=f"{conn.id}-chk",
-                name=f"{inst} Premier Checking",
-                type="depository",
-                mask="4821",
-                balance=4520.50,
-            )
-        )
-        accounts.append(
-            AccountSummary(
-                connection_id=str(conn.id),
-                institution=inst,
-                account_id=f"{conn.id}-sav",
-                name=f"{inst} High Yield Savings",
-                type="savings",
-                mask="9012",
-                balance=12850.00,
-            )
-        )
-
-    total_balance = sum(a.balance or 0 for a in accounts)
-
-    # Fetch budgets
-    async with factory() as sess:
-        budgets_res = await sess.execute(
-            select(Budget).where(Budget.user_id == user_id)
-        )
-        budgets_orm = budgets_res.scalars().all()
-
-    budgets = [BudgetResponse.from_orm(b) for b in budgets_orm]
-
-    # Fetch alerts
-    async with factory() as sess:
-        alerts_res = await sess.execute(
-            select(SpendingAlert).where(SpendingAlert.user_id == user_id)
-        )
-        alerts_orm = alerts_res.scalars().all()
-
-    alerts = [AlertResponse.from_orm(a) for a in alerts_orm]
-
-    # Compute month spending from transactions
-    now = datetime.now(timezone.utc)
-    start_of_month = f"{now.year}-{now.month:02d}-01"
-    transactions = await _fetch_transactions_from_bank(user_id, start_date=start_of_month)
-    month_spending = sum(abs(t["amount"]) for t in transactions if t["amount"] < 0)
+    # 4. Compute month spending from real transactions in repository
+    month_txs = await repo.list_transactions(user_id=user_id, period="month", limit=500)
+    month_spending_usd = sum(abs(t.amount_usd) for t in month_txs if t.amount_usd < 0)
+    month_spending_pkr = sum(abs(t.amount_pkr) for t in month_txs if t.amount_pkr < 0)
 
     return FinanceSummary(
         accounts=accounts,
-        total_balance=round(total_balance, 2),
+        total_balance=round(total_balance_usd, 2),
+        total_balance_usd=round(total_balance_usd, 2),
+        total_balance_pkr=round(total_balance_pkr, 2),
         budgets=budgets,
         alerts=alerts,
-        month_spending=round(month_spending, 2),
+        month_spending=round(month_spending_usd, 2),
+        month_spending_usd=round(month_spending_usd, 2),
+        month_spending_pkr=round(month_spending_pkr, 2),
     )
 
 
@@ -353,16 +301,155 @@ async def get_finance_summary(
 async def get_transactions(
     start_date: str | None = None,
     end_date: str | None = None,
+    period: str | None = Query(default=None, pattern="^(day|week|month|year)$"),
     limit: int = 100,
     current_user: User = Depends(get_current_user),
 ) -> TransactionListResponse:
-    """Fetch transactions from connected bank accounts (proxied via bank_connect skill)."""
+    """Fetch transactions with statement period filtering from FinanceRepository."""
     user_id = str(current_user.id)
-    transactions = await _fetch_transactions_from_bank(user_id, start_date, end_date)
-    return TransactionListResponse(
-        transactions=[TransactionResponse(**t) for t in transactions[:limit]],
-        total=len(transactions),
+    repo = FinanceRepository()
+    txs = await repo.list_transactions(
+        user_id=user_id,
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
     )
+
+    response_items: list[TransactionResponse] = []
+    for t in txs:
+        d_str = t.transaction_date.strftime("%Y-%m-%d") if t.transaction_date else ""
+        t_str = t.transaction_date.strftime("%H:%M:%S") if t.transaction_date else ""
+        response_items.append(
+            TransactionResponse(
+                id=t.id,
+                account_id=t.account_id,
+                date=d_str,
+                time=t_str,
+                description=t.description,
+                reason=t.reason,
+                amount=t.amount_usd,
+                amount_usd=t.amount_usd,
+                amount_pkr=t.amount_pkr,
+                category=t.category,
+                pending=False,
+                is_pinned=t.is_pinned,
+                transaction_type=t.transaction_type,
+            )
+        )
+
+    return TransactionListResponse(
+        transactions=response_items,
+        total=len(response_items),
+    )
+
+
+@router.post("/transactions", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)
+async def create_transaction(
+    body: TransactionCreate,
+    current_user: User = Depends(get_current_user),
+) -> TransactionResponse:
+    """Manually add or sync a transaction into the user's ledger."""
+    user_id = str(current_user.id)
+    repo = FinanceRepository()
+
+    # Validate account ownership
+    acc = await repo.get_account(body.account_id, user_id)
+    if not acc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    amount_pkr = body.amount_pkr if body.amount_pkr is not None else round(body.amount_usd * 300.0, 2)
+    tx = await repo.create_transaction(
+        user_id=user_id,
+        account_id=body.account_id,
+        description=body.description,
+        reason=body.reason,
+        category=body.category,
+        amount_usd=body.amount_usd,
+        amount_pkr=amount_pkr,
+        transaction_type=body.transaction_type,
+        is_pinned=body.is_pinned,
+    )
+
+    # Adjust account balance
+    await repo.update_balance(
+        account_id=body.account_id,
+        user_id=user_id,
+        delta_usd=body.amount_usd,
+        delta_pkr=amount_pkr,
+    )
+
+    d_str = tx.transaction_date.strftime("%Y-%m-%d") if tx.transaction_date else ""
+    t_str = tx.transaction_date.strftime("%H:%M:%S") if tx.transaction_date else ""
+    return TransactionResponse(
+        id=tx.id,
+        account_id=tx.account_id,
+        date=d_str,
+        time=t_str,
+        description=tx.description,
+        reason=tx.reason,
+        amount=tx.amount_usd,
+        amount_usd=tx.amount_usd,
+        amount_pkr=tx.amount_pkr,
+        category=tx.category,
+        pending=False,
+        is_pinned=tx.is_pinned,
+        transaction_type=tx.transaction_type,
+    )
+
+
+@router.patch("/transactions/{transaction_id}/pin", response_model=TransactionResponse)
+async def toggle_pin_transaction(
+    transaction_id: str,
+    current_user: User = Depends(get_current_user),
+) -> TransactionResponse:
+    """Toggle the is_pinned status on a transaction."""
+    user_id = str(current_user.id)
+    repo = FinanceRepository()
+    updated_tx = await repo.toggle_pin_transaction(transaction_id, user_id)
+    if not updated_tx:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+
+    d_str = updated_tx.transaction_date.strftime("%Y-%m-%d") if updated_tx.transaction_date else ""
+    t_str = updated_tx.transaction_date.strftime("%H:%M:%S") if updated_tx.transaction_date else ""
+    return TransactionResponse(
+        id=updated_tx.id,
+        account_id=updated_tx.account_id,
+        date=d_str,
+        time=t_str,
+        description=updated_tx.description,
+        reason=updated_tx.reason,
+        amount=updated_tx.amount_usd,
+        amount_usd=updated_tx.amount_usd,
+        amount_pkr=updated_tx.amount_pkr,
+        category=updated_tx.category,
+        pending=False,
+        is_pinned=updated_tx.is_pinned,
+        transaction_type=updated_tx.transaction_type,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Account Management
+# ---------------------------------------------------------------------------
+
+@router.delete("/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def delete_finance_account(
+    account_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Disconnect and delete a financial account."""
+    user_id = str(current_user.id)
+    repo = FinanceRepository()
+    acc = await repo.get_account(account_id, user_id)
+    if not acc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    deleted = await repo.delete_account(account_id, user_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +461,9 @@ async def list_budgets(
     current_user: User = Depends(get_current_user),
 ) -> BudgetListResponse:
     """List all budgets for the authenticated user."""
-    factory = _get_factory_or_503()
+    factory = get_session_factory()
+    if factory is None:
+        return BudgetListResponse(budgets=[])
     async with factory() as sess:
         result = await sess.execute(
             select(Budget).where(Budget.user_id == str(current_user.id))
@@ -429,7 +518,7 @@ async def update_budget(
             budget.monthly_limit = body.monthly_limit
         if body.alert_threshold is not None:
             budget.alert_threshold = body.alert_threshold
-        budget.updated_at = datetime.now(timezone.utc)
+        budget.updated_at = datetime.now(UTC)
 
         await sess.commit()
         await sess.refresh(budget)
@@ -455,7 +544,8 @@ async def delete_budget(
                 )
             ),
         )
-        if del_res.rowcount == 0:
+        rowcount = getattr(del_res, "rowcount", None) or 0
+        if rowcount == 0:
             raise HTTPException(status_code=404, detail="Budget not found")
         await sess.commit()
     log.info("finance.budget.deleted", user_id=str(current_user.id), budget_id=budget_id)
@@ -471,13 +561,38 @@ async def list_alerts(
     current_user: User = Depends(get_current_user),
 ) -> AlertListResponse:
     """List all spending alerts for the authenticated user."""
-    factory = _get_factory_or_503()
-    async with factory() as sess:
-        result = await sess.execute(
-            select(SpendingAlert).where(SpendingAlert.user_id == str(current_user.id))
-        )
-        alerts = result.scalars().all()
-    return AlertListResponse(alerts=[AlertResponse.from_orm(a) for a in alerts])
+    factory = get_session_factory()
+    alerts: list[AlertResponse] = []
+    if factory is not None:
+        try:
+            async with factory() as sess:
+                result = await sess.execute(
+                    select(SpendingAlert).where(SpendingAlert.user_id == str(current_user.id))
+                )
+                alerts = [AlertResponse.from_orm(a) for a in result.scalars().all()]
+        except Exception as exc:
+            log.warning("finance.alerts.fetch_failed", error=str(exc))
+
+    if not alerts:
+        repo = FinanceRepository()
+        repo_alerts = await repo.list_alerts(str(current_user.id))
+        alerts = [
+            AlertResponse(
+                id=al.id,
+                name=al.description,
+                alert_type=al.alert_type,
+                threshold_amount=al.threshold_usd,
+                category=None,
+                institution=None,
+                enabled=(al.status == "active"),
+                status="Active" if al.status == "active" else "Pause",
+                last_triggered_at=None,
+                created_at=al.created_at,
+            )
+            for al in repo_alerts
+        ]
+
+    return AlertListResponse(alerts=alerts)
 
 
 @router.post("/alerts", response_model=AlertResponse, status_code=status.HTTP_201_CREATED)
@@ -486,22 +601,90 @@ async def create_alert(
     current_user: User = Depends(get_current_user),
 ) -> AlertResponse:
     """Create a new spending alert."""
-    factory = _get_factory_or_503()
-    alert = SpendingAlert(
-        user_id=str(current_user.id),
-        name=body.name,
+    user_id = str(current_user.id)
+    factory = get_session_factory()
+    if factory is not None:
+        try:
+            alert = SpendingAlert(
+                user_id=user_id,
+                name=body.name,
+                alert_type=body.alert_type,
+                threshold_amount=body.threshold_amount,
+                category=body.category,
+                institution=body.institution,
+                enabled=body.enabled,
+            )
+            async with factory() as sess:
+                sess.add(alert)
+                await sess.commit()
+                await sess.refresh(alert)
+            log.info("finance.alert.created", user_id=user_id, name=body.name)
+            return AlertResponse.from_orm(alert)
+        except Exception as exc:
+            log.warning("finance.alert.create_db_failed", error=str(exc))
+
+    # Repository fallback
+    repo = FinanceRepository()
+    al = await repo.create_alert(
+        user_id=user_id,
+        description=body.name,
         alert_type=body.alert_type,
-        threshold_amount=body.threshold_amount,
+        threshold_usd=body.threshold_amount,
+        status="active" if body.enabled else "paused",
+    )
+    return AlertResponse(
+        id=al.id,
+        name=al.description,
+        alert_type=al.alert_type,
+        threshold_amount=al.threshold_usd,
         category=body.category,
         institution=body.institution,
-        enabled=body.enabled,
+        enabled=(al.status == "active"),
+        status="Active" if al.status == "active" else "Pause",
+        last_triggered_at=None,
+        created_at=al.created_at,
     )
-    async with factory() as sess:
-        sess.add(alert)
-        await sess.commit()
-        await sess.refresh(alert)
-    log.info("finance.alert.created", user_id=str(current_user.id), name=body.name)
-    return AlertResponse.from_orm(alert)
+
+
+@router.patch("/alerts/{alert_id}/status", response_model=dict[str, Any])
+async def toggle_alert_status(
+    alert_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Toggle alert status between Active and Pause."""
+    user_id = str(current_user.id)
+    factory = get_session_factory()
+    if factory is not None:
+        try:
+            async with factory() as sess:
+                res = await sess.execute(
+                    select(SpendingAlert).where(
+                        SpendingAlert.id == alert_id,
+                        SpendingAlert.user_id == user_id,
+                    )
+                )
+                alert = res.scalar_one_or_none()
+                if alert:
+                    alert.enabled = not alert.enabled
+                    await sess.commit()
+                    return {
+                        "id": alert.id,
+                        "enabled": alert.enabled,
+                        "status": "Active" if alert.enabled else "Pause",
+                    }
+        except Exception as exc:
+            log.warning("finance.alert.toggle_db_failed", error=str(exc))
+
+    repo = FinanceRepository()
+    toggled = await repo.toggle_alert_status(alert_id, user_id)
+    if not toggled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+
+    return {
+        "id": toggled.id,
+        "enabled": toggled.status == "active",
+        "status": "Active" if toggled.status == "active" else "Pause",
+    }
 
 
 @router.delete("/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
@@ -510,19 +693,35 @@ async def delete_alert(
     current_user: User = Depends(get_current_user),
 ) -> Response:
     """Delete a spending alert."""
-    factory = _get_factory_or_503()
-    async with factory() as sess:
-        del_alert_res = cast(
-            CursorResult[Any],
-            await sess.execute(
-                delete(SpendingAlert).where(
-                    SpendingAlert.id == alert_id,
-                    SpendingAlert.user_id == str(current_user.id),
+    user_id = str(current_user.id)
+    factory = get_session_factory()
+    deleted = False
+
+    if factory is not None:
+        try:
+            async with factory() as sess:
+                del_alert_res = cast(
+                    CursorResult[Any],
+                    await sess.execute(
+                        delete(SpendingAlert).where(
+                            SpendingAlert.id == alert_id,
+                            SpendingAlert.user_id == user_id,
+                        )
+                    ),
                 )
-            ),
-        )
-        if del_alert_res.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Alert not found")
-        await sess.commit()
-    log.info("finance.alert.deleted", user_id=str(current_user.id), alert_id=alert_id)
+                rowcount = getattr(del_alert_res, "rowcount", None) or 0
+                if rowcount > 0:
+                    deleted = True
+                await sess.commit()
+        except Exception as exc:
+            log.warning("finance.alert.delete_db_failed", error=str(exc))
+
+    if not deleted:
+        repo = FinanceRepository()
+        deleted = await repo.delete_alert(alert_id, user_id)
+
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+
+    log.info("finance.alert.deleted", user_id=user_id, alert_id=alert_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

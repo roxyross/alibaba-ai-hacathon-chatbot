@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './UsageView.css';
 
 interface UsageViewProps {
@@ -8,85 +8,108 @@ interface UsageViewProps {
 }
 
 export const UsageView: React.FC<UsageViewProps> = ({
-  accessToken: _accessToken,
+  accessToken,
   onBack,
   onNavigateBilling,
 }) => {
   const [topUpSuccess, setTopUpSuccess] = useState<string | null>(null);
 
-  const stats = {
-    remainingCredits: 142.5,
-    usedThisMonth: 32.4,
-    estimatedCostUsd: 7.85,
-    estimatedCostPkr: 2355.0,
-  };
+  const [stats, setStats] = useState({
+    remainingCredits: 100.0,
+    usedThisMonth: 0.0,
+    estimatedCostUsd: 0.0,
+    estimatedCostPkr: 0.0,
+  });
 
-  // Mock 30-day token timeline data for SVG line chart
-  const timelinePoints = [
-    12000, 14500, 13800, 16200, 15000, 18400, 21000, 19500, 22400, 24000,
-    21500, 26000, 28500, 27000, 31000, 33500, 32000, 36000, 38500, 37000,
-    41000, 43500, 42000, 46000, 49000, 48000, 52000, 54500, 53000, 58000,
-  ];
+  const [timelinePoints, setTimelinePoints] = useState<number[]>(new Array(30).fill(0));
+
+  const [recentActivity, setRecentActivity] = useState<
+    Array<{
+      id: string;
+      feature: string;
+      model: string;
+      tokens: number;
+      costUsd: number;
+      costPkr: number;
+      time: string;
+    }>
+  >([]);
+
+  useEffect(() => {
+    const fetchUsage = async () => {
+      try {
+        const headers: Record<string, string> = {};
+        if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+        const res = await fetch('/api/v1/usage/stats', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setStats({
+            remainingCredits: data.remaining_credits ?? 100.0,
+            usedThisMonth: data.used_this_month ?? 0.0,
+            estimatedCostUsd: data.estimated_cost_usd ?? 0.0,
+            estimatedCostPkr: data.estimated_cost_pkr ?? 0.0,
+          });
+
+          if (Array.isArray(data.timeline) && data.timeline.length > 0) {
+            setTimelinePoints(data.timeline.map((t: any) => t.tokens || 0));
+          }
+
+          if (Array.isArray(data.recent_activity)) {
+            setRecentActivity(
+              data.recent_activity.map((a: any) => ({
+                id: a.id,
+                feature: a.feature || 'AI Inference',
+                model: a.model || 'model',
+                tokens: a.tokens || 0,
+                costUsd: a.cost_usd || 0,
+                costPkr: a.cost_pkr || 0,
+                time: a.time ? (a.time.includes('T') ? new Date(a.time).toLocaleTimeString() : a.time) : 'Recently',
+              }))
+            );
+          }
+        }
+      } catch {
+        // Keep zeroed empty states
+      }
+    };
+    fetchUsage();
+  }, [accessToken]);
 
   const maxTokens = Math.max(...timelinePoints);
   const minTokens = Math.min(...timelinePoints);
+  const diff = maxTokens - minTokens;
   const chartHeight = 140;
   const chartWidth = 760;
 
   const pointsString = timelinePoints
     .map((val, idx) => {
-      const x = (idx / (timelinePoints.length - 1)) * chartWidth;
-      const y = chartHeight - ((val - minTokens) / (maxTokens - minTokens)) * (chartHeight - 20) - 10;
+      const x = (idx / Math.max(1, timelinePoints.length - 1)) * chartWidth;
+      const y =
+        diff > 0
+          ? chartHeight - ((val - minTokens) / diff) * (chartHeight - 20) - 10
+          : chartHeight - 20;
       return `${x},${y}`;
     })
     .join(' ');
 
-  const recentActivity = [
-    {
-      id: 'act-1',
-      feature: 'Deep Reasoning & Synthesis',
-      model: 'deepseek-r1',
-      tokens: 4820,
-      costUsd: 0.024,
-      costPkr: 7.2,
-      time: '12 mins ago',
-    },
-    {
-      id: 'act-2',
-      feature: 'Image Studio (2:3 Portrait)',
-      model: 'imagen-3.0',
-      tokens: 1200,
-      costUsd: 0.04,
-      costPkr: 12.0,
-      time: '1 hour ago',
-    },
-    {
-      id: 'act-3',
-      feature: 'Scheduled Market Briefing',
-      model: 'gemini-2.0-flash',
-      tokens: 2150,
-      costUsd: 0.006,
-      costPkr: 1.8,
-      time: '4 hours ago',
-    },
-    {
-      id: 'act-4',
-      feature: 'Finance Reconciliation',
-      model: 'gpt-4o',
-      tokens: 3410,
-      costUsd: 0.017,
-      costPkr: 5.1,
-      time: 'Yesterday',
-    },
-  ];
-
   const topUpPacks = [
-    { id: 'p5', name: 'Starter Pack', usd: 5, pkr: 1400, credits: '500K tokens' },
-    { id: 'p10', name: 'Power Surge', usd: 10, pkr: 2800, credits: '1.2M tokens' },
-    { id: 'p20', name: 'Studio Ultra', usd: 20, pkr: 5600, credits: '2.8M tokens' },
+    { id: 'pack_5', name: 'Starter Boost', usd: 5, pkr: 1400, credits: '500K tokens' },
+    { id: 'pack_10', name: 'Power Surge', usd: 10, pkr: 2800, credits: '1.2M tokens' },
+    { id: 'pack_20', name: 'Studio Ultra', usd: 20, pkr: 5600, credits: '2.8M tokens' },
   ];
 
-  const handleTopUp = (packName: string, usd: number, pkr: number) => {
+  const handleTopUp = async (packId: string, packName: string, usd: number, pkr: number) => {
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      await fetch('/api/v1/billing/topup', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ pack_id: packId }),
+      });
+    } catch {
+      // local feedback
+    }
     setTopUpSuccess(`Added ${packName} ($${usd} / Rs ${pkr.toLocaleString()}) to your credit wallet.`);
     setTimeout(() => setTopUpSuccess(null), 5000);
   };
@@ -197,7 +220,7 @@ export const UsageView: React.FC<UsageViewProps> = ({
                 <button
                   type="button"
                   className="topup-card__btn"
-                  onClick={() => handleTopUp(pack.name, pack.usd, pack.pkr)}
+                  onClick={() => handleTopUp(pack.id, pack.name, pack.usd, pack.pkr)}
                 >
                   Top-Up ${pack.usd}
                 </button>
@@ -217,18 +240,30 @@ export const UsageView: React.FC<UsageViewProps> = ({
               <span>Cost ($ & Rs)</span>
               <span>Time</span>
             </div>
-            {recentActivity.map((act) => (
-              <div key={act.id} className="activity-table__row">
-                <span className="act-feat">{act.feature}</span>
-                <span className="act-model">{act.model}</span>
-                <span className="act-tokens">{act.tokens.toLocaleString()}</span>
-                <span className="act-cost">
-                  ${act.costUsd.toFixed(3)}{' '}
-                  <span className="act-pkr">/ Rs {act.costPkr.toFixed(1)}</span>
-                </span>
-                <span className="act-time">{act.time}</span>
+            {recentActivity.length === 0 ? (
+              <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: 'var(--color-muted, #64748b)' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📊</div>
+                <div style={{ fontWeight: 600, color: 'var(--color-text, #1e292b)', marginBottom: '0.25rem' }}>
+                  No recent AI token activity
+                </div>
+                <div style={{ fontSize: '0.85rem' }}>
+                  Start a chat session or generate media to track real-time token consumption.
+                </div>
               </div>
-            ))}
+            ) : (
+              recentActivity.map((act) => (
+                <div key={act.id} className="activity-table__row">
+                  <span className="act-feat">{act.feature}</span>
+                  <span className="act-model">{act.model}</span>
+                  <span className="act-tokens">{act.tokens.toLocaleString()}</span>
+                  <span className="act-cost">
+                    ${act.costUsd.toFixed(3)}{' '}
+                    <span className="act-pkr">/ Rs {act.costPkr.toFixed(1)}</span>
+                  </span>
+                  <span className="act-time">{act.time}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

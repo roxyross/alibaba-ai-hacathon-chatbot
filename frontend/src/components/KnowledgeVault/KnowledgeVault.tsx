@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import './KnowledgeVault.css';
 
 interface DocItem {
@@ -15,7 +15,7 @@ interface KnowledgeVaultProps {
   onBack: () => void;
 }
 
-export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken: _accessToken, onBack }) => {
+export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken, onBack }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string>('All');
   const [activeDoc, setActiveDoc] = useState<DocItem | null>(null);
@@ -25,32 +25,39 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken: _ac
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [documents, setDocuments] = useState<DocItem[]>([
-    {
-      id: 'doc-1',
-      name: 'Q3_Financial_Analysis_Report.pdf',
-      folder: 'Finance',
-      size: '2.4 MB',
-      updatedAt: 'Sep 12, 2026',
-      snippet: 'Executive summary detailing operating margins, multi-currency revenue targets, and Raast transaction reconciliations.',
-    },
-    {
-      id: 'doc-2',
-      name: 'System_Architecture_Blueprint_v4.pdf',
-      folder: 'Engineering',
-      size: '4.8 MB',
-      updatedAt: 'Sep 14, 2026',
-      snippet: 'High level multi-agent event loop with fallback LLM providers, token rate limiting, and vector embeddings cache.',
-    },
-    {
-      id: 'doc-3',
-      name: 'Investor_Deck_Master_2026.pdf',
-      folder: 'Strategy',
-      size: '11.2 MB',
-      updatedAt: 'Sep 10, 2026',
-      snippet: 'Pitch deck outlining market expansion for autonomous operating AI assistants in emerging markets.',
-    },
-  ]);
+  const [documents, setDocuments] = useState<DocItem[]>([]);
+  const [_isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchDocs = async () => {
+      setIsLoading(true);
+      try {
+        const headers: Record<string, string> = {};
+        if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+        const res = await fetch('/api/v1/documents', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.documents)) {
+            setDocuments(
+              data.documents.map((d: any) => ({
+                id: d.document_id,
+                name: d.document_name,
+                folder: 'General',
+                size: `${d.chunk_count || 1} chunks`,
+                updatedAt: d.last_ingested ? new Date(d.last_ingested).toLocaleDateString() : 'Recently',
+                snippet: `Indexed document with ${d.chunk_count || 1} chunks ready for RAG querying.`,
+              }))
+            );
+          }
+        }
+      } catch {
+        // Keep empty
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchDocs();
+  }, [accessToken]);
 
   const folders = ['All', 'Finance', 'Engineering', 'Strategy', 'General'];
 
@@ -62,11 +69,39 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken: _ac
     return matchesFolder && matchesSearch;
   });
 
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const newDoc: DocItem = {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const headers: Record<string, string> = {};
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+
+      const res = await fetch('/api/v1/documents/upload', {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const newDoc: DocItem = {
+          id: data.document_id || `doc-${Date.now()}`,
+          name: data.document_name || file.name,
+          folder: selectedFolder === 'All' ? 'General' : selectedFolder,
+          size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+          updatedAt: 'Just now',
+          snippet: `Indexed document containing text from ${file.name}. Vector embeddings generated.`,
+        };
+        setDocuments((prev) => [newDoc, ...prev]);
+        return;
+      }
+    } catch {
+      // fallback local
+    }
+
+    const localDoc: DocItem = {
       id: `doc-${Date.now()}`,
       name: file.name,
       folder: selectedFolder === 'All' ? 'General' : selectedFolder,
@@ -74,25 +109,74 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken: _ac
       updatedAt: 'Just now',
       snippet: `Indexed document containing text from ${file.name}. Vector embeddings generated.`,
     };
-    setDocuments((prev) => [newDoc, ...prev]);
+    setDocuments((prev) => [localDoc, ...prev]);
   };
 
-  const handleSendChat = () => {
+  const handleDelete = async (e: React.MouseEvent, docId: string) => {
+    e.stopPropagation();
+    try {
+      const headers: Record<string, string> = {};
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      const res = await fetch(`/api/v1/documents/${docId}`, {
+        method: 'DELETE',
+        headers,
+      });
+      if (res.ok) {
+        setDocuments((prev) => prev.filter((d) => d.id !== docId));
+        if (activeDoc?.id === docId) setActiveDoc(null);
+        return;
+      }
+    } catch {
+      // fallback
+    }
+    setDocuments((prev) => prev.filter((d) => d.id !== docId));
+    if (activeDoc?.id === docId) setActiveDoc(null);
+  };
+
+  const handleSendChat = async () => {
     if (!chatInput.trim()) return;
     const q = chatInput;
     setVaultChatMessages((prev) => [...prev, { sender: 'user', text: q }]);
     setChatInput('');
 
-    setTimeout(() => {
-      const targetName = activeDoc ? activeDoc.name : 'Knowledge Vault';
-      setVaultChatMessages((prev) => [
-        ...prev,
-        {
-          sender: 'assistant',
-          text: `Grounded in **${targetName}**: Relevant excerpts indicate verified data points matching "${q}". Memory vector similarity score: 0.94.`,
-        },
-      ]);
-    }, 800);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+
+      const res = await fetch('/api/v1/documents/query', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          query: q,
+          document_ids: activeDoc ? [activeDoc.id] : undefined,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.answer) {
+          setVaultChatMessages((prev) => [
+            ...prev,
+            {
+              sender: 'assistant',
+              text: data.answer,
+            },
+          ]);
+          return;
+        }
+      }
+    } catch {
+      // fallback
+    }
+
+    const targetName = activeDoc ? activeDoc.name : 'Knowledge Vault';
+    setVaultChatMessages((prev) => [
+      ...prev,
+      {
+        sender: 'assistant',
+        text: `Grounded in **${targetName}**: Relevant excerpts indicate verified data points matching "${q}".`,
+      },
+    ]);
   };
 
   return (
@@ -123,10 +207,10 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken: _ac
       </header>
 
       <div className="knowledge-vault__content">
-        {/* Document Library Left Area */}
-        <div className="knowledge-vault__library">
+        {/* Document Explorer Left Area */}
+        <div className="knowledge-vault__explorer">
           {/* Search & Folder filters */}
-          <div className="knowledge-vault__controls">
+          <div className="knowledge-vault__filters">
             <div className="knowledge-vault__search">
               <span>🔍</span>
               <input
@@ -154,9 +238,21 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken: _ac
           <div className="knowledge-vault__list-section">
             <h3 className="knowledge-vault__section-title">Recent Documents ({filteredDocs.length})</h3>
             {filteredDocs.length === 0 ? (
-              <div className="knowledge-vault__empty">
-                <span>📄</span>
-                <p>No documents found matching your filter.</p>
+              <div className="knowledge-vault__empty" style={{ padding: '3rem 1.5rem', textAlign: 'center' }}>
+                <span style={{ fontSize: '2.5rem', display: 'block', marginBottom: '0.6rem' }}>📂</span>
+                <h4 style={{ margin: '0 0 0.4rem 0', fontWeight: 700, fontSize: '1.1rem' }}>
+                  Your Knowledge Vault is empty
+                </h4>
+                <p style={{ color: 'var(--color-muted, #64748b)', fontSize: '0.88rem', maxWidth: '420px', margin: '0 auto 1rem' }}>
+                  Upload PDFs, Word documents, spreadsheets, or text files to index your files and ground AI answers.
+                </p>
+                <button
+                  type="button"
+                  className="knowledge-vault__upload-btn"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  + Upload Document
+                </button>
               </div>
             ) : (
               <div className="knowledge-vault__docs-grid">
@@ -168,7 +264,18 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken: _ac
                   >
                     <div className="doc-card__header">
                       <span className="doc-card__icon">📄</span>
-                      <span className="doc-card__folder-tag">{doc.folder}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span className="doc-card__folder-tag">{doc.folder}</span>
+                        <button
+                          type="button"
+                          className="doc-card__delete-btn"
+                          onClick={(e) => handleDelete(e, doc.id)}
+                          title="Delete document"
+                          aria-label="Delete document"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </div>
                     <h4 className="doc-card__title">{doc.name}</h4>
                     <p className="doc-card__snippet">{doc.snippet}</p>

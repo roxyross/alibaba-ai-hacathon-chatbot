@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db import Base
 from app.auth.models import User
 from app.chat_history.models import ChatMessage
+from app.db import Base
 
 
 class ChatSession(Base):
@@ -31,6 +30,12 @@ class ChatSession(Base):
     session_type: Mapped[str] = mapped_column(
         String(20), default="chat", server_default="chat"
     )
+    pinned: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -40,10 +45,10 @@ class ChatSession(Base):
         onupdate=func.now(),
     )
 
-    user: Mapped["User"] = relationship("User")
-    messages: Mapped[list["ChatMessage"]] = relationship(
+    user: Mapped[User] = relationship("User")
+    messages: Mapped[list[ChatMessage]] = relationship(
         "ChatMessage", back_populates="session", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
-        return f"<ChatSession {self.id} user={self.user_id} title={self.title!r}>"
+        return f"<ChatSession {self.id} user={self.user_id} title={self.title!r} pinned={self.pinned}>"

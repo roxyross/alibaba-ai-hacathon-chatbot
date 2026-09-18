@@ -33,6 +33,21 @@ interface TextToSpeechResponse {
   model: string;
 }
 
+interface VoiceRecordingItem {
+  id: string;
+  user_id: string;
+  title: string;
+  transcript: string;
+  summary?: string | null;
+  language?: string | null;
+  audio_url?: string | null;
+  duration_seconds?: number | null;
+  voice_model?: string | null;
+  tags?: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 async function fetchJSON<T>(
   url: string,
   accessToken: string | null | undefined,
@@ -89,6 +104,42 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   const [voiceModulation, setVoiceModulation] = useState<string>('normal');
   const [geminiVoice, setGeminiVoice] = useState<string>('Kore');
   const [voiceModel, setVoiceModel] = useState<string>('gemini-3.8-flash');
+  const [activeTab, setActiveTab] = useState<'live' | 'library'>('live');
+  const [savedRecordings, setSavedRecordings] = useState<VoiceRecordingItem[]>([]);
+  const [loadingRecordings, setLoadingRecordings] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isSavingNote, setIsSavingNote] = useState<boolean>(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const fetchSavedRecordings = useCallback(async (search?: string) => {
+    if (!accessToken) return;
+    setLoadingRecordings(true);
+    try {
+      const q = search ? `?search=${encodeURIComponent(search)}` : '';
+      const data = await fetchJSON<{ recordings: VoiceRecordingItem[]; total: number }>(
+        `${API_BASE}/voice/recordings${q}`,
+        accessToken,
+      );
+      setSavedRecordings(data.recordings || []);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingRecordings(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (activeTab === 'library') {
+      void fetchSavedRecordings(searchQuery);
+    }
+  }, [activeTab, searchQuery, fetchSavedRecordings]);
+
+  useEffect(() => {
+    if (accessToken) {
+      void fetchSavedRecordings();
+    }
+  }, [accessToken, fetchSavedRecordings]);
 
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -671,6 +722,61 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
     setLiveCaption('');
   };
 
+  const handleSaveAsVoiceNote = async () => {
+    if (transcripts.length === 0 || !accessToken) return;
+    setIsSavingNote(true);
+    try {
+      const fullTranscript = transcripts
+        .map((t) => `${t.role === 'user' ? 'User' : 'Roxy'}: ${t.text}`)
+        .join('\n\n');
+      const firstUserTurn = transcripts.find((t) => t.role === 'user')?.text || 'Voice Session';
+      const defaultTitle = firstUserTurn.length > 50 ? `${firstUserTurn.slice(0, 50)}…` : firstUserTurn;
+
+      const created = await fetchJSON<{ recording: VoiceRecordingItem }>(
+        `${API_BASE}/voice/recordings`,
+        accessToken,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            title: defaultTitle,
+            transcript: fullTranscript,
+            language: voiceLang !== 'auto' ? voiceLang : 'en',
+            voice_model: voiceModel,
+          }),
+        },
+      );
+
+      setSavedRecordings((prev) => [created.recording, ...prev]);
+      setToastMessage('✅ Saved note to Voice Notes Library!');
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch (err) {
+      setError(`Failed to save note: ${(err as Error).message}`);
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
+  const handleDeleteRecording = async (recId: string) => {
+    if (!accessToken) return;
+    if (!window.confirm('Delete this voice recording note?')) return;
+    try {
+      await fetchJSON(`${API_BASE}/voice/recordings/${recId}`, accessToken, {
+        method: 'DELETE',
+      });
+      setSavedRecordings((prev) => prev.filter((r) => r.id !== recId));
+      setToastMessage('🗑️ Voice note deleted');
+      setTimeout(() => setToastMessage(null), 2500);
+    } catch (err) {
+      setError(`Failed to delete recording: ${(err as Error).message}`);
+    }
+  };
+
+  const handleCopyTranscript = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setToastMessage('📋 Transcript copied to clipboard');
+    setTimeout(() => setToastMessage(null), 2500);
+  };
+
   // ─── Render ─────────────────────────────────────────────────────────
 
   return (
@@ -682,245 +788,435 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
     >
       {/* Header */}
       <div className="vs__header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           {onBack && (
             <button type="button" className="view-back-btn" onClick={onBack} title="Back to Chat">
               ← Back to Chat
             </button>
           )}
           <h2 className="vs__title">🎙️ <span>Voice Session</span></h2>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {/* Voice Model Picker */}
-          <select
-            className="vs__lang-select"
-            value={voiceModel}
-            onChange={(e) => setVoiceModel(e.target.value)}
-            title="Multimodal Voice Model"
-            aria-label="Multimodal Voice Model"
-          >
-            <option value="gemini-3.8-flash">✨ Gemini 3.8 Flash (Multimodal Audio)</option>
-            <option value="gemini-3.7-flash">⚡ Gemini 3.7 Flash</option>
-            <option value="gemini-3.1-flash">⚡ Gemini 3.1 Flash</option>
-            <option value="openai">OpenAI TTS</option>
-          </select>
 
-          {/* Steerable Voice Modulation / Tone */}
-          <select
-            className="vs__lang-select"
-            value={voiceModulation}
-            onChange={(e) => setVoiceModulation(e.target.value)}
-            title="Voice Modulation & Tone"
-            aria-label="Voice Modulation & Tone"
-          >
-            <option value="normal">🗣️ Normal Tone</option>
-            <option value="whispering">🤫 Whispering</option>
-            <option value="excited">🤩 Excited</option>
-            <option value="dramatic">🎭 Dramatic</option>
-            <option value="calm">🧘 Calm</option>
-            <option value="shouting">📢 Shouting</option>
-          </select>
-
-          {/* Gemini Voice */}
-          <select
-            className="vs__lang-select"
-            value={geminiVoice}
-            onChange={(e) => setGeminiVoice(e.target.value)}
-            title="AI Voice Persona"
-            aria-label="AI Voice Persona"
-          >
-            <option value="Kore">Kore (Warm)</option>
-            <option value="Puck">Puck (Energetic)</option>
-            <option value="Fenrir">Fenrir (Deep)</option>
-            <option value="Aoede">Aoede (Expressive)</option>
-            <option value="Zephyr">Zephyr (Calm)</option>
-          </select>
-
-          {/* Spoken Language */}
-          <select
-            className="vs__lang-select"
-            value={voiceLang}
-            onChange={(e) => {
-              const nextLang = e.target.value;
-              setVoiceLang(nextLang);
-              localStorage.setItem('roxy_voice_lang', nextLang);
-              if (speechRecognitionRef.current) {
-                const active = VOICE_LANGUAGES.find((l) => l.code === nextLang);
-                speechRecognitionRef.current.lang = active?.speechLang || (navigator.language || 'en-US');
-              }
-            }}
-            title="Speech recognition & voice language"
-            aria-label="Speech recognition & voice language"
-          >
-            {VOICE_LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.flag} {l.name}
-              </option>
-            ))}
-          </select>
-
-          {transcripts.length > 0 && (
+          {/* Tab navigation */}
+          <div className="vs__tabs" role="tablist" aria-label="Voice Session Views">
             <button
-              className="vs__clear"
-              onClick={clearTranscripts}
-              title="Clear transcripts"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'live'}
+              className={`vs__tab-btn ${activeTab === 'live' ? 'vs__tab-btn--active' : ''}`}
+              onClick={() => setActiveTab('live')}
             >
-              Clear
+              🎙️ Live Voice
             </button>
-          )}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'library'}
+              className={`vs__tab-btn ${activeTab === 'library' ? 'vs__tab-btn--active' : ''}`}
+              onClick={() => setActiveTab('library')}
+            >
+              📁 Voice Notes {savedRecordings.length > 0 && `(${savedRecordings.length})`}
+            </button>
+          </div>
         </div>
 
+        {activeTab === 'live' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {/* Voice Model Picker */}
+            <select
+              className="vs__lang-select"
+              value={voiceModel}
+              onChange={(e) => setVoiceModel(e.target.value)}
+              title="Multimodal Voice Model"
+              aria-label="Multimodal Voice Model"
+            >
+              <option value="gemini-3.8-flash">✨ Gemini 3.8 Flash (Multimodal Audio)</option>
+              <option value="gemini-3.7-flash">⚡ Gemini 3.7 Flash</option>
+              <option value="gemini-3.1-flash">⚡ Gemini 3.1 Flash</option>
+              <option value="openai">OpenAI TTS</option>
+            </select>
+
+            {/* Steerable Voice Modulation / Tone */}
+            <select
+              className="vs__lang-select"
+              value={voiceModulation}
+              onChange={(e) => setVoiceModulation(e.target.value)}
+              title="Voice Modulation & Tone"
+              aria-label="Voice Modulation & Tone"
+            >
+              <option value="normal">🗣️ Normal Tone</option>
+              <option value="whispering">🤫 Whispering</option>
+              <option value="excited">🤩 Excited</option>
+              <option value="dramatic">🎭 Dramatic</option>
+              <option value="calm">🧘 Calm</option>
+              <option value="shouting">📢 Shouting</option>
+            </select>
+
+            {/* Gemini Voice */}
+            <select
+              className="vs__lang-select"
+              value={geminiVoice}
+              onChange={(e) => setGeminiVoice(e.target.value)}
+              title="AI Voice Persona"
+              aria-label="AI Voice Persona"
+            >
+              <option value="Kore">Kore (Warm)</option>
+              <option value="Puck">Puck (Energetic)</option>
+              <option value="Fenrir">Fenrir (Deep)</option>
+              <option value="Aoede">Aoede (Expressive)</option>
+              <option value="Zephyr">Zephyr (Calm)</option>
+            </select>
+
+            {/* Spoken Language */}
+            <select
+              className="vs__lang-select"
+              value={voiceLang}
+              onChange={(e) => {
+                const nextLang = e.target.value;
+                setVoiceLang(nextLang);
+                localStorage.setItem('roxy_voice_lang', nextLang);
+                if (speechRecognitionRef.current) {
+                  const active = VOICE_LANGUAGES.find((l) => l.code === nextLang);
+                  speechRecognitionRef.current.lang = active?.speechLang || (navigator.language || 'en-US');
+                }
+              }}
+              title="Speech recognition & voice language"
+              aria-label="Speech recognition & voice language"
+            >
+              {VOICE_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.flag} {l.name}
+                </option>
+              ))}
+            </select>
+
+            {transcripts.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="vs__save-note-btn"
+                  onClick={handleSaveAsVoiceNote}
+                  disabled={isSavingNote}
+                  title="Save current spoken session to Voice Notes Library"
+                >
+                  💾 {isSavingNote ? 'Saving…' : 'Save Note'}
+                </button>
+                <button
+                  type="button"
+                  className="vs__clear"
+                  onClick={clearTranscripts}
+                  title="Clear transcripts"
+                >
+                  Clear
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Mic permission warning */}
-      {micPermission === false && (
+      {activeTab === 'live' && micPermission === false && (
         <div className="vs__warning">
           🎤 Microphone access is required for voice interaction. Please allow
           microphone access in your browser settings and reload the page.
         </div>
       )}
 
-      {/* Transcript list */}
-      <div className="vs__transcripts" aria-label="Transcripts" aria-live="polite">
-        {transcripts.length === 0 && !isProcessing && !isRecording && (
-          <div className="vs__empty">
-            <p>👆 Tap the microphone button and start speaking</p>
-            <p className="vs__empty-hint">
-              or press <kbd>Space</kbd> to toggle listening
-            </p>
-          </div>
-        )}
+      {/* VIEW 1: LIVE VOICE SESSION */}
+      {activeTab === 'live' && (
+        <>
+          {/* Transcript list */}
+          <div className="vs__transcripts" aria-label="Transcripts" aria-live="polite">
+            {transcripts.length === 0 && !isProcessing && !isRecording && (
+              <div className="vs__empty">
+                <p>👆 Tap the microphone button and start speaking</p>
+                <p className="vs__empty-hint">
+                  or press <kbd>Space</kbd> to toggle listening
+                </p>
+              </div>
+            )}
 
-        {isProcessing && (
-          <div className="vs__processing">
-            <span className="vs__processing-dot" />
-            <span>Transcribing and processing with AI…</span>
-          </div>
-        )}
+            {isProcessing && (
+              <div className="vs__processing">
+                <span className="vs__processing-dot" />
+                <span>Transcribing and processing with AI…</span>
+              </div>
+            )}
 
-        {transcripts.map((entry, i) => (
-          <div
-            key={i}
-            className={`vs__entry vs__entry--${entry.role}`}
-          >
-            <span className="vs__entry-role">
-              {entry.role === 'user' ? '🗣️ You' : '🤖 ROXY'}
-            </span>
-            <p className="vs__entry-text">{entry.text}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Live spoken preview while user is speaking */}
-      {isRecording && (
-        <div className="vs__live-caption" aria-live="polite">
-          <div className="vs__live-caption-header">
-            <span className="vs__live-caption-dot" />
-            <span className="vs__live-caption-status">Listening…</span>
-          </div>
-          <p className="vs__live-caption-text">
-            {liveCaption ? `“${liveCaption}”` : 'Speak now into your microphone…'}
-          </p>
-        </div>
-      )}
-
-      {/* Error display */}
-      {error && (
-        <div className="vs__error" role="alert">
-          <span>{error}</span>
-          <button
-            className="vs__error-dismiss"
-            onClick={() => setError(null)}
-            aria-label="Dismiss error"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* Bottom controls */}
-      <div className="vs__controls">
-        {/* Dynamic audio waveform visualizer when recording */}
-        {isRecording && (
-          <div className="vs__waveform" aria-label="Microphone volume">
-            {audioLevels.map((lvl, idx) => (
-              <span
-                key={idx}
-                className="vs__waveform-bar"
-                style={{ height: `${Math.min(48, Math.max(8, lvl))}px` }}
-              />
+            {transcripts.map((entry, i) => (
+              <div
+                key={i}
+                className={`vs__entry vs__entry--${entry.role}`}
+              >
+                <span className="vs__entry-role">
+                  {entry.role === 'user' ? '🗣️ You' : '🤖 ROXY'}
+                </span>
+                <p className="vs__entry-text">{entry.text}</p>
+              </div>
             ))}
           </div>
-        )}
 
-        {/* Mic toggle button */}
-        <div className="vs__mic-wrap">
-          <button
-            className={`vs__mic${isRecording ? ' vs__mic--recording' : ''}${isProcessing ? ' vs__mic--busy' : ''}${isSpeaking ? ' vs__mic--speaking' : ''}${!micPermission ? ' vs__mic--disabled' : ''}`}
-            onClick={toggleRecording}
-            disabled={!micPermission || isProcessing}
-            aria-label={
-              isSpeaking
-                ? 'Stop AI voice'
-                : isRecording
-                  ? 'Stop and send'
-                  : 'Tap to speak'
-            }
-            title={
-              isSpeaking
-                ? 'Stop AI speaking'
-                : isRecording
-                  ? 'Tap to stop & send'
-                  : 'Tap to speak'
-            }
-            type="button"
-          >
-            {isRecording ? (
-              <span className="vs__mic-icon">■</span>
-            ) : isProcessing ? (
-              <span className="vs__mic-spinner" />
-            ) : isSpeaking ? (
-              <span className="vs__mic-icon">⏹</span>
-            ) : (
-              <span className="vs__mic-icon">🎤</span>
-            )}
-          </button>
+          {/* Live spoken preview while user is speaking */}
           {isRecording && (
-            <span className="vs__recording-label" aria-live="polite">
-              Recording… Tap to send
-            </span>
+            <div className="vs__live-caption" aria-live="polite">
+              <div className="vs__live-caption-header">
+                <span className="vs__live-caption-dot" />
+                <span className="vs__live-caption-status">Listening…</span>
+              </div>
+              <p className="vs__live-caption-text">
+                {liveCaption ? `“${liveCaption}”` : 'Speak now into your microphone…'}
+              </p>
+            </div>
           )}
-          {isSpeaking && (
-            <span className="vs__recording-label" aria-live="polite">
-              Speaking… (click to interrupt)
-            </span>
+
+          {/* Error display */}
+          {error && (
+            <div className="vs__error" role="alert">
+              <span>{error}</span>
+              <button
+                className="vs__error-dismiss"
+                onClick={() => setError(null)}
+                aria-label="Dismiss error"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Bottom controls */}
+          <div className="vs__controls">
+            {/* Dynamic audio waveform visualizer when recording */}
+            {isRecording && (
+              <div className="vs__waveform" aria-label="Microphone volume">
+                {audioLevels.map((lvl, idx) => (
+                  <span
+                    key={idx}
+                    className="vs__waveform-bar"
+                    style={{ height: `${Math.min(48, Math.max(8, lvl))}px` }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Mic toggle button */}
+            <div className="vs__mic-wrap">
+              <button
+                className={`vs__mic${isRecording ? ' vs__mic--recording' : ''}${isProcessing ? ' vs__mic--busy' : ''}${isSpeaking ? ' vs__mic--speaking' : ''}${!micPermission ? ' vs__mic--disabled' : ''}`}
+                onClick={toggleRecording}
+                disabled={!micPermission || isProcessing}
+                aria-label={
+                  isSpeaking
+                    ? 'Stop AI voice'
+                    : isRecording
+                      ? 'Stop and send'
+                      : 'Tap to speak'
+                }
+                title={
+                  isSpeaking
+                    ? 'Stop AI speaking'
+                    : isRecording
+                      ? 'Tap to stop & send'
+                      : 'Tap to speak'
+                }
+                type="button"
+              >
+                {isRecording ? (
+                  <span className="vs__mic-icon">■</span>
+                ) : isProcessing ? (
+                  <span className="vs__mic-spinner" />
+                ) : isSpeaking ? (
+                  <span className="vs__mic-icon">⏹</span>
+                ) : (
+                  <span className="vs__mic-icon">🎤</span>
+                )}
+              </button>
+              {isRecording && (
+                <span className="vs__recording-label" aria-live="polite">
+                  Recording… Tap to send
+                </span>
+              )}
+              {isSpeaking && (
+                <span className="vs__recording-label" aria-live="polite">
+                  Speaking… (click to interrupt)
+                </span>
+              )}
+            </div>
+
+            {/* Dedicated Stop Speaking Button */}
+            {isSpeaking && (
+              <button
+                type="button"
+                className="vs__stop-speaking-btn"
+                onClick={stopSpeaking}
+                title="Stop AI speaking"
+                aria-label="Stop AI speaking"
+              >
+                ⏹ Stop Speaking
+              </button>
+            )}
+
+            {/* Hint */}
+            <div className="vs__hint">
+              {isSpeaking
+                ? 'Speaking · Tap button or space to interrupt'
+                : isRecording
+                  ? 'Listening · Tap again or hit Space to finish'
+                  : micPermission
+                    ? 'Tap mic to talk · Hit Space to toggle'
+                    : 'Mic access required'}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* VIEW 2: VOICE NOTES & TRANSCRIPTS LIBRARY */}
+      {activeTab === 'library' && (
+        <div className="vs__library" aria-label="Voice Notes Library">
+          <div className="vs__library-toolbar">
+            <input
+              type="search"
+              className="vs__library-search"
+              placeholder="Search voice notes by keyword, title, or transcript..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Search voice notes"
+            />
+            <button
+              type="button"
+              className="vs__note-action-btn"
+              onClick={() => void fetchSavedRecordings(searchQuery)}
+              title="Refresh voice notes list"
+            >
+              🔄 Refresh
+            </button>
+          </div>
+
+          {loadingRecordings && (
+            <div className="vs__processing">
+              <span className="vs__processing-dot" />
+              <span>Loading saved voice notes…</span>
+            </div>
+          )}
+
+          {!loadingRecordings && savedRecordings.length === 0 && (
+            <div className="vs__library-empty">
+              <span className="vs__library-empty-icon">🎙️</span>
+              <h3 className="vs__library-empty-title">
+                {searchQuery ? 'No matching voice notes found' : 'No Voice Recordings Yet'}
+              </h3>
+              <p className="vs__library-empty-sub">
+                {searchQuery
+                  ? `No voice notes matched "${searchQuery}". Try a different search term.`
+                  : 'Your voice library is clean and ready. Record memos in a Live Voice Session or ask Roxy to transcribe your meetings.'}
+              </p>
+              {!searchQuery && (
+                <button
+                  type="button"
+                  className="vs__library-start-btn"
+                  onClick={() => setActiveTab('live')}
+                >
+                  🎙️ Start Live Voice Session
+                </button>
+              )}
+            </div>
+          )}
+
+          {!loadingRecordings && savedRecordings.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {savedRecordings.map((rec) => {
+                const isExpanded = expandedId === rec.id;
+                return (
+                  <div key={rec.id} className="vs__note-card">
+                    <div className="vs__note-card-header">
+                      <div>
+                        <h4 className="vs__note-title">{rec.title}</h4>
+                        <div className="vs__note-meta">
+                          {rec.created_at && (
+                            <span className="vs__note-badge">
+                              📅 {new Date(rec.created_at).toLocaleDateString()} {new Date(rec.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          )}
+                          {rec.duration_seconds ? (
+                            <span className="vs__note-badge">⏱️ {Math.round(rec.duration_seconds)}s</span>
+                          ) : null}
+                          {rec.language && (
+                            <span className="vs__note-badge">🌐 {rec.language.toUpperCase()}</span>
+                          )}
+                          {rec.voice_model && (
+                            <span className="vs__note-badge">⚡ {rec.voice_model}</span>
+                          )}
+                          {rec.tags?.map((t) => (
+                            <span key={t} className="vs__note-badge">🏷️ {t}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {rec.summary && (
+                      <div className="vs__note-summary-box">
+                        <strong>AI Summary:</strong> {rec.summary}
+                      </div>
+                    )}
+
+                    <div className="vs__note-transcript">
+                      {isExpanded
+                        ? rec.transcript
+                        : rec.transcript.length > 220
+                          ? `${rec.transcript.slice(0, 220)}…`
+                          : rec.transcript}
+                    </div>
+
+                    <div className="vs__note-actions">
+                      {rec.transcript.length > 220 && (
+                        <button
+                          type="button"
+                          className="vs__note-action-btn"
+                          onClick={() => setExpandedId(isExpanded ? null : rec.id)}
+                        >
+                          {isExpanded ? 'Show Less' : 'Read Full Transcript'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="vs__note-action-btn"
+                        onClick={() => handleCopyTranscript(rec.transcript)}
+                        title="Copy transcript to clipboard"
+                      >
+                        📋 Copy
+                      </button>
+                      {rec.summary && (
+                        <button
+                          type="button"
+                          className="vs__note-action-btn"
+                          onClick={() => speakText(rec.summary!)}
+                          title="Speak executive summary"
+                        >
+                          🔊 Read Summary
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="vs__note-action-btn vs__note-action-btn--delete"
+                        onClick={() => handleDeleteRecording(rec.id)}
+                        title="Delete voice note"
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
+      )}
 
-        {/* Dedicated Stop Speaking Button */}
-        {isSpeaking && (
-          <button
-            type="button"
-            className="vs__stop-speaking-btn"
-            onClick={stopSpeaking}
-            title="Stop AI speaking"
-            aria-label="Stop AI speaking"
-          >
-            ⏹ Stop Speaking
-          </button>
-        )}
-
-        {/* Hint */}
-        <div className="vs__hint">
-          {isSpeaking
-            ? 'Speaking · Tap button or space to interrupt'
-            : isRecording
-              ? 'Listening · Tap again or hit Space to finish'
-              : micPermission
-                ? 'Tap mic to talk · Hit Space to toggle'
-                : 'Mic access required'}
+      {/* Toast Feedback */}
+      {toastMessage && (
+        <div className="vs__toast" role="status">
+          {toastMessage}
         </div>
-      </div>
+      )}
     </div>
   );
 };

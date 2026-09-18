@@ -20,15 +20,15 @@ from __future__ import annotations
 
 import re
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
+from pydantic import BaseModel
+from pydantic import Field as PydanticField
 
 from app.skills.base import SkillExecutor
-from app.skills.schemas import DocumentRagQueryRequest, DocumentRagQueryResponse, DocumentChunk
-from app.skills.document_parser import parse_document, ParseResult
+from app.skills.document_parser import ParseResult, parse_document
 
 log = structlog.get_logger()
 
@@ -73,7 +73,6 @@ def _chunk_text(text: str, chunk_size: int = 2000, overlap: int = 200) -> list[s
             if current:
                 chunks.append(" ".join(current))
             # Start new chunk with overlap
-            overlap_text = " ".join(current)
             # Keep sentences that fit in overlap
             new_current: list[str] = []
             new_len = 0
@@ -120,7 +119,7 @@ def _make_embedding(text: str) -> list[float]:
 
 
 def _cosine_sim(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     norm_a = (sum(x * x for x in a) ** 0.5) or 1e-9
     norm_b = (sum(x * x for x in b) ** 0.5) or 1e-9
     return dot / (norm_a * norm_b)
@@ -130,25 +129,24 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
 # Skill schema (local, not in schemas.py to avoid circular imports)
 # ---------------------------------------------------------------------------
 
-@dataclass
-class DocumentIngestRequest:
+
+class DocumentIngestRequest(BaseModel):
     document_id: str | None = None
     document_name: str = ""
-    file_bytes: bytes = field(default_factory=b"")
+    file_bytes: bytes = b""
     content_type: str = ""
     filename: str = ""
     replace_existing: bool = False
     user_id: str | None = None
 
 
-@dataclass
-class DocumentIngestResponse:
+class DocumentIngestResponse(BaseModel):
     document_id: str
     document_name: str
     chunks_stored: int
     chunk_ids: list[str]
     doc_type: str
-    metadata: dict
+    metadata: dict[str, Any] = PydanticField(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +194,7 @@ class DocumentIngestSkill(SkillExecutor[DocumentIngestRequest, DocumentIngestRes
 
         # ── 6. Store chunks ────────────────────────────────────────────────
         chunk_ids: list[str] = []
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         user_docs = _get_user_docs(user_id)
 
@@ -209,7 +207,7 @@ class DocumentIngestSkill(SkillExecutor[DocumentIngestRequest, DocumentIngestRes
         }
         user_docs[document_id]["created_at"] = now
 
-        for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
+        for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
             chunk_id = str(uuid.uuid4())
             chunk_ids.append(chunk_id)
 
@@ -244,13 +242,62 @@ class DocumentIngestSkill(SkillExecutor[DocumentIngestRequest, DocumentIngestRes
 
     async def _delete_document(self, document_id: str, user_id: str) -> None:
         """Remove all chunks for a document."""
-        user_docs = _get_user_docs(user_id)
-        if document_id in user_docs:
-            chunk_ids = user_docs[document_id].get("chunk_ids", [])
-            for chunk_id in chunk_ids:
-                _chunk_store.pop(chunk_id, None)
-            del user_docs[document_id]
+        delete_user_document(document_id, user_id)
+
+
+def delete_user_document(document_id: str, user_id: str) -> int:
+    """Remove all chunks and metadata for a document belonging to user_id. Returns number of chunks removed."""
+    user_docs = _get_user_docs(user_id)
+    chunks_deleted = 0
+    if document_id in user_docs:
+        chunk_ids = user_docs[document_id].get("chunk_ids", [])
+        chunks_deleted = len(chunk_ids)
+        for chunk_id in chunk_ids:
+            _chunk_store.pop(chunk_id, None)
+        del user_docs[document_id]
+    return chunks_deleted
+
+
+def rehydrate_user_document(
+    user_id: str,
+    document_id: str,
+    document_name: str,
+    text: str,
+    doc_type: str = "txt",
+) -> int:
+    """Rehydrate chunks for an existing document from extracted text into in-memory store."""
+    if not text or not text.strip():
+        return 0
+    chunks = _chunk_text(text)
+    if not chunks:
+        return 0
+
+    user_docs = _get_user_docs(user_id)
+    now = datetime.now(UTC).isoformat()
+    user_docs[document_id] = {
+        "name": document_name,
+        "doc_type": doc_type,
+        "created_at": user_docs.get(document_id, {}).get("created_at", now),
+        "chunk_ids": [],
+    }
+
+    embeddings = [_make_embedding(c) for c in chunks]
+    for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
+        chunk_id = f"{document_id}-{i}"
+        _chunk_store[chunk_id] = {
+            "user_id": user_id,
+            "doc_id": document_id,
+            "content": chunk_text,
+            "embedding": embedding,
+            "chunk_index": i,
+            "page": None,
+            "section": None,
+        }
+        user_docs[document_id]["chunk_ids"].append(chunk_id)
+
+    return len(chunks)
 
 
 def get_executor() -> DocumentIngestSkill:
     return DocumentIngestSkill()
+

@@ -24,6 +24,12 @@ import {
   BarChart2,
   Receipt,
   LogIn,
+  Globe,
+  Compass,
+  BookOpen,
+  Code2,
+  Brain,
+  ShieldCheck,
 } from 'lucide-react';
 import { useSessions, ChatSession } from './useSessions';
 import './SessionSidebar.css';
@@ -43,7 +49,13 @@ export type AppView =
   | 'voice'
   | 'documents'
   | 'calculator'
-  | 'calendar';
+  | 'calendar'
+  | 'research'
+  | 'browser'
+  | 'study'
+  | 'coding'
+  | 'memory'
+  | 'audit';
 
 interface SessionSidebarProps {
   activeSessionId: string | null;
@@ -453,6 +465,36 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               data-tooltip="Workspace Hub"
             >
               <LayoutGrid size={17} strokeWidth={1.8} />
+            </button>
+
+            <button
+              type="button"
+              className={`session-sidebar__rail-btn ${activeView === 'coding' ? 'session-sidebar__rail-btn--active' : ''}`}
+              onClick={() => onViewChange('coding')}
+              aria-label="Coding Studio"
+              data-tooltip="Coding Studio"
+            >
+              <Code2 size={17} strokeWidth={1.8} />
+            </button>
+
+            <button
+              type="button"
+              className={`session-sidebar__rail-btn ${activeView === 'memory' ? 'session-sidebar__rail-btn--active' : ''}`}
+              onClick={() => onViewChange('memory')}
+              aria-label="Memory Studio"
+              data-tooltip="Memory Studio"
+            >
+              <Brain size={17} strokeWidth={1.8} />
+            </button>
+
+            <button
+              type="button"
+              className={`session-sidebar__rail-btn ${activeView === 'audit' ? 'session-sidebar__rail-btn--active' : ''}`}
+              onClick={() => onViewChange('audit')}
+              aria-label="Audit & Security Studio"
+              data-tooltip="Audit & Security Studio"
+            >
+              <ShieldCheck size={17} strokeWidth={1.8} />
             </button>
           </div>
         )}
@@ -934,6 +976,54 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             >
               <LayoutGrid size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
               <span className="session-sidebar__nav-text">Workspace Hub</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'research' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('research')}
+            >
+              <Globe size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">Deep Research</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'browser' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('browser')}
+            >
+              <Compass size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">Browser Studio</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'study' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('study')}
+            >
+              <BookOpen size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">Study Studio</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'coding' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('coding')}
+            >
+              <Code2 size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">Coding Studio</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'memory' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('memory')}
+            >
+              <Brain size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">Memory Studio</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'audit' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('audit')}
+            >
+              <ShieldCheck size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">Audit & Security</span>
             </button>
           </nav>
 

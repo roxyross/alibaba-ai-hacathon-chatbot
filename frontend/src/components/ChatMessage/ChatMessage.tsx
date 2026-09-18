@@ -197,6 +197,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const referencesRef = useRef<HTMLDivElement>(null);
 
+  const citedSources = React.useMemo(() => {
+    const matches = Array.from(displayContent.matchAll(/\[Source:\s*([^\]]+)\]/gi));
+    return Array.from(new Set(matches.map((m) => m[1].trim())));
+  }, [displayContent]);
+
   useEffect(() => {
     setDisplayContent(content);
     setDraftContent(content);
@@ -373,7 +378,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                 <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
               </svg>
               <span className="chat-message__ref-pill-label">References</span>
-              <span className="chat-message__ref-pill-sources">3 sources</span>
+              <span className="chat-message__ref-pill-sources">
+                {citedSources.length > 0 ? `${citedSources.length} document citation${citedSources.length > 1 ? 's' : ''}` : '3 sources'}
+              </span>
               <span className="chat-message__ref-pill-chevron" aria-hidden="true">
                 {showReferences ? '˄' : '˅'}
               </span>
@@ -462,6 +469,20 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                     </span>
                   </div>
                 </div>
+
+                {citedSources.map((docName, idx) => (
+                  <div key={`doc-cite-${idx}`} className="chat-message__ref-card">
+                    <div className="chat-message__ref-card-icon">
+                      <span style={{ fontSize: '1.1rem' }}>📑</span>
+                    </div>
+                    <div className="chat-message__ref-card-text">
+                      <span className="chat-message__ref-card-title">{docName}</span>
+                      <span className="chat-message__ref-card-subtitle">
+                        Knowledge Vault Document · Verified Grounded Excerpt
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}

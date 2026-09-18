@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './BillingView.css';
 
 interface BillingViewProps {
@@ -9,8 +9,37 @@ interface BillingViewProps {
   onNavigatePaymentMethods?: () => void;
 }
 
+interface PlanState {
+  id: string;
+  name: string;
+  priceUsd: number;
+  pricePkr: number;
+  period: string;
+  status: string;
+  nextBillingDate: string | null;
+  renewsAutomatically: boolean;
+  provider?: string;
+}
+
+interface PaymentMethodSummary {
+  brand: string;
+  last4: string;
+  expiry: string;
+  poweredBy: string;
+}
+
+interface InvoiceItem {
+  id: string;
+  date: string;
+  description: string;
+  amountUsd: number;
+  amountPkr: number;
+  status: string;
+  invoicePdfUrl?: string;
+}
+
 export const BillingView: React.FC<BillingViewProps> = ({
-  accessToken: _accessToken,
+  accessToken,
   onBack,
   onNavigatePricing,
   onNavigateUsage,
@@ -18,59 +47,118 @@ export const BillingView: React.FC<BillingViewProps> = ({
 }) => {
   const [cancelModal, setCancelModal] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [_isLoading, setIsLoading] = useState(false);
 
-  const plan = {
-    name: 'Roxy-AI Pro',
-    priceUsd: 19.0,
-    pricePkr: 5700.0,
-    period: 'per month',
+  const [plan, setPlan] = useState<PlanState>({
+    id: 'free',
+    name: 'Free (BYOK)',
+    priceUsd: 0.0,
+    pricePkr: 0.0,
+    period: 'forever',
     status: 'Active',
-    nextBillingDate: 'Oct 06, 2026',
-    renewsAutomatically: true,
-  };
+    nextBillingDate: null,
+    renewsAutomatically: false,
+  });
 
-  const paymentMethod = {
-    brand: 'Visa',
-    last4: '4242',
-    expiry: '12/28',
-    poweredBy: 'Stripe',
-  };
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodSummary | null>(null);
+  const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
 
-  const invoices = [
-    {
-      id: 'INV-2026-009',
-      date: 'Sep 06, 2026',
-      description: 'Roxy-AI Pro Subscription (Monthly)',
-      amountUsd: 19.0,
-      amountPkr: 5700.0,
-      status: 'Paid',
-    },
-    {
-      id: 'INV-2026-008',
-      date: 'Aug 06, 2026',
-      description: 'Roxy-AI Pro Subscription (Monthly)',
-      amountUsd: 19.0,
-      amountPkr: 5700.0,
-      status: 'Paid',
-    },
-    {
-      id: 'INV-2026-007',
-      date: 'Jul 24, 2026',
-      description: 'Credit Top-Up (Studio Ultra Pack)',
-      amountUsd: 20.0,
-      amountPkr: 5600.0,
-      status: 'Paid',
-    },
-  ];
+  const fetchBillingData = useCallback(async () => {
+    if (!accessToken) return;
+    setIsLoading(true);
+    try {
+      // 1. Fetch Subscription
+      const subRes = await fetch('/api/v1/billing/subscription', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (subRes.ok) {
+        const subData = await subRes.json();
+        const p = subData.plan;
+        if (p) {
+          setPlan({
+            id: p.id || 'free',
+            name: p.name || (p.id === 'free' ? 'Free (BYOK)' : 'Pro'),
+            priceUsd: typeof p.price_usd === 'number' ? p.price_usd : 0,
+            pricePkr: typeof p.price_pkr === 'number' ? p.price_pkr : 0,
+            period: p.id === 'free' ? 'forever' : 'per month',
+            status: p.status === 'active' ? 'Active' : p.status || 'Active',
+            nextBillingDate: p.next_billing_date ? new Date(p.next_billing_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : null,
+            renewsAutomatically: !p.cancel_at_period_end,
+            provider: p.provider || 'stripe',
+          });
+        }
+      }
+
+      // 2. Fetch Payment Methods
+      const pmRes = await fetch('/api/v1/billing/payment-methods', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (pmRes.ok) {
+        const pmData = await pmRes.json();
+        const prim = pmData.primary;
+        if (prim) {
+          const exp = prim.expiry || `${String(prim.exp_month || 12).padStart(2, '0')}/${String(prim.exp_year || 2028).slice(-2)}`;
+          setPaymentMethod({
+            brand: (prim.brand || 'Card').toUpperCase(),
+            last4: prim.last4 || '4242',
+            expiry: exp,
+            poweredBy: prim.powered_by || (prim.provider === 'safepay' ? 'Safepay' : 'Stripe'),
+          });
+        } else {
+          setPaymentMethod(null);
+        }
+      }
+
+      // 3. Fetch Invoices
+      const invRes = await fetch('/api/v1/billing/invoices', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (invRes.ok) {
+        const invData = await invRes.json();
+        if (Array.isArray(invData.invoices)) {
+          setInvoices(
+            invData.invoices.map((inv: any) => ({
+              id: inv.id,
+              date: inv.date,
+              description: inv.description,
+              amountUsd: inv.amount_usd ?? inv.amountUsd ?? 0,
+              amountPkr: inv.amount_pkr ?? inv.amountPkr ?? 0,
+              status: inv.status || 'Paid',
+              invoicePdfUrl: inv.invoice_pdf_url,
+            }))
+          );
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch billing data', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    fetchBillingData();
+  }, [fetchBillingData]);
 
   const handleDownloadInvoice = (invId: string) => {
     alert(`Downloading PDF receipt for invoice ${invId}...`);
   };
 
-  const handleCancelConfirm = () => {
+  const handleCancelConfirm = async () => {
     setCancelModal(false);
-    setNotification('Your subscription cancellation is confirmed. You will have full Pro access until Oct 06, 2026.');
-    setTimeout(() => setNotification(null), 6000);
+    try {
+      if (accessToken) {
+        await fetch('/api/v1/billing/cancel', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        await fetchBillingData();
+      }
+      setNotification('Your subscription cancellation is confirmed. You will retain access until the end of your billing cycle.');
+      setTimeout(() => setNotification(null), 6000);
+    } catch (err) {
+      console.error('Failed to cancel subscription', err);
+    }
   };
 
   return (
@@ -109,31 +197,51 @@ export const BillingView: React.FC<BillingViewProps> = ({
             </div>
             <p className="current-plan__price">
               ${plan.priceUsd.toFixed(2)}{' '}
-              <span className="current-plan__pkr">/ Rs {plan.pricePkr.toLocaleString()}</span>
+              {plan.pricePkr > 0 && (
+                <span className="current-plan__pkr">/ Rs {plan.pricePkr.toLocaleString()}</span>
+              )}
               <span className="current-plan__period"> {plan.period}</span>
             </p>
             <div className="current-plan__meta">
-              <span>Next billing date: <strong>{plan.nextBillingDate}</strong></span>
-              <span>•</span>
-              <span>Auto-renews via Stripe</span>
+              {plan.nextBillingDate ? (
+                <>
+                  <span>Next billing date: <strong>{plan.nextBillingDate}</strong></span>
+                  <span>•</span>
+                  <span>Auto-renews via {plan.provider === 'safepay' ? 'Safepay' : 'Stripe'}</span>
+                </>
+              ) : (
+                <span>No recurring charges active • Upgrade anytime to unlock Pro tools</span>
+              )}
             </div>
           </div>
 
           <div className="current-plan__actions">
-            <button
-              type="button"
-              className="current-plan__change-btn"
-              onClick={onNavigatePricing}
-            >
-              Change Plan
-            </button>
-            <button
-              type="button"
-              className="current-plan__cancel-btn"
-              onClick={() => setCancelModal(true)}
-            >
-              Cancel Subscription
-            </button>
+            {plan.priceUsd > 0 ? (
+              <>
+                <button
+                  type="button"
+                  className="current-plan__change-btn"
+                  onClick={onNavigatePricing}
+                >
+                  Change Plan
+                </button>
+                <button
+                  type="button"
+                  className="current-plan__cancel-btn"
+                  onClick={() => setCancelModal(true)}
+                >
+                  Cancel Subscription
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="current-plan__change-btn"
+                onClick={onNavigatePricing}
+              >
+                Upgrade to Pro
+              </button>
+            )}
           </div>
         </div>
 
@@ -141,20 +249,29 @@ export const BillingView: React.FC<BillingViewProps> = ({
         <div className="billing-card payment-method-card">
           <div className="pm-card__info">
             <h3 className="pm-card__title">Payment Method</h3>
-            <div className="pm-card__details">
-              <span className="pm-card__card-icon">💳</span>
-              <span className="pm-card__brand">{paymentMethod.brand}</span>
-              <span className="pm-card__number">ending in •••• {paymentMethod.last4}</span>
-              <span className="pm-card__expiry">Exp: {paymentMethod.expiry}</span>
-              <span className="pm-card__powered">Powered by Stripe</span>
-            </div>
+            {paymentMethod ? (
+              <div className="pm-card__details">
+                <span className="pm-card__card-icon">💳</span>
+                <span className="pm-card__brand">{paymentMethod.brand}</span>
+                <span className="pm-card__number">ending in •••• {paymentMethod.last4}</span>
+                <span className="pm-card__expiry">Exp: {paymentMethod.expiry}</span>
+                <span className="pm-card__powered">Powered by Stripe</span>
+              </div>
+            ) : (
+              <div className="pm-card__details">
+                <span className="pm-card__card-icon">💳</span>
+                <span className="pm-card__number" style={{ color: 'var(--color-muted, #64748b)' }}>
+                  No saved payment methods on file
+                </span>
+              </div>
+            )}
           </div>
           <button
             type="button"
             className="pm-card__manage-btn"
             onClick={onNavigatePaymentMethods}
           >
-            Manage Cards
+            {paymentMethod ? 'Manage Cards' : '+ Add Card'}
           </button>
         </div>
 
@@ -170,28 +287,36 @@ export const BillingView: React.FC<BillingViewProps> = ({
               <span>Status</span>
               <span>Download</span>
             </div>
-            {invoices.map((inv) => (
-              <div key={inv.id} className="billing-table__row">
-                <span className="inv-id">{inv.id}</span>
-                <span className="inv-date">{inv.date}</span>
-                <span className="inv-desc">{inv.description}</span>
-                <span className="inv-amount">
-                  ${inv.amountUsd.toFixed(2)}{' '}
-                  <span className="inv-pkr">/ Rs {inv.amountPkr.toLocaleString()}</span>
-                </span>
-                <span className="inv-status">
-                  <span className="status-dot" /> {inv.status}
-                </span>
-                <button
-                  type="button"
-                  className="inv-download-btn"
-                  onClick={() => handleDownloadInvoice(inv.id)}
-                  title="Download invoice receipt"
-                >
-                  ⬇️ PDF
-                </button>
+            {invoices.length === 0 ? (
+              <div className="billing-empty-invoices">
+                <div className="billing-empty-icon">📄</div>
+                <h4>No Invoices Yet</h4>
+                <p>Your subscription receipts and credit top-up records will appear here.</p>
               </div>
-            ))}
+            ) : (
+              invoices.map((inv) => (
+                <div key={inv.id} className="billing-table__row">
+                  <span className="inv-id">{inv.id}</span>
+                  <span className="inv-date">{inv.date}</span>
+                  <span className="inv-desc">{inv.description}</span>
+                  <span className="inv-amount">
+                    ${inv.amountUsd.toFixed(2)}{' '}
+                    <span className="inv-pkr">/ Rs {inv.amountPkr.toLocaleString()}</span>
+                  </span>
+                  <span className="inv-status">
+                    <span className="status-dot" /> {inv.status}
+                  </span>
+                  <button
+                    type="button"
+                    className="inv-download-btn"
+                    onClick={() => handleDownloadInvoice(inv.id)}
+                    title="Download invoice receipt"
+                  >
+                    ⬇️ PDF
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

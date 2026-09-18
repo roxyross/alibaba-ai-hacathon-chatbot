@@ -425,3 +425,329 @@
     justify-content: flex-end;
   }
 }
+
+.sched-view__empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+  background: var(--color-surface, #ffffff);
+  border: 1px dashed var(--color-border, #e2e8e6);
+  border-radius: 0.85rem;
+  text-align: center;
+  margin-top: 0.5rem;
+}
+
+.sched-view__empty-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+  opacity: 0.85;
+}
+
+.sched-view__empty-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-text, #1e292b);
+  margin: 0 0 0.4rem 0;
+}
+
+.sched-view__empty-desc {
+  font-size: 0.88rem;
+  color: var(--color-muted, #64748b);
+  max-width: 480px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Execution Action Buttons */
+.job-btn--run {
+  background: rgba(13, 148, 136, 0.15);
+  border-color: var(--color-accent, #0d9488);
+  color: var(--color-accent, #0d9488);
+  font-weight: 700;
+}
+
+.job-btn--run:hover:not(:disabled) {
+  background: var(--color-accent, #0d9488);
+  color: #ffffff;
+}
+
+.job-btn--run:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.job-btn--history {
+  background: var(--color-input-bg, #f0f4f3);
+  border-color: var(--color-border, #e2e8e6);
+  color: var(--color-text, #1e292b);
+}
+
+.job-btn--history:hover {
+  background: rgba(100, 116, 139, 0.15);
+  border-color: var(--color-muted, #64748b);
+}
+
+.sched-job-row__next-run {
+  color: var(--color-accent, #0d9488);
+  font-weight: 600;
+}
+
+/* Action Notice Toast */
+.sched-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.65rem;
+  font-size: 0.86rem;
+  animation: slideInDown 0.2s ease-out;
+}
+
+.sched-notice--success {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #065f46;
+}
+
+.sched-notice--error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #991b1b;
+}
+
+.sched-notice__text {
+  flex: 1;
+}
+
+.sched-notice__close {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.sched-notice__close:hover {
+  opacity: 1;
+}
+
+/* History Modal / Drawer */
+.sched-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.sched-modal {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 1rem;
+  width: 100%;
+  max-width: 680px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.sched-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--color-border, #e2e8e6);
+}
+
+.sched-modal__title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--color-text, #1e292b);
+}
+
+.sched-modal__subtitle {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-muted, #64748b);
+}
+
+.sched-modal__close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--color-muted, #64748b);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.25rem;
+}
+
+.sched-modal__close:hover {
+  color: var(--color-text, #1e292b);
+}
+
+.sched-modal__body {
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.sched-modal__loading,
+.sched-modal__empty {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: var(--color-muted, #64748b);
+}
+
+.sched-modal__hint {
+  font-size: 0.82rem;
+  margin-top: 0.5rem;
+}
+
+.sched-modal__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sched-history-item {
+  border: 1px solid var(--color-border, #e2e8e6);
+  border-radius: 0.65rem;
+  padding: 0.85rem 1rem;
+  background: var(--color-input-bg, #f8faf9);
+}
+
+.sched-history-item__header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.sched-history-badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.5rem;
+  letter-spacing: 0.04em;
+}
+
+.sched-history-badge--success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+}
+
+.sched-history-badge--failed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+.sched-history-badge--running {
+  background: rgba(59, 130, 246, 0.15);
+  color: #2563eb;
+}
+
+.sched-history-trigger {
+  color: var(--color-muted, #64748b);
+}
+
+.sched-history-duration {
+  font-family: monospace;
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+}
+
+.sched-history-time {
+  margin-left: auto;
+  color: var(--color-muted, #64748b);
+  font-size: 0.76rem;
+}
+
+.sched-history-result {
+  font-size: 0.84rem;
+  color: var(--color-text, #1e292b);
+  line-height: 1.45;
+  background: var(--color-surface, #ffffff);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--color-border, #e2e8e6);
+}
+
+.sched-history-error {
+  font-size: 0.84rem;
+  color: #b91c1c;
+  line-height: 1.45;
+  background: rgba(254, 226, 226, 0.6);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.sched-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--color-border, #e2e8e6);
+  background: var(--color-surface, #ffffff);
+}
+
+.sched-modal__btn-secondary {
+  padding: 0.45rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border, #e2e8e6);
+  background: transparent;
+  color: var(--color-muted, #64748b);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.sched-modal__btn-secondary:hover {
+  color: var(--color-text, #1e292b);
+}
+
+.sched-spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(13, 148, 136, 0.2);
+  border-top-color: var(--color-accent, #0d9488);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 0.5rem;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+

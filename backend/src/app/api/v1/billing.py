@@ -1,125 +1,164 @@
-"""Billing, Subscription, and Payment Methods API router — Stripe integration and dual USD/PKR pricing."""
+"""Billing, Subscription, and Payment Methods API router.
+
+Supports dual-provider architecture: Stripe (USD/international) and Safepay (PKR local),
+provider-aware checkout, cryptographic webhook verification, and idempotent event logging.
+"""
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
+from app.billing.repository import BillingRepository
+from app.billing.service import PLANS, TOP_UP_PACKS, PaymentService
 
 router = APIRouter(prefix="/billing", tags=["billing"])
+_service = PaymentService()
+_repo = _service.repo
 
-# Canonical Roxy-AI plans
-PLANS: list[dict[str, Any]] = [
-    {
-        "id": "free",
-        "name": "Free (BYOK)",
-        "price_usd": 0.0,
-        "price_pkr": 0.0,
-        "billing_period": "month",
-        "description": "Start exploring Roxy-AI. Perfect for students and early testers.",
-        "features": [
-            "Unlimited basic chat",
-            "Local document memory",
-            "Voice input",
-        ],
-        "cta_text": "Start Free",
-    },
-    {
-        "id": "pro",
-        "name": "Pro",
-        "price_usd": 19.0,
-        "price_pkr": 5700.0,
-        "billing_period": "month",
-        "description": "Full autonomous assistant that schedules jobs, tracks finance, and sends emails for you.",
-        "features": [
-            "Everything in Free",
-            "Schedule jobs & automated workflows",
-            "Finance tracking & expense logging",
-            "Email send & meeting action items",
-            "Cross-device continuity",
-            "Smart-home control (Matter)",
-            "20 GB private vector memory",
-        ],
-        "cta_text": "Go Pro",
-    },
-    {
-        "id": "team",
-        "name": "Team / Business",
-        "price_usd": 39.0,
-        "price_pkr": 11000.0,
-        "billing_period": "seat / month",
-        "description": "Shared workspace for teams with advanced permissions, audit logs, and priority support.",
-        "features": [
-            "Everything in Pro",
-            "Shared team memory",
-            "Role-based access",
-            "Full audit logs",
-            "Priority AI model access",
-            "Dedicated onboarding",
-        ],
-        "cta_text": "Contact Sales",
-    },
-]
 
-TOP_UP_PACKS = [
-    {"id": "pack_5", "name": "Starter Boost", "usd": 5.0, "pkr": 1400.0, "credits": 500000},
-    {"id": "pack_10", "name": "Power Surge", "usd": 10.0, "pkr": 2800.0, "credits": 1200000},
-    {"id": "pack_20", "name": "Studio Ultra", "usd": 20.0, "pkr": 5600.0, "credits": 2800000},
-]
-
+# -----------------------------------------------------------------------------
+# Request Models
+# -----------------------------------------------------------------------------
 
 class SubscribeRequest(BaseModel):
     plan_id: str
     currency: str = "usd"  # usd or pkr
+    provider: str | None = None
+
+
+class CheckoutRequest(BaseModel):
+    plan_id: str
+    currency: str = "usd"
+    provider: str | None = None
+    return_url: str = ""
+    cancel_url: str = ""
+
+
+class TopUpCheckoutRequest(BaseModel):
+    pack_id: str
+    currency: str = "usd"
+    provider: str | None = None
+    return_url: str = ""
+    cancel_url: str = ""
 
 
 class AddPaymentMethodRequest(BaseModel):
-    payment_method_id: str
+    payment_method_id: str = ""
     brand: str = "visa"
     last4: str = "4242"
     exp_month: int = 12
     exp_year: int = 2028
     set_as_default: bool = True
+    provider: str = "stripe"
 
 
 class TopUpRequest(BaseModel):
     pack_id: str
 
 
+# -----------------------------------------------------------------------------
+# Configuration & Plans
+# -----------------------------------------------------------------------------
+
+@router.get("/config")
+async def get_billing_config() -> dict[str, Any]:
+    """Expose public provider configuration and active mode (no secrets leaked)."""
+    return _service.get_public_config()
+
+
 @router.get("/plans")
 async def get_plans() -> dict[str, Any]:
-    """Return available Roxy-AI subscription plans."""
+    """Return available Roxy-AI subscription plans and top-up packages."""
     return {"plans": PLANS, "top_up_packs": TOP_UP_PACKS}
 
 
+# -----------------------------------------------------------------------------
+# Subscription & Checkout
+# -----------------------------------------------------------------------------
+
 @router.get("/subscription")
 async def get_subscription(user: User = Depends(get_current_user)) -> dict[str, Any]:
-    """Get active user subscription and payment details."""
-    # In production, queries NeonDB subscriptions table
-    return {
-        "plan": {
-            "id": "pro",
-            "name": "Pro",
-            "price_usd": 19.0,
-            "price_pkr": 5700.0,
-            "status": "active",
-            "next_billing_date": (datetime.now(timezone.utc) + timedelta(days=21)).isoformat(),
-            "cancel_at_period_end": False,
-        },
-        "payment_method": {
-            "brand": "visa",
-            "last4": "4242",
-            "exp_month": 12,
-            "exp_year": 2028,
-            "powered_by": "Stripe",
-        },
-    }
+    """Get active user subscription and primary payment method."""
+    user_id = str(user.id)
+    return await _repo.get_subscription(user_id)
+
+
+@router.post("/checkout")
+async def create_checkout(
+    req: CheckoutRequest,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Create a provider-aware checkout session (Stripe or Safepay)."""
+    user_id = str(user.id)
+    email = getattr(user, "email", f"{user_id}@roxy.ai")
+    try:
+        session = await _service.create_checkout_session(
+            user_id=user_id,
+            email=email,
+            plan_id=req.plan_id,
+            currency=req.currency,
+            provider_name=req.provider,
+            return_url=req.return_url,
+            cancel_url=req.cancel_url,
+        )
+        return {
+            "status": "success",
+            "session": session.to_dict(),
+            "checkout_url": session.checkout_url,
+            "provider": session.provider,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Checkout creation failed: {exc}")
+
+
+@router.post("/topup-checkout")
+async def create_topup_checkout(
+    req: TopUpCheckoutRequest,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Create a provider-aware checkout session for top-up credits."""
+    user_id = str(user.id)
+    email = getattr(user, "email", f"{user_id}@roxy.ai")
+    try:
+        session = await _service.create_topup_checkout_session(
+            user_id=user_id,
+            email=email,
+            pack_id=req.pack_id,
+            currency=req.currency,
+            provider_name=req.provider,
+            return_url=req.return_url,
+            cancel_url=req.cancel_url,
+        )
+        return {
+            "status": "success",
+            "session": session.to_dict(),
+            "checkout_url": session.checkout_url,
+            "provider": session.provider,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Top-up checkout creation failed: {exc}")
+
+
+@router.get("/verify/{session_id}")
+async def verify_payment_session(
+    session_id: str,
+    provider: str | None = None,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Verify payment status server-side."""
+    res = await _service.verify_payment(session_id=session_id, provider_name=provider)
+    return res.to_dict()
 
 
 @router.post("/subscribe")
@@ -127,10 +166,37 @@ async def subscribe_plan(
     req: SubscribeRequest,
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Create or upgrade subscription plan via Stripe."""
+    """Direct subscription upgrade (mock/elements flow)."""
+    user_id = str(user.id)
     matched = next((p for p in PLANS if p["id"] == req.plan_id), None)
     if not matched:
         raise HTTPException(status_code=400, detail="Invalid plan selected.")
+
+    now = datetime.now(UTC)
+    prov = req.provider or ("safepay" if req.currency.lower() == "pkr" else "stripe")
+
+    await _repo.update_or_create_subscription(
+        user_id=user_id,
+        plan_id=matched["id"],
+        provider=prov,
+        status="active",
+        amount_usd=matched["price_usd"],
+        amount_pkr=matched["price_pkr"],
+    )
+
+    if matched["price_usd"] > 0 or matched["price_pkr"] > 0:
+        await _repo.add_invoice(
+            user_id=user_id,
+            invoice_data={
+                "id": f"inv_{uuid.uuid4().hex[:8]}",
+                "date": now.strftime("%b %d, %Y"),
+                "description": f"Roxy-AI {matched['name']} Subscription",
+                "amount_usd": matched["price_usd"],
+                "amount_pkr": matched["price_pkr"],
+                "status": "Paid",
+                "invoice_pdf_url": "#",
+            },
+        )
 
     return {
         "status": "success",
@@ -145,39 +211,19 @@ async def subscribe_plan(
 @router.post("/cancel")
 async def cancel_subscription(user: User = Depends(get_current_user)) -> dict[str, Any]:
     """Cancel subscription at end of billing period."""
-    return {
-        "status": "success",
-        "message": "Subscription set to cancel at end of billing period.",
-        "active_until": (datetime.now(timezone.utc) + timedelta(days=21)).isoformat(),
-    }
+    user_id = str(user.id)
+    return await _repo.cancel_subscription(user_id)
 
+
+# -----------------------------------------------------------------------------
+# Payment Methods
+# -----------------------------------------------------------------------------
 
 @router.get("/payment-methods")
 async def list_payment_methods(user: User = Depends(get_current_user)) -> dict[str, Any]:
-    """List saved payment methods powered by Stripe."""
-    return {
-        "primary": {
-            "id": "pm_default_1",
-            "brand": "visa",
-            "last4": "4242",
-            "exp_month": 12,
-            "exp_year": 2028,
-            "is_default": True,
-            "powered_by": "Stripe",
-        },
-        "saved_methods": [
-            {
-                "id": "pm_secondary_2",
-                "brand": "mastercard",
-                "last4": "8899",
-                "exp_month": 8,
-                "exp_year": 2027,
-                "is_default": False,
-                "powered_by": "Stripe",
-            }
-        ],
-        "security_note": "All payments are securely processed and tokenized by Stripe. No raw card data touches Roxy servers.",
-    }
+    """List saved payment methods for authenticated user."""
+    user_id = str(user.id)
+    return await _repo.list_payment_methods(user_id)
 
 
 @router.post("/payment-methods")
@@ -185,20 +231,32 @@ async def add_payment_method(
     req: AddPaymentMethodRequest,
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Add a new card via Stripe Elements."""
+    """Add a new card or tokenized payment method."""
+    user_id = str(user.id)
+    new_method = await _repo.add_payment_method(user_id, req.model_dump())
     return {
         "status": "success",
         "message": "Payment method saved securely.",
-        "payment_method": {
-            "id": f"pm_{uuid.uuid4().hex[:12]}",
-            "brand": req.brand,
-            "last4": req.last4,
-            "exp_month": req.exp_month,
-            "exp_year": req.exp_year,
-            "is_default": req.set_as_default,
-        },
+        "payment_method": new_method,
     }
 
+
+@router.delete("/payment-methods/{pm_id}")
+async def delete_payment_method(
+    pm_id: str,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Delete a saved payment method."""
+    user_id = str(user.id)
+    deleted = await _repo.delete_payment_method(user_id, pm_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Payment method not found.")
+    return {"status": "success", "message": "Payment method removed."}
+
+
+# -----------------------------------------------------------------------------
+# Top-Ups & Wallet
+# -----------------------------------------------------------------------------
 
 @router.post("/topup")
 async def topup_credits(
@@ -206,9 +264,31 @@ async def topup_credits(
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Purchase a quick credit top-up pack."""
+    user_id = str(user.id)
     matched = next((p for p in TOP_UP_PACKS if p["id"] == req.pack_id), None)
     if not matched:
         raise HTTPException(status_code=400, detail="Invalid top-up pack.")
+
+    now = datetime.now(UTC)
+    await _repo.credit_wallet(
+        user_id=user_id,
+        credits=float(matched["credits"]),
+        cost_usd=matched["usd"],
+        cost_pkr=matched["pkr"],
+    )
+
+    await _repo.add_invoice(
+        user_id=user_id,
+        invoice_data={
+            "id": f"inv_{uuid.uuid4().hex[:8]}",
+            "date": now.strftime("%b %d, %Y"),
+            "description": f"Credit Top-Up ({matched['name']})",
+            "amount_usd": matched["usd"],
+            "amount_pkr": matched["pkr"],
+            "status": "Paid",
+            "invoice_pdf_url": "#",
+        },
+    )
 
     return {
         "status": "success",
@@ -217,38 +297,44 @@ async def topup_credits(
     }
 
 
+@router.get("/wallet")
+async def get_wallet(user: User = Depends(get_current_user)) -> dict[str, Any]:
+    """Get authenticated user's credit wallet balance."""
+    user_id = str(user.id)
+    return await _repo.get_credit_wallet(user_id)
+
+
 @router.get("/invoices")
 async def get_invoices(user: User = Depends(get_current_user)) -> dict[str, Any]:
     """Get full billing history and invoices."""
-    now = datetime.now(timezone.utc)
-    return {
-        "invoices": [
-            {
-                "id": "inv_001",
-                "date": (now - timedelta(days=9)).strftime("%b %d, %Y"),
-                "description": "Roxy-AI Pro Subscription",
-                "amount_usd": 19.0,
-                "amount_pkr": 5700.0,
-                "status": "Paid",
-                "invoice_pdf_url": "#",
-            },
-            {
-                "id": "inv_002",
-                "date": (now - timedelta(days=39)).strftime("%b %d, %Y"),
-                "description": "Roxy-AI Pro Subscription",
-                "amount_usd": 19.0,
-                "amount_pkr": 5700.0,
-                "status": "Paid",
-                "invoice_pdf_url": "#",
-            },
-            {
-                "id": "inv_003",
-                "date": (now - timedelta(days=45)).strftime("%b %d, %Y"),
-                "description": "Credit Top-Up (Power Surge)",
-                "amount_usd": 10.0,
-                "amount_pkr": 2800.0,
-                "status": "Paid",
-                "invoice_pdf_url": "#",
-            },
-        ]
-    }
+    user_id = str(user.id)
+    invoices = await _repo.list_invoices(user_id)
+    return {"invoices": invoices}
+
+
+# -----------------------------------------------------------------------------
+# Cryptographic Webhooks
+# -----------------------------------------------------------------------------
+
+@router.post("/webhook/stripe")
+async def stripe_webhook(request: Request) -> dict[str, Any]:
+    """Process incoming Stripe webhook with cryptographic verification and idempotency."""
+    raw_body = await request.body()
+    headers = dict(request.headers)
+
+    result = await _service.process_webhook("stripe", headers, raw_body)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message", "Webhook verification failed"))
+    return {"received": True, **result}
+
+
+@router.post("/webhook/safepay")
+async def safepay_webhook(request: Request) -> dict[str, Any]:
+    """Process incoming Safepay webhook with HMAC-SHA256 verification and idempotency."""
+    raw_body = await request.body()
+    headers = dict(request.headers)
+
+    result = await _service.process_webhook("safepay", headers, raw_body)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message", "Webhook verification failed"))
+    return {"received": True, **result}
