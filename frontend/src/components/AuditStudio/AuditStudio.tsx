@@ -75,9 +75,10 @@ export interface RiskCheckResponse {
 
 export interface AuditStudioProps {
   onBack?: () => void;
+  accessToken?: string | null;
 }
 
-export const AuditStudio: React.FC<AuditStudioProps> = ({ onBack }) => {
+export const AuditStudio: React.FC<AuditStudioProps> = ({ onBack, accessToken }) => {
   const [activeTab, setActiveTab] = useState<'timeline' | 'risk_gate' | 'compliance'>('timeline');
 
   // Timeline State
@@ -106,13 +107,20 @@ export const AuditStudio: React.FC<AuditStudioProps> = ({ onBack }) => {
   const [exporting, setExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
 
+  const effectiveToken = useMemo(() => {
+    if (accessToken) return accessToken;
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('access_token') || localStorage.getItem('auth_token');
+    }
+    return null;
+  }, [accessToken]);
+
   const authHeaders = useMemo(() => {
-    const token = localStorage.getItem('auth_token');
     return {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}),
     };
-  }, []);
+  }, [effectiveToken]);
 
   // Fetch Stats
   const fetchStats = useCallback(async () => {
@@ -286,6 +294,28 @@ export const AuditStudio: React.FC<AuditStudioProps> = ({ onBack }) => {
           </span>
         </div>
       </div>
+
+      {!effectiveToken && (
+        <div className="audit-studio__auth-banner" role="status">
+          <span>ℹ️ You are viewing Audit Studio in guest mode. Autonomous security audits are logged ephemerally. Sign in with a verified account for 1-year immutable compliance retention.</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="audit-studio__error-banner" role="alert">
+          <span>⚠️ {error}</span>
+          <button
+            type="button"
+            className="audit-studio__retry-btn"
+            onClick={() => {
+              void fetchEvents();
+              void fetchStats();
+            }}
+          >
+            ↻ Retry Connection
+          </button>
+        </div>
+      )}
 
       {/* Navigation Tabs */}
       <div className="audit-studio__tabs">

@@ -48,6 +48,7 @@ log = structlog.get_logger()
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 GOOGLE_ISSUERS: tuple[str, ...] = ("https://accounts.google.com", "accounts.google.com")
 JWKS_TTL_SECONDS = 5 * 60
 
@@ -66,8 +67,13 @@ class GoogleConfig:
         if not client_id or not client_secret:
             return None
         backend_base = (os.environ.get("OAUTH_REDIRECT_BASE_URL") or "").strip()
-        if not backend_base:
-            if os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV") or bool(os.environ.get("VERCEL_URL")):
+        is_prod = (
+            os.environ.get("APP_ENV", "").lower() == "production"
+            or bool(os.environ.get("VERCEL"))
+            or bool(os.environ.get("VERCEL_ENV"))
+        )
+        if not backend_base or (is_prod and "localhost" in backend_base):
+            if is_prod or bool(os.environ.get("VERCEL_URL")):
                 backend_base = "https://roxy-personal-ai-backend.vercel.app"
             else:
                 backend_base = "http://localhost:8000"
@@ -115,11 +121,17 @@ async def _fetch_jwks(force: bool = False) -> dict[str, Any]:
         and (now - _jwks_cache_fetched_at) < JWKS_TTL_SECONDS
     ):
         return _jwks_cache
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(GOOGLE_JWKS_URL)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(GOOGLE_JWKS_URL)
+    except httpx.RequestError as exc:
+        raise OAuthError("jwks_unavailable", f"JWKS fetch request failed: {exc}") from exc
     if resp.status_code != 200:
         raise OAuthError("jwks_unavailable", f"JWKS fetch returned {resp.status_code}")
-    data = resp.json()
+    try:
+        data = resp.json()
+    except Exception as exc:
+        raise OAuthError("jwks_unavailable", f"JWKS invalid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise OAuthError("jwks_unavailable", "JWKS endpoint returned non-dict response")
     _jwks_cache = dict(data)
@@ -147,6 +159,29 @@ def _key_for_kid(jwks: dict[str, Any], kid: str | None) -> Any:
         if k.get("kid") == kid:
             return k
     raise OAuthError("kid_not_found", f"No JWKS key matches kid={kid}")
+
+
+async def _fetch_google_userinfo(access_token: str) -> dict[str, Any]:
+    """Fetch user profile and verified email directly from Google's official userinfo endpoint."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+    except httpx.RequestError as exc:
+        log.warning("auth.oauth.userinfo_network_error", error=str(exc))
+        raise OAuthError("userinfo_failed", f"Userinfo endpoint request error: {exc}") from exc
+    if resp.status_code != 200:
+        log.warning("auth.oauth.userinfo_failed", status=resp.status_code)
+        raise OAuthError("userinfo_failed", f"Userinfo endpoint returned {resp.status_code}")
+    try:
+        data = resp.json()
+    except Exception as exc:
+        raise OAuthError("userinfo_failed", f"Userinfo endpoint returned non-JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise OAuthError("userinfo_failed", "Userinfo endpoint returned non-dict response")
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -184,8 +219,12 @@ async def exchange_code(code: str, config: GoogleConfig) -> dict[str, Any]:
         "redirect_uri": config.redirect_uri,
         "grant_type": "authorization_code",
     }
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(GOOGLE_TOKEN_URL, data=data)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(GOOGLE_TOKEN_URL, data=data)
+    except httpx.RequestError as exc:
+        log.warning("auth.oauth.exchange_network_error", error=str(exc))
+        raise OAuthError("exchange_failed", f"Network error connecting to Google token endpoint: {exc}") from exc
     if resp.status_code != 200:
         log.warning(
             "auth.oauth.exchange_failed",
@@ -193,11 +232,14 @@ async def exchange_code(code: str, config: GoogleConfig) -> dict[str, Any]:
             body=resp.text[:200],
         )
         raise OAuthError("exchange_failed", "Token endpoint returned non-200")
-    payload = resp.json()
+    try:
+        payload = resp.json()
+    except Exception as exc:
+        raise OAuthError("exchange_failed", "Token endpoint returned non-JSON") from exc
     if not isinstance(payload, dict):
         raise OAuthError("exchange_failed", "Token endpoint returned non-dict response")
-    if "id_token" not in payload:
-        raise OAuthError("no_id_token", "Token response missing id_token")
+    if "id_token" not in payload and "access_token" not in payload:
+        raise OAuthError("no_id_token", "Token response missing both id_token and access_token")
     return dict(payload)
 
 
@@ -225,11 +267,11 @@ async def _verify_with_jwks(id_token: str, config: GoogleConfig) -> dict[str, An
         jwks = await _fetch_jwks(force=True)
         jwk_dict = _key_for_kid(jwks, kid)
 
-    import json as _json
-    from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
-    from jwt.algorithms import RSAAlgorithm
-
     try:
+        import json as _json
+        from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
+        from jwt.algorithms import RSAAlgorithm
+
         raw_key = RSAAlgorithm.from_jwk(_json.dumps(jwk_dict))
     except Exception as exc:  # noqa: BLE001 — pyjwt raises various low-level errors
         raise OAuthError("jwks_unavailable", f"Could not parse JWK: {exc}") from exc
@@ -259,6 +301,7 @@ async def _verify_with_jwks(id_token: str, config: GoogleConfig) -> dict[str, An
         raise OAuthError("id_token_no_email", "id_token missing usable email claim")
 
     return claims
+
 
 
 # ---------------------------------------------------------------------------
@@ -374,8 +417,32 @@ async def complete_google_callback(
     Returns (user, jwt, ttl_seconds).
     """
     token_payload = await exchange_code(code, config)
-    claims = await _verify_with_jwks(token_payload["id_token"], config)
-    email = str(claims["email"]).lower().strip()
+    claims: dict[str, Any] = {}
+    id_token = token_payload.get("id_token")
+    if id_token:
+        try:
+            claims = await _verify_with_jwks(id_token, config)
+        except OAuthError as exc:
+            if exc.reason == "email_unverified":
+                raise
+            log.warning("auth.oauth.jwks_verify_failed_fallback_userinfo", reason=exc.reason, error=str(exc))
+            claims = {}
+        except Exception as exc:
+            log.warning("auth.oauth.jwks_verify_unexpected_fallback_userinfo", error=str(exc))
+            claims = {}
+
+    email = str(claims.get("email") or "").lower().strip()
+    if not email:
+        access_token = token_payload.get("access_token")
+        if access_token:
+            userinfo = await _fetch_google_userinfo(access_token)
+            if not userinfo.get("email_verified", False):
+                raise OAuthError("email_unverified", "Google account email is not verified")
+            email = str(userinfo.get("email") or "").lower().strip()
+            if not email or "@" not in email:
+                raise OAuthError("id_token_no_email", "Google userinfo missing usable email claim")
+        else:
+            raise OAuthError("exchange_failed", "No usable id_token or access_token received from Google")
 
     # Optional allowlist for hackathon demo (comma-separated env var).
     allowed = os.environ.get("GOOGLE_ALLOWED_EMAILS", "").strip()
@@ -452,8 +519,13 @@ class GitHubConfig:
         if not client_id or not client_secret:
             return None
         backend_base = (os.environ.get("OAUTH_REDIRECT_BASE_URL") or "").strip()
-        if not backend_base:
-            if os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV") or bool(os.environ.get("VERCEL_URL")):
+        is_prod = (
+            os.environ.get("APP_ENV", "").lower() == "production"
+            or bool(os.environ.get("VERCEL"))
+            or bool(os.environ.get("VERCEL_ENV"))
+        )
+        if not backend_base or (is_prod and "localhost" in backend_base):
+            if is_prod or bool(os.environ.get("VERCEL_URL")):
                 backend_base = "https://roxy-personal-ai-backend.vercel.app"
             else:
                 backend_base = "http://localhost:8000"
@@ -499,17 +571,21 @@ async def _github_exchange_code(code: str, config: GitHubConfig) -> str:
     GitHub's token endpoint returns JSON only if we send `Accept: application/json`;
     otherwise it returns form-urlencoded. We always ask for JSON.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            GITHUB_TOKEN_URL,
-            data={
-                "client_id": config.client_id,
-                "client_secret": config.client_secret,
-                "code": code,
-                "redirect_uri": config.redirect_uri,
-            },
-            headers={"Accept": "application/json"},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                GITHUB_TOKEN_URL,
+                data={
+                    "client_id": config.client_id,
+                    "client_secret": config.client_secret,
+                    "code": code,
+                    "redirect_uri": config.redirect_uri,
+                },
+                headers={"Accept": "application/json"},
+            )
+    except httpx.RequestError as exc:
+        log.warning("auth.oauth.github.exchange_network_error", error=str(exc))
+        raise OAuthError("exchange_failed", f"Network error connecting to GitHub token endpoint: {exc}") from exc
     if resp.status_code != 200:
         log.warning(
             "auth.oauth.github.exchange_failed",
@@ -517,7 +593,10 @@ async def _github_exchange_code(code: str, config: GitHubConfig) -> str:
             body=resp.text[:200],
         )
         raise OAuthError("exchange_failed", "GitHub token endpoint returned non-200")
-    payload = resp.json()
+    try:
+        payload = resp.json()
+    except Exception as exc:
+        raise OAuthError("exchange_failed", f"GitHub token endpoint returned non-JSON: {exc}") from exc
     access_token = payload.get("access_token")
     if not isinstance(access_token, str) or not access_token:
         # GitHub returns {"error":"bad_verification_code", ...} on bad code
@@ -534,17 +613,24 @@ async def _github_fetch_verified_primary_email(
     """Hit /user/emails and return the entry where primary && verified. Raise
     OAuthError("email_unverified") if no such entry exists.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            f"{GITHUB_API_BASE}/user/emails",
-            headers=_github_api_headers(access_token),
-        )
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{GITHUB_API_BASE}/user/emails",
+                headers=_github_api_headers(access_token),
+            )
+    except httpx.RequestError as exc:
+        log.warning("auth.oauth.github.user_emails_network_error", error=str(exc))
+        raise OAuthError("user_emails_failed", f"Network error connecting to GitHub user emails endpoint: {exc}") from exc
     if resp.status_code != 200:
         log.warning(
             "auth.oauth.github.user_emails_failed", status=resp.status_code
         )
         raise OAuthError("user_emails_failed", f"/user/emails returned {resp.status_code}")
-    emails = resp.json()
+    try:
+        emails = resp.json()
+    except Exception as exc:
+        raise OAuthError("user_emails_unexpected", f"/user/emails returned non-JSON: {exc}") from exc
     if not isinstance(emails, list):
         raise OAuthError("user_emails_unexpected", "/user/emails did not return a list")
     # 1. Look for primary AND verified email

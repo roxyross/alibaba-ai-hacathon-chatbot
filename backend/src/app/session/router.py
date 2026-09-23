@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.auth.dependencies import get_current_user, get_optional_current_user
 from app.auth.models import User
@@ -114,13 +114,14 @@ async def update_session(
 @router.delete(
     "/{session_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     responses={204: {"description": "Session deleted"}},
 )
 async def delete_session(
     session_id: str,
     current_user: Annotated[User, Depends(get_current_user)],
-) -> None:
+) -> Response:
     ok = await _repo.delete(session_id, current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found")
-    return None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

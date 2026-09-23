@@ -18,9 +18,8 @@ interface CalendarViewProps {
   onScheduleWithAI?: (prompt: string) => void;
 }
 
-const API_BASE =
-  (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
-  '/api/v1';
+const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
+const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : (rawApiBase ? `${rawApiBase}/api/v1` : '/api/v1');
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -43,6 +42,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   const [events, setEvents] = useState<CalendarEventItem[]>([]);
   const [loadingBackend, setLoadingBackend] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setNotification({ message, type });
+    setTimeout(() => {
+      setNotification((curr) => (curr?.message === message ? null : curr));
+    }, 4000);
+  };
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [newEventSummary, setNewEventSummary] = useState('');
   const [newEventDate, setNewEventDate] = useState(selectedDate);
@@ -61,6 +70,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const fetchEvents = useCallback(async () => {
     if (!accessToken) return;
     setLoadingBackend(true);
+    setFetchError(null);
     try {
       const res = await fetch(`${API_BASE}/calendar/events`, {
         headers: {
@@ -91,9 +101,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           }));
           setEvents(mapped);
         }
+      } else {
+        setFetchError('Failed to load events from the calendar server.');
       }
     } catch {
-      // Offline fallback
+      setFetchError('Unable to connect to the calendar service. Please check your network.');
     } finally {
       setLoadingBackend(false);
     }
@@ -146,6 +158,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const handleAddEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEventSummary.trim()) return;
+    if (!accessToken) {
+      showNotification('Sign in to create and save calendar events.', 'info');
+      return;
+    }
 
     const startDateTime = `${newEventDate}T${newEventTime}:00`;
     const payload = {
@@ -156,72 +172,66 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       location: newEventLocation.trim() || undefined,
     };
 
-    if (accessToken) {
-      try {
-        const res = await fetch(`${API_BASE}/calendar/events`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify(payload),
-        });
-        if (res.ok) {
-          await fetchEvents();
-        }
-      } catch {
-        // Fallback local addition
-        setEvents((prev) => [
-          {
-            id: `evt-${Date.now()}`,
-            summary: payload.title,
-            start: payload.start_time,
-            description: payload.description,
-            category: payload.category,
-            location: payload.location,
-          },
-          ...prev,
-        ]);
-      }
-    } else {
-      setEvents((prev) => [
-        {
-          id: `evt-${Date.now()}`,
-          summary: payload.title,
-          start: payload.start_time,
-          description: payload.description,
-          category: payload.category,
-          location: payload.location,
+    try {
+      const res = await fetch(`${API_BASE}/calendar/events`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
         },
-        ...prev,
-      ]);
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        await fetchEvents();
+        showNotification(`Event "${payload.title}" scheduled successfully.`, 'success');
+        void speakVoiceText(`Event added: ${payload.title} on ${newEventDate}`);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showNotification(err.detail || 'Failed to create calendar event.', 'error');
+      }
+    } catch {
+      showNotification('Network error while creating calendar event.', 'error');
     }
 
     setNewEventSummary('');
     setNewEventDescription('');
     setNewEventLocation('');
     setShowAddModal(false);
-    void speakVoiceText(`Event added: ${payload.title} on ${newEventDate}`);
   };
 
   const handleDeleteEvent = async (id: string) => {
-    setEvents((prev) => prev.filter((e) => e.id !== id));
-    if (accessToken) {
-      try {
-        await fetch(`${API_BASE}/calendar/events/${id}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      } catch {
-        // ignore
-      }
+    if (!accessToken) {
+      showNotification('Sign in to delete calendar events.', 'info');
+      return;
     }
-    void speakVoiceText('Event removed from calendar');
+    const previous = [...events];
+    setEvents((prev) => prev.filter((e) => e.id !== id));
+
+    try {
+      const res = await fetch(`${API_BASE}/calendar/events/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        setEvents(previous);
+        showNotification('Failed to delete calendar event.', 'error');
+      } else {
+        showNotification('Event removed from calendar.', 'info');
+        void speakVoiceText('Event removed from calendar');
+      }
+    } catch {
+      setEvents(previous);
+      showNotification('Network error while deleting event.', 'error');
+    }
   };
 
   // AI Prompt Parsing
   const handleParseAi = async () => {
-    if (!aiPrompt.trim() || !accessToken) return;
+    if (!aiPrompt.trim()) return;
+    if (!accessToken) {
+      showNotification('Sign in to use AI natural language scheduling.', 'info');
+      return;
+    }
     setIsParsingAI(true);
     try {
       const res = await fetch(`${API_BASE}/calendar/parse-ai`, {
@@ -247,10 +257,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           setNewEventDescription(d.description || '');
           setShowAddModal(true);
           setAiPrompt('');
+          showNotification('AI parsed draft ready for confirmation.', 'success');
         }
+      } else {
+        showNotification('AI could not parse event details. Please try rephrasing.', 'error');
       }
     } catch {
-      // ignore
+      showNotification('Network error during AI scheduling parse.', 'error');
     } finally {
       setIsParsingAI(false);
     }
@@ -258,7 +271,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   // Export iCalendar (.ics)
   const handleExportIcs = async () => {
-    if (!accessToken) return;
+    if (!accessToken) {
+      showNotification('Sign in to export calendar (.ics).', 'info');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/calendar/export/ics`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -273,16 +289,23 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         a.click();
         a.remove();
         window.URL.revokeObjectURL(url);
+        showNotification('Calendar exported as roxy_calendar.ics', 'success');
+      } else {
+        showNotification('Failed to export calendar.', 'error');
       }
     } catch {
-      // ignore
+      showNotification('Network error exporting calendar.', 'error');
     }
   };
 
   // Import iCalendar (.ics)
   const handleImportIcs = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !accessToken) return;
+    if (!file) return;
+    if (!accessToken) {
+      showNotification('Sign in to import calendar (.ics).', 'info');
+      return;
+    }
     const formData = new FormData();
     formData.append('file', file);
     try {
@@ -293,9 +316,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       });
       if (res.ok) {
         await fetchEvents();
+        showNotification(`Imported "${file.name}" successfully.`, 'success');
+      } else {
+        showNotification('Failed to import .ics file.', 'error');
       }
     } catch {
-      // ignore
+      showNotification('Network error importing .ics file.', 'error');
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -404,6 +430,43 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </button>
         </div>
       </header>
+
+      {/* Notification Toast */}
+      {notification && (
+        <div
+          className={`calendar-view__notice calendar-view__notice--${notification.type}`}
+          role="status"
+        >
+          <span>{notification.type === 'success' ? '✓' : notification.type === 'error' ? '⚠️' : 'ℹ️'}</span>
+          <span>{notification.message}</span>
+        </div>
+      )}
+
+      {/* Connection Error Banner */}
+      {fetchError && (
+        <div className="calendar-view__error-banner" role="alert">
+          <div>
+            <strong>Connection Error:</strong> {fetchError}
+          </div>
+          <button
+            type="button"
+            className="calendar-view__retry-btn"
+            onClick={fetchEvents}
+          >
+            ↻ Retry Connection
+          </button>
+        </div>
+      )}
+
+      {/* Guest Mode Auth Notice */}
+      {!accessToken && (
+        <div className="calendar-view__auth-banner">
+          <span>🔒</span>
+          <span>
+            You are currently in guest preview mode. Sign in to schedule, persist, and synchronize calendar events across devices.
+          </span>
+        </div>
+      )}
 
       {/* AI Quick Scheduling Prompt Bar */}
       <div style={{

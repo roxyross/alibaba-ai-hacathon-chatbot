@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
@@ -126,11 +126,11 @@ async def update_research_report(
     return ResearchReportResponse(report=updated)
 
 
-@router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_research_report(
     report_id: str,
     current_user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     """Delete a research report, enforcing strict tenant isolation."""
     user_id = str(current_user.id)
     repo = ResearchRepository()
@@ -140,6 +140,7 @@ async def delete_research_report(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Research report '{report_id}' not found.",
         )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/search", response_model=LiveSearchResponse)

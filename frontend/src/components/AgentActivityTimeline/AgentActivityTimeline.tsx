@@ -11,8 +11,6 @@ interface AgentActivityTimelineProps {
 
 export const AgentActivityTimeline: React.FC<AgentActivityTimelineProps> = ({
   isStreaming,
-  onStop,
-  onReplyNow,
   agentSlug = 'roxy',
 }) => {
   const [seconds, setSeconds] = useState(0);
@@ -39,30 +37,6 @@ export const AgentActivityTimeline: React.FC<AgentActivityTimelineProps> = ({
           <span className="agent-timeline__time">{seconds}s</span>
           {agentSlug && agentSlug !== 'general' && agentSlug !== 'coordinator' && (
             <span className="agent-timeline__agent-tag">{agentSlug}</span>
-          )}
-        </div>
-
-        <div className="agent-timeline__actions">
-          {onReplyNow && (
-            <button
-              type="button"
-              className="agent-timeline__btn agent-timeline__btn--reply"
-              onClick={onReplyNow}
-              title="Focus live response"
-            >
-              Reply now
-            </button>
-          )}
-
-          {onStop && (
-            <button
-              type="button"
-              className="agent-timeline__btn agent-timeline__btn--stop"
-              onClick={onStop}
-              title="Stop generation"
-            >
-              ■ Stop
-            </button>
           )}
         </div>
       </div>

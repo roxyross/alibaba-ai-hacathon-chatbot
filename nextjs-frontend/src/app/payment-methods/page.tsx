@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
 interface SavedCard {
@@ -10,28 +10,14 @@ interface SavedCard {
   expMonth: number;
   expYear: number;
   isDefault: boolean;
+  provider: string;
 }
 
-export default function PaymentMethodsPage() {
-  const [cards, setCards] = useState<SavedCard[]>([
-    {
-      id: "card-1",
-      brand: "Mastercard",
-      last4: "4242",
-      expMonth: 12,
-      expYear: 2028,
-      isDefault: true
-    },
-    {
-      id: "card-2",
-      brand: "Visa",
-      last4: "8899",
-      expMonth: 6,
-      expYear: 2027,
-      isDefault: false
-    }
-  ]);
+const rawApiBase = process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = rawApiBase.endsWith("/api/v1") ? rawApiBase : `${rawApiBase}/api/v1`;
 
+export default function PaymentMethodsPage() {
+  const [cards, setCards] = useState<SavedCard[]>([]);
   const [cardNumber, setCardNumber] = useState("");
   const [expDate, setExpDate] = useState("");
   const [cvc, setCvc] = useState("");
@@ -39,47 +25,142 @@ export default function PaymentMethodsPage() {
   const [cardHolder, setCardHolder] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleAddCard = (e: React.FormEvent) => {
+  const fetchCards = useCallback(async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || localStorage.getItem("roxy_token") : null;
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch(`${API_BASE}/billing/payment-methods`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        const primary = data.primary;
+        const saved = data.saved_methods || [];
+        const items: SavedCard[] = [];
+
+        if (primary) {
+          items.push({
+            id: primary.id,
+            brand: (primary.brand || "Card").toUpperCase(),
+            last4: primary.last4 || "4242",
+            expMonth: primary.exp_month || 12,
+            expYear: primary.exp_year || 2028,
+            isDefault: true,
+            provider: primary.provider === "safepay" ? "Safepay" : "Stripe",
+          });
+        }
+
+        saved.forEach((s: any) => {
+          items.push({
+            id: s.id,
+            brand: (s.brand || "Card").toUpperCase(),
+            last4: s.last4 || "0000",
+            expMonth: s.exp_month || 12,
+            expYear: s.exp_year || 2028,
+            isDefault: false,
+            provider: s.provider === "safepay" ? "Safepay" : "Stripe",
+          });
+        });
+
+        setCards(items);
+      }
+    } catch {
+      setCards([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCards();
+  }, [fetchCards]);
+
+  const handleAddCard = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cardNumber || !expDate || !cvc) return;
+    setSavedSuccess(null);
+    setErrorMessage(null);
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || localStorage.getItem("roxy_token") : null;
+    if (!token) {
+      setErrorMessage("Please sign in to securely link and tokenize payment cards.");
+      return;
+    }
 
     setIsSaving(true);
-    setTimeout(() => {
+    try {
       const cleanNum = cardNumber.replace(/\s+/g, "");
-      const newCard: SavedCard = {
-        id: Date.now().toString(),
-        brand: cleanNum.startsWith("4") ? "Visa" : "Mastercard",
-        last4: cleanNum.slice(-4) || "1234",
-        expMonth: 12,
-        expYear: 2029,
-        isDefault: false
-      };
+      const [expM, expY] = expDate.split("/").map((s) => parseInt(s.trim(), 10));
+      const expMonth = isNaN(expM) ? 12 : expM;
+      const expYear = isNaN(expY) ? 2028 : (expY < 100 ? 2000 + expY : expY);
+      const brand = cleanNum.startsWith("4") ? "Visa" : "Mastercard";
+      const last4 = cleanNum.slice(-4) || "1234";
 
-      setCards(prev => [...prev, newCard]);
+      const res = await fetch(`${API_BASE}/billing/payment-methods`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          brand,
+          last4,
+          exp_month: expMonth,
+          exp_year: expYear,
+          set_as_default: cards.length === 0,
+        }),
+      });
+
+      if (res.ok) {
+        await fetchCards();
+        setSavedSuccess("New payment method tokenized and saved securely via Stripe Elements!");
+        setCardNumber("");
+        setExpDate("");
+        setCvc("");
+        setZip("");
+        setCardHolder("");
+        setTimeout(() => setSavedSuccess(null), 4000);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setErrorMessage(errData.detail || "Payment card verification failed.");
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to save card. Check network connection.");
+    } finally {
       setIsSaving(false);
-      setSavedSuccess("New payment method tokenized and saved securely!");
-      setCardNumber("");
-      setExpDate("");
-      setCvc("");
-      setZip("");
-      setCardHolder("");
-
-      setTimeout(() => setSavedSuccess(null), 4000);
-    }, 1200);
+    }
   };
 
   const setDefault = (id: string) => {
-    setCards(prev =>
-      prev.map(c => ({
+    setCards((prev) =>
+      prev.map((c) => ({
         ...c,
-        isDefault: c.id === id
+        isDefault: c.id === id,
       }))
     );
   };
 
-  const removeCard = (id: string) => {
-    setCards(prev => prev.filter(c => c.id !== id));
+  const removeCard = async (id: string) => {
+    if (!confirm("Remove this saved payment method?")) return;
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || localStorage.getItem("roxy_token") : null;
+    const previous = [...cards];
+    setCards((prev) => prev.filter((c) => c.id !== id));
+
+    if (token) {
+      try {
+        const res = await fetch(`${API_BASE}/billing/payment-methods/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          setCards(previous);
+          setErrorMessage("Failed to remove card from server.");
+        }
+      } catch {
+        setCards(previous);
+        setErrorMessage("Network error while removing card.");
+      }
+    }
   };
 
   return (
@@ -112,62 +193,79 @@ export default function PaymentMethodsPage() {
         </div>
       )}
 
+      {errorMessage && (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs font-semibold text-rose-600 flex items-center justify-between">
+          <span>⚠️ {errorMessage}</span>
+          <button onClick={() => setErrorMessage(null)} className="font-bold text-sm">✕</button>
+        </div>
+      )}
+
       {/* Saved Cards List */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
         <h2 className="text-sm font-bold text-[#1e292b]">Saved Cards</h2>
 
-        <div className="space-y-3">
-          {cards.map((card) => (
-            <div
-              key={card.id}
-              className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                card.isDefault
-                  ? "bg-teal-50/40 border-teal-200"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-7 rounded bg-white border border-slate-200 flex items-center justify-center font-bold text-xs text-slate-800 shadow-2xs">
-                  💳
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-800">
-                      {card.brand} ending in {card.last4}
-                    </span>
-                    {card.isDefault && (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-teal-50 text-[#0d9488] border border-teal-200">
-                        Default
-                      </span>
-                    )}
+        {cards.length === 0 ? (
+          <div className="py-8 text-center text-slate-500">
+            <div className="text-3xl mb-2">💳</div>
+            <p className="text-xs font-semibold text-slate-700">No payment methods saved</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Add a card below to top up token credits or start a Pro subscription.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {cards.map((card) => (
+              <div
+                key={card.id}
+                className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                  card.isDefault
+                    ? "bg-teal-50/40 border-teal-200"
+                    : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-7 rounded bg-white border border-slate-200 flex items-center justify-center font-bold text-xs text-slate-800 shadow-2xs">
+                    💳
                   </div>
-                  <p className="text-[11px] text-slate-400">
-                    Expires {card.expMonth}/{card.expYear}
-                  </p>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-800">
+                        {card.brand} ending in {card.last4}
+                      </span>
+                      {card.isDefault && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-teal-50 text-[#0d9488] border border-teal-200">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Expires {card.expMonth}/{card.expYear} · Verified via {card.provider}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {!card.isDefault && (
+                    <button
+                      onClick={() => setDefault(card.id)}
+                      className="px-3 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                    >
+                      Make Default
+                    </button>
+                  )}
+                  {cards.length > 0 && (
+                    <button
+                      onClick={() => removeCard(card.id)}
+                      className="px-3 py-1 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-white border border-rose-200 rounded-lg hover:bg-rose-50 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                {!card.isDefault && (
-                  <button
-                    onClick={() => setDefault(card.id)}
-                    className="px-3 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                  >
-                    Make Default
-                  </button>
-                )}
-                {cards.length > 1 && (
-                  <button
-                    onClick={() => removeCard(card.id)}
-                    className="px-3 py-1 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-white border border-rose-200 rounded-lg hover:bg-rose-50 transition-colors"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Add New Card Form with Stripe Elements styling */}

@@ -36,6 +36,9 @@ const STYLE_CHIPS = [
   { id: 'watercolor', label: '💧 Watercolor' },
 ];
 
+const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
+const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : (rawApiBase ? `${rawApiBase}/api/v1` : '/api/v1');
+
 export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack }) => {
   const [activeTab, setActiveTab] = useState<'generations' | 'favorites' | 'uploads'>('generations');
   const [prompt, setPrompt] = useState('');
@@ -54,11 +57,21 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [generations, setGenerations] = useState<MediaItem[]>([]);
   const [uploads, setUploads] = useState<MediaItem[]>([]);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setNotification({ message, type });
+    setTimeout(() => {
+      setNotification((curr) => (curr?.message === message ? null : curr));
+    }, 4000);
+  };
 
   const fetchGenerations = useCallback(async () => {
     if (!accessToken) return;
     try {
-      const res = await fetch('/api/v1/images/generations', {
+      setFetchError(null);
+      const res = await fetch(`${API_BASE}/images/generations`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (res.ok) {
@@ -82,16 +95,18 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
           model: g.model,
         }));
         setGenerations(mapped);
+      } else {
+        setFetchError('Failed to load image generations from the studio server.');
       }
     } catch {
-      // Offline fallback
+      setFetchError('Unable to connect to the Image Studio service. Please check your connection.');
     }
   }, [accessToken]);
 
   const fetchUploads = useCallback(async () => {
     if (!accessToken) return;
     try {
-      const res = await fetch('/api/v1/images/uploads', {
+      const res = await fetch(`${API_BASE}/images/uploads`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (res.ok) {
@@ -109,7 +124,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
         setUploads(mapped);
       }
     } catch {
-      // Offline fallback
+      // offline error handled gracefully
     }
   }, [accessToken]);
 
@@ -125,7 +140,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
       (window as unknown as { webkitSpeechRecognition?: any }).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert('Speech recognition is not supported in this browser.');
+      showNotification('Speech recognition is not supported in this browser.', 'error');
       return;
     }
 
@@ -158,29 +173,31 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
 
   const handleEnhancePrompt = async () => {
     if (!prompt.trim() || isEnhancing) return;
+    if (!accessToken) {
+      showNotification('Sign in to utilize AI prompt enhancement.', 'info');
+      return;
+    }
     setIsEnhancing(true);
     try {
-      if (accessToken) {
-        const res = await fetch('/api/v1/images/enhance-prompt', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ prompt, style_preset: selectedStyle }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.enhanced_prompt) {
-            setPrompt(data.enhanced_prompt);
-          }
+      const res = await fetch(`${API_BASE}/images/enhance-prompt`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ prompt, style_preset: selectedStyle }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.enhanced_prompt) {
+          setPrompt(data.enhanced_prompt);
+          showNotification('Prompt enhanced successfully!', 'success');
         }
       } else {
-        setPrompt((prev) => `${prev}, volumetric dramatic lighting, intricate textures, 8k uhd masterpiece`);
+        showNotification('Unable to enhance prompt at this moment.', 'error');
       }
     } catch {
-      // Fallback
-      setPrompt((prev) => `${prev}, volumetric dramatic lighting, 8k uhd`);
+      showNotification('Network error while enhancing prompt.', 'error');
     } finally {
       setIsEnhancing(false);
     }
@@ -188,74 +205,61 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
 
   const handleGenerate = async () => {
     if (!prompt.trim() || isGenerating) return;
+    if (!accessToken) {
+      showNotification('Please sign in to generate neural artwork and persist it to your gallery.', 'info');
+      return;
+    }
     setIsGenerating(true);
 
     try {
-      if (accessToken) {
-        const res = await fetch('/api/v1/images/generate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            prompt,
-            media_type: mediaType,
-            style_preset: selectedStyle,
-            speed,
-            quality,
-            aspect_ratio: aspectRatio,
-            model: selectedModel,
-          }),
-        });
+      const res = await fetch(`${API_BASE}/images/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          prompt,
+          media_type: mediaType,
+          style_preset: selectedStyle,
+          speed,
+          quality,
+          aspect_ratio: aspectRatio,
+          model: selectedModel,
+        }),
+      });
 
-        if (res.ok) {
-          const data = await res.json();
-          const g = data.generation;
-          const newItem: MediaItem = {
-            id: g.id,
-            url: g.media_url,
-            prompt: g.prompt,
-            revised_prompt: g.revised_prompt,
-            type: g.media_type || 'image',
-            style_preset: g.style_preset,
-            quality: g.quality,
-            aspectRatio: g.aspect_ratio,
-            speed: g.speed,
-            date: 'Just now',
-            is_favorite: false,
-            width: g.width,
-            height: g.height,
-            seed: g.seed,
-            model: g.model,
-          };
-          setGenerations((prev) => [newItem, ...prev]);
-          setPrompt('');
-          setActiveTab('generations');
-          return;
-        }
+      if (res.ok) {
+        const data = await res.json();
+        const g = data.generation;
+        const newItem: MediaItem = {
+          id: g.id,
+          url: g.media_url,
+          prompt: g.prompt,
+          revised_prompt: g.revised_prompt,
+          type: g.media_type || 'image',
+          style_preset: g.style_preset,
+          quality: g.quality,
+          aspectRatio: g.aspect_ratio,
+          speed: g.speed,
+          date: 'Just now',
+          is_favorite: false,
+          width: g.width,
+          height: g.height,
+          seed: g.seed,
+          model: g.model,
+        };
+        setGenerations((prev) => [newItem, ...prev]);
+        setPrompt('');
+        setActiveTab('generations');
+        showNotification('Artwork synthesized successfully!', 'success');
+        return;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        showNotification(errData.detail || 'Image generation failed. Please try again.', 'error');
       }
-
-      // Offline synthesis simulation
-      const cleanP = encodeURIComponent(prompt.trim());
-      const offlineUrl = `https://image.pollinations.ai/prompt/${cleanP}?width=1024&height=1024&nologo=true&enhance=true`;
-      const newItem: MediaItem = {
-        id: `gen-${Date.now()}`,
-        url: offlineUrl,
-        prompt,
-        type: mediaType,
-        style_preset: selectedStyle,
-        quality,
-        aspectRatio,
-        speed,
-        date: 'Just now',
-        is_favorite: false,
-      };
-      setGenerations((prev) => [newItem, ...prev]);
-      setPrompt('');
-      setActiveTab('generations');
     } catch {
-      // Error handling
+      showNotification('Network error during image synthesis. Please verify your connection.', 'error');
     } finally {
       setIsGenerating(false);
     }
@@ -263,63 +267,90 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
 
   const handleToggleFavorite = async (itemId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!accessToken) {
+      showNotification('Sign in to add artwork to favorites.', 'info');
+      return;
+    }
+    const previous = [...generations];
+    // Optimistic update
+    setGenerations((prev) =>
+      prev.map((it) => (it.id === itemId ? { ...it, is_favorite: !it.is_favorite } : it))
+    );
+
     try {
-      if (accessToken) {
-        const res = await fetch(`/api/v1/images/${itemId}/favorite`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setGenerations((prev) =>
-            prev.map((it) => (it.id === itemId ? { ...it, is_favorite: data.generation.is_favorite } : it))
-          );
-          return;
-        }
+      const res = await fetch(`${API_BASE}/images/${itemId}/favorite`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGenerations((prev) =>
+          prev.map((it) => (it.id === itemId ? { ...it, is_favorite: data.generation.is_favorite } : it))
+        );
+        return;
       }
-      setGenerations((prev) =>
-        prev.map((it) => (it.id === itemId ? { ...it, is_favorite: !it.is_favorite } : it))
-      );
+      // Rollback on failure
+      setGenerations(previous);
+      showNotification('Failed to update favorite status.', 'error');
     } catch {
-      // Fallback
+      setGenerations(previous);
+      showNotification('Network error updating favorite status.', 'error');
     }
   };
 
   const handleDelete = async (itemId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!accessToken) {
+      showNotification('Sign in to manage and delete artwork.', 'info');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this artwork?')) return;
+    const previous = [...generations];
+    // Optimistic deletion
+    setGenerations((prev) => prev.filter((it) => it.id !== itemId));
+    if (selectedModalItem?.id === itemId) setSelectedModalItem(null);
+
     try {
-      if (accessToken) {
-        await fetch(`/api/v1/images/${itemId}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+      const res = await fetch(`${API_BASE}/images/${itemId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        // Rollback on failure
+        setGenerations(previous);
+        showNotification('Failed to delete artwork from studio.', 'error');
+      } else {
+        showNotification('Artwork deleted from studio.', 'info');
       }
-      setGenerations((prev) => prev.filter((it) => it.id !== itemId));
-      if (selectedModalItem?.id === itemId) setSelectedModalItem(null);
     } catch {
-      // Fallback
+      setGenerations(previous);
+      showNotification('Network error while deleting artwork.', 'error');
     }
   };
 
   const handleSaveToVault = async (itemId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!accessToken) {
+      showNotification('Sign in to index artwork into Knowledge Vault.', 'info');
+      return;
+    }
     try {
-      if (accessToken) {
-        const res = await fetch(`/api/v1/images/${itemId}/save-to-vault`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setGenerations((prev) =>
-            prev.map((it) => (it.id === itemId ? { ...it, vault_document_id: data.vault_document_id } : it))
-          );
-          alert('Artwork successfully indexed into your Knowledge Vault!');
-        }
+      const res = await fetch(`${API_BASE}/images/${itemId}/save-to-vault`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGenerations((prev) =>
+          prev.map((it) => (it.id === itemId ? { ...it, vault_document_id: data.vault_document_id } : it))
+        );
+        showNotification('Artwork and metadata successfully indexed into your Knowledge Vault!', 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showNotification(err.detail || 'Could not save artwork to Knowledge Vault.', 'error');
       }
     } catch {
-      alert('Could not save artwork to Knowledge Vault.');
+      showNotification('Network error saving artwork to Knowledge Vault.', 'error');
     }
   };
 
@@ -327,37 +358,33 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
     const file = e.target.files?.[0];
     if (!file) return;
 
-    try {
-      if (accessToken) {
-        const formData = new FormData();
-        formData.append('file', file);
-        const res = await fetch('/api/v1/images/upload', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: formData,
-        });
-        if (res.ok) {
-          await fetchUploads();
-          setActiveTab('uploads');
-          return;
-        }
-      }
+    if (!accessToken) {
+      showNotification('Sign in to upload reference assets.', 'info');
+      return;
+    }
 
-      const dummyUrl = URL.createObjectURL(file);
-      const newUpload: MediaItem = {
-        id: `upl-${Date.now()}`,
-        url: dummyUrl,
-        prompt: file.name,
-        type: file.type.startsWith('video') ? 'video' : 'image',
-        quality: 'Source',
-        aspectRatio: 'Original',
-        speed: 'Direct',
-        date: 'Just now',
-      };
-      setUploads((prev) => [newUpload, ...prev]);
-      setActiveTab('uploads');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_BASE}/images/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: formData,
+      });
+      if (res.ok) {
+        await fetchUploads();
+        setActiveTab('uploads');
+        showNotification(`Reference asset "${file.name}" uploaded successfully.`, 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showNotification(err.detail || 'Failed to upload reference asset.', 'error');
+      }
     } catch {
-      // Fallback
+      showNotification('Network error while uploading reference asset.', 'error');
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -422,6 +449,46 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
 
         {/* Main Content Area */}
         <main className="image-studio__main">
+          {/* Notifications Toast */}
+          {notification && (
+            <div
+              className={`image-studio__notice image-studio__notice--${notification.type}`}
+              role="status"
+            >
+              <span>{notification.type === 'success' ? '✓' : notification.type === 'error' ? '⚠️' : 'ℹ️'}</span>
+              <span>{notification.message}</span>
+            </div>
+          )}
+
+          {/* Connection Error Banner */}
+          {fetchError && (
+            <div className="image-studio__error-banner" role="alert">
+              <div>
+                <strong>Connection Error:</strong> {fetchError}
+              </div>
+              <button
+                type="button"
+                className="image-studio__retry-btn"
+                onClick={() => {
+                  fetchGenerations();
+                  fetchUploads();
+                }}
+              >
+                ↻ Retry Connection
+              </button>
+            </div>
+          )}
+
+          {/* Guest Mode Auth Notice */}
+          {!accessToken && (
+            <div className="image-studio__auth-banner">
+              <span>🔒</span>
+              <span>
+                You are currently in guest preview mode. Sign in to synthesize neural artwork, save favorites, upload reference assets, and index creations into your Knowledge Vault.
+              </span>
+            </div>
+          )}
+
           {/* Top Heading */}
           <div className="image-studio__heading-wrap">
             <h1 className="image-studio__heading">What should we imagine?</h1>

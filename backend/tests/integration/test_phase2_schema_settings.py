@@ -163,3 +163,80 @@ async def test_user_settings_lifecycle_and_isolation(client: httpx.AsyncClient) 
     assert settings_b["custom_persona"] == ""
     assert settings_b["stream_speed"] == "fast"
     assert settings_b["sound_effects"] is True
+
+
+async def test_user_settings_ten_tabs_persistence(client: httpx.AsyncClient) -> None:
+    """Verifies that all 10 settings tabs persist per-user and remain isolated."""
+    headers_u1 = await _get_auth_headers(client, "settings_10tabs_user1@roxy.ai")
+    headers_u2 = await _get_auth_headers(client, "settings_10tabs_user2@roxy.ai")
+
+    # Update settings covering all 10 tabs
+    payload_10_tabs = {
+        # Tab 1: Profile
+        "display_name": "Tony Stark",
+        "bio": "Genius, billionaire, playboy, philanthropist.",
+        "timezone": "America/New_York",
+        "avatar_url": "https://example.com/avatar.png",
+        # Tab 2: AI Persona
+        "custom_persona": "Act as JARVIS with crisp British wit.",
+        "tone": "Professional",
+        "temperature": 0.7,
+        "response_length": "Detailed",
+        # Tab 3: Voice & Audio
+        "voice_id": "aura-orion-en",
+        "speech_speed": 1.25,
+        "auto_play_audio": True,
+        # Tab 4: Model & Provider Defaults
+        "preferred_provider": "gemini",
+        "default_chat_model": "gemini-2.5-flash",
+        "default_vision_model": "gemini-2.5-flash",
+        # Tab 5: Data & Privacy
+        "allow_learning": False,
+        "store_voice_recordings": True,
+        # Tab 6: Appearance & Theme
+        "theme": "dark",
+        "font_size": "Normal",
+        "bubble_style": "Modern Cards",
+        "accent_color": "Teal",
+        # Tab 7: Notifications & Alerts
+        "email_digests": True,
+        "budget_alerts": True,
+        "quiet_hours_start": "22:00",
+        "quiet_hours_end": "08:00",
+        # Tab 8: BYOK
+        "byok_openai": "sk-test-custom-key-12345",
+        # Tab 9: Memory & Context
+        "auto_memory_extraction": True,
+        "context_window": "32k",
+        # Tab 10: Security & Sessions
+        "two_factor_enabled": False,
+    }
+
+    patch_resp = await client.patch("/api/v1/settings", headers=headers_u1, json=payload_10_tabs)
+    assert patch_resp.status_code == 200
+    res_data = patch_resp.json()
+    assert res_data["display_name"] == "Tony Stark"
+    assert res_data["tone"] == "Professional"
+    assert res_data["voice_id"] == "aura-orion-en"
+    assert res_data["speech_speed"] == 1.25
+    assert res_data["quiet_hours_start"] == "22:00"
+    assert res_data["accent_color"] == "Teal"
+
+    # Subsequent GET returns all persisted values
+    get_resp = await client.get("/api/v1/settings", headers=headers_u1)
+    assert get_resp.status_code == 200
+    saved = get_resp.json()
+    assert saved["display_name"] == "Tony Stark"
+    assert saved["bio"] == "Genius, billionaire, playboy, philanthropist."
+    assert saved["temperature"] == 0.7
+    assert saved["auto_play_audio"] is True
+    assert saved["byok_openai"] == "sk-test-custom-key-12345"
+
+    # User 2 settings remain pristine and unpolluted
+    u2_resp = await client.get("/api/v1/settings", headers=headers_u2)
+    assert u2_resp.status_code == 200
+    u2_data = u2_resp.json()
+    assert "display_name" not in u2_data or u2_data.get("display_name") is None
+    assert u2_data["theme"] == "dark"
+    assert u2_data["voice_id"] == "aura-asteria-en"
+

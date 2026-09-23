@@ -38,6 +38,9 @@ interface InvoiceItem {
   invoicePdfUrl?: string;
 }
 
+const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
+const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : (rawApiBase ? `${rawApiBase}/api/v1` : '/api/v1');
+
 export const BillingView: React.FC<BillingViewProps> = ({
   accessToken,
   onBack,
@@ -47,6 +50,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
 }) => {
   const [cancelModal, setCancelModal] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [_isLoading, setIsLoading] = useState(false);
 
   const [plan, setPlan] = useState<PlanState>({
@@ -64,11 +68,27 @@ export const BillingView: React.FC<BillingViewProps> = ({
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
 
   const fetchBillingData = useCallback(async () => {
-    if (!accessToken) return;
+    if (!accessToken) {
+      setPlan({
+        id: 'free',
+        name: 'Free (BYOK)',
+        priceUsd: 0.0,
+        pricePkr: 0.0,
+        period: 'forever',
+        status: 'Active',
+        nextBillingDate: null,
+        renewsAutomatically: false,
+      });
+      setPaymentMethod(null);
+      setInvoices([]);
+      return;
+    }
+
     setIsLoading(true);
+    setErrorBanner(null);
     try {
       // 1. Fetch Subscription
-      const subRes = await fetch('/api/v1/billing/subscription', {
+      const subRes = await fetch(`${API_BASE}/billing/subscription`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (subRes.ok) {
@@ -87,10 +107,12 @@ export const BillingView: React.FC<BillingViewProps> = ({
             provider: p.provider || 'stripe',
           });
         }
+      } else {
+        setErrorBanner('Failed to load subscription status. Showing cached configuration.');
       }
 
       // 2. Fetch Payment Methods
-      const pmRes = await fetch('/api/v1/billing/payment-methods', {
+      const pmRes = await fetch(`${API_BASE}/billing/payment-methods`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (pmRes.ok) {
@@ -110,7 +132,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
       }
 
       // 3. Fetch Invoices
-      const invRes = await fetch('/api/v1/billing/invoices', {
+      const invRes = await fetch(`${API_BASE}/billing/invoices`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (invRes.ok) {
@@ -131,6 +153,7 @@ export const BillingView: React.FC<BillingViewProps> = ({
       }
     } catch (err) {
       console.error('Failed to fetch billing data', err);
+      setErrorBanner('Could not synchronize billing data with server. Check network connection.');
     } finally {
       setIsLoading(false);
     }
@@ -141,23 +164,31 @@ export const BillingView: React.FC<BillingViewProps> = ({
   }, [fetchBillingData]);
 
   const handleDownloadInvoice = (invId: string) => {
-    alert(`Downloading PDF receipt for invoice ${invId}...`);
+    alert(`Downloading official PDF receipt for invoice ${invId}...`);
   };
 
   const handleCancelConfirm = async () => {
     setCancelModal(false);
     try {
-      if (accessToken) {
-        await fetch('/api/v1/billing/cancel', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        await fetchBillingData();
+      if (!accessToken) {
+        setErrorBanner('Please sign in to manage or cancel subscriptions.');
+        return;
       }
-      setNotification('Your subscription cancellation is confirmed. You will retain access until the end of your billing cycle.');
-      setTimeout(() => setNotification(null), 6000);
+      const res = await fetch(`${API_BASE}/billing/cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        await fetchBillingData();
+        setNotification('Your subscription cancellation is confirmed. You will retain access until the end of your billing cycle.');
+        setTimeout(() => setNotification(null), 6000);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setErrorBanner(errData.detail || 'Cancellation failed. Please contact support.');
+      }
     } catch (err) {
       console.error('Failed to cancel subscription', err);
+      setErrorBanner('Cancellation request failed. Network connection error.');
     }
   };
 
@@ -181,6 +212,27 @@ export const BillingView: React.FC<BillingViewProps> = ({
       </header>
 
       <div className="billing-view__body">
+        {!accessToken && (
+          <div className="billing-view__alert" role="status" style={{ background: '#f8fafc', borderColor: '#cbd5e1', color: '#475569' }}>
+            <span>🔒</span>
+            <span>You are currently in guest mode. Sign in to view your real active subscription, saved payment cards, and official invoices.</span>
+          </div>
+        )}
+
+        {errorBanner && (
+          <div className="billing-view__alert" role="alert" style={{ background: '#fef2f2', borderColor: '#fca5a5', color: '#991b1b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span>⚠️</span>
+            <span>{errorBanner}</span>
+            <button
+              type="button"
+              onClick={fetchBillingData}
+              style={{ marginLeft: 'auto', background: '#991b1b', color: '#fff', border: 'none', borderRadius: '6px', padding: '3px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {notification && (
           <div className="billing-view__alert" role="status">
             <span>ℹ️</span>

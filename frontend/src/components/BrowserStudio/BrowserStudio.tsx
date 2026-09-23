@@ -150,6 +150,7 @@ export const BrowserStudio: React.FC<BrowserStudioProps> = ({
   // Tasks library tab state
   const [tasks, setTasks] = useState<BrowserTaskItem[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'failed'>('all');
   const [selectedTask, setSelectedTask] = useState<BrowserTaskItem | null>(null);
@@ -165,14 +166,16 @@ export const BrowserStudio: React.FC<BrowserStudioProps> = ({
   // Fetch tasks
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
+    setFetchError(null);
     try {
       const data = await fetchJSON<{ tasks: BrowserTaskItem[]; total: number }>(
         `${API_BASE}/browser/tasks?limit=50`,
         accessToken,
       );
       setTasks(data.tasks ?? []);
-    } catch {
+    } catch (err: unknown) {
       setTasks([]);
+      setFetchError(err instanceof Error ? err.message : 'Failed to load browser automation tasks');
     } finally {
       setTasksLoading(false);
     }
@@ -264,18 +267,23 @@ export const BrowserStudio: React.FC<BrowserStudioProps> = ({
     }
   };
 
-  // Delete task action
+  // Delete task action (Optimistic with automatic rollback on error)
   const handleDeleteTask = async (taskId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (!window.confirm('Delete this browser task record?')) return;
+    const previousTasks = [...tasks];
+    const previousSelected = selectedTask;
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    if (selectedTask?.id === taskId) setSelectedTask(null);
+
     try {
       await fetchJSON(`${API_BASE}/browser/tasks/${taskId}`, accessToken, {
         method: 'DELETE',
       });
-      setTasks((prev) => prev.filter((t) => t.id !== taskId));
-      if (selectedTask?.id === taskId) setSelectedTask(null);
     } catch (err) {
-      console.error('Delete failed:', err);
+      console.error('Delete failed, rolling back state:', err);
+      setTasks(previousTasks);
+      setSelectedTask(previousSelected);
+      setFetchError(err instanceof Error ? err.message : 'Failed to delete browser task. Rolled back.');
     }
   };
 
@@ -347,6 +355,16 @@ export const BrowserStudio: React.FC<BrowserStudioProps> = ({
           </button>
         </nav>
       </header>
+
+      {/* Guest Mode Notice */}
+      {!accessToken && (
+        <div className="browser-studio__auth-banner">
+          <ShieldAlert size={16} />
+          <span>
+            You are in <strong>Guest Mode</strong>. Running web automation flows and DOM inspections works locally, but persisting tasks and cloud browser sessions requires signing in.
+          </span>
+        </div>
+      )}
 
       {/* 2. Main Studio Content */}
       <main className="browser-studio__content">
@@ -747,6 +765,21 @@ export const BrowserStudio: React.FC<BrowserStudioProps> = ({
         {/* TAB 3: TASK LOGS */}
         {activeTab === 'tasks' && (
           <div className="browser-studio__panel">
+            {fetchError && (
+              <div className="browser-studio__alert browser-studio__alert--error" style={{ marginBottom: '1rem' }}>
+                <AlertCircle size={18} />
+                <span style={{ flex: 1 }}>{fetchError}</span>
+                <button
+                  type="button"
+                  className="browser-studio__retry-btn"
+                  onClick={() => loadTasks()}
+                >
+                  <RefreshCw size={13} />
+                  <span>Retry</span>
+                </button>
+              </div>
+            )}
+
             <div className="browser-studio__tasks-toolbar">
               <div className="browser-studio__search-box">
                 <Search size={15} />

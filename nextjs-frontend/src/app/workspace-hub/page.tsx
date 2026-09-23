@@ -1,93 +1,134 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 
 interface ProjectItem {
   id: string;
   name: string;
   description: string;
-  status: "Active" | "Planning" | "Review" | "Completed";
-  updatedAt: string;
+  status: "active" | "in_progress" | "archived" | "completed";
+  lastUpdated: string;
   tasksCount: number;
-  category: string;
+  completedCount: number;
 }
+
+const rawApiBase = process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = rawApiBase.endsWith("/api/v1") ? rawApiBase : `${rawApiBase}/api/v1`;
 
 export default function WorkspaceHubPage() {
   const [filter, setFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
 
-  const [projects, setProjects] = useState<ProjectItem[]>([
-    {
-      id: "1",
-      name: "Raast PISP Integration Phase 2",
-      description: "Direct instant bank-to-bank settlement pipeline with State Bank of Pakistan standards.",
-      status: "Active",
-      updatedAt: "Today",
-      tasksCount: 8,
-      category: "Fintech"
-    },
-    {
-      id: "2",
-      name: "Autonomous AI Gateway Benchmarking",
-      description: "Evaluation and latency testing across Gemini 2.5 Flash, Grok 2, and Qwen 2.5 72B.",
-      status: "Active",
-      updatedAt: "Yesterday",
-      tasksCount: 14,
-      category: "AI & ML"
-    },
-    {
-      id: "3",
-      name: "Global Multi-Currency Billing Engine",
-      description: "Seamless dual currency ($ USD and Rs PKR) invoices, webhooks, and Stripe integration.",
-      status: "Review",
-      updatedAt: "3 days ago",
-      tasksCount: 5,
-      category: "Infrastructure"
-    },
-    {
-      id: "4",
-      name: "Mobile Responsive Layout Migration",
-      description: "Next.js 15 App Router and Tailwind CSS responsive interface optimization.",
-      status: "Completed",
-      updatedAt: "Last week",
-      tasksCount: 12,
-      category: "Design"
+  const fetchProjects = useCallback(async () => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || localStorage.getItem("roxy_token") : null;
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const statusParam = filter !== "All" ? `?status=${filter.toLowerCase().replace(" ", "_")}` : "";
+      const res = await fetch(`${API_BASE}/projects${statusParam}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.projects)) {
+          setProjects(
+            data.projects.map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              description: p.description || "",
+              status: p.status || "active",
+              lastUpdated: p.last_updated || "Recently",
+              tasksCount: p.tasks_count || 0,
+              completedCount: p.completed_count || 0,
+            }))
+          );
+        }
+      } else {
+        setErrorMessage("Failed to load workspace projects.");
+      }
+    } catch {
+      // Offline or guest mode zeroed projects
+      setProjects([]);
+    } finally {
+      setIsLoading(false);
     }
-  ]);
+  }, [filter]);
 
-  const filteredProjects = projects.filter(p => {
-    if (filter === "All") return true;
-    return p.status === filter;
-  });
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!newProjectName.trim()) return;
-    const item: ProjectItem = {
-      id: Date.now().toString(),
-      name: newProjectName.trim(),
-      description: newProjectDesc.trim() || "New workspace project",
-      status: "Active",
-      updatedAt: "Just now",
-      tasksCount: 0,
-      category: "General"
-    };
-    setProjects(prev => [item, ...prev]);
-    setNewProjectName("");
-    setNewProjectDesc("");
-    setModalOpen(false);
+    setErrorMessage(null);
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || localStorage.getItem("roxy_token") : null;
+    if (!token) {
+      setErrorMessage("Please sign in to create and persist workspace projects.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/projects`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: newProjectName.trim(),
+          description: newProjectDesc.trim() || "Workspace project",
+          status: "active",
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const p = data.project;
+        setProjects((prev) => [
+          {
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            status: p.status || "active",
+            lastUpdated: p.last_updated || "Just now",
+            tasksCount: 0,
+            completedCount: 0,
+          },
+          ...prev,
+        ]);
+        setNewProjectName("");
+        setNewProjectDesc("");
+        setModalOpen(false);
+        setNotification(`Created project "${p.name}".`);
+        setTimeout(() => setNotification(null), 4000);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setErrorMessage(err.detail || "Could not create project.");
+      }
+    } catch {
+      setErrorMessage("Network error while creating project.");
+    }
   };
 
   const getStatusBadge = (status: ProjectItem["status"]) => {
     switch (status) {
-      case "Active":
+      case "active":
         return "bg-teal-50 text-[#0d9488] border-teal-200";
-      case "Planning":
+      case "in_progress":
         return "bg-amber-50 text-amber-700 border-amber-200";
-      case "Review":
+      case "archived":
         return "bg-purple-50 text-purple-700 border-purple-200";
-      case "Completed":
+      case "completed":
+        return "bg-slate-100 text-slate-700 border-slate-200";
+      default:
         return "bg-slate-100 text-slate-700 border-slate-200";
     }
   };
@@ -117,9 +158,22 @@ export default function WorkspaceHubPage() {
         </button>
       </div>
 
+      {notification && (
+        <div className="p-3.5 bg-teal-50 border border-teal-200 rounded-xl text-xs font-semibold text-[#0d9488]">
+          ✨ {notification}
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs font-semibold text-rose-600 flex items-center justify-between">
+          <span>⚠️ {errorMessage}</span>
+          <button onClick={() => setErrorMessage(null)} className="font-bold text-sm">✕</button>
+        </div>
+      )}
+
       {/* Filter Tabs */}
       <div className="flex gap-2 border-b border-slate-200 pb-3">
-        {["All", "Active", "Planning", "Review", "Completed"].map((tab) => (
+        {["All", "Active", "In Progress", "Completed", "Archived"].map((tab) => (
           <button
             key={tab}
             onClick={() => setFilter(tab)}
@@ -135,41 +189,56 @@ export default function WorkspaceHubPage() {
       </div>
 
       {/* Projects Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredProjects.map((p) => (
-          <div
-            key={p.id}
-            className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+      {projects.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-dashed border-slate-200 p-12 text-center text-slate-500">
+          <div className="text-3xl mb-2">📁</div>
+          <p className="text-sm font-semibold text-slate-700">No workspace projects found</p>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+            Create your first project to organize tasks, link Knowledge Vault documents, and orchestrate agent tasks.
+          </p>
+          <button
+            onClick={() => setModalOpen(true)}
+            className="mt-4 px-4 py-2 rounded-xl text-xs font-semibold bg-[#0d9488] hover:bg-[#0f766e] text-white transition-all"
           >
-            <div>
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                  {p.category}
+            + Create Project
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {projects.map((p) => (
+            <div
+              key={p.id}
+              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                    Workspace
+                  </span>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${getStatusBadge(p.status)}`}>
+                    {p.status.replace("_", " ")}
+                  </span>
+                </div>
+                <h3 className="text-sm font-bold text-[#1e292b] mb-1.5 leading-snug">
+                  {p.name}
+                </h3>
+                <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                  {p.description || "No project description provided."}
+                </p>
+              </div>
+
+              <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                <span>
+                  {p.completedCount}/{p.tasksCount} tasks · Updated {p.lastUpdated}
                 </span>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${getStatusBadge(p.status)}`}>
-                  {p.status}
+                <span className="text-[#0d9488] font-semibold">
+                  Active
                 </span>
               </div>
-              <h3 className="text-sm font-bold text-[#1e292b] mb-1.5 leading-snug">
-                {p.name}
-              </h3>
-              <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
-                {p.description}
-              </p>
             </div>
-
-            <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-              <span>{p.tasksCount} active tasks · {p.updatedAt}</span>
-              <button
-                onClick={() => alert(`Opening workspace context for ${p.name}`)}
-                className="text-[#0d9488] font-semibold hover:underline"
-              >
-                Open →
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* New Project Modal */}
       {modalOpen && (
@@ -190,7 +259,7 @@ export default function WorkspaceHubPage() {
                 <label className="text-xs font-semibold text-slate-700 block mb-1">Project Name</label>
                 <input
                   type="text"
-                  placeholder="e.g. Q4 Growth & Automations"
+                  placeholder="e.g. Q4 Autonomous Workflows"
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#0d9488]"

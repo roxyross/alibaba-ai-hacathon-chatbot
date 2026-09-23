@@ -1,29 +1,106 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
+interface ActivityItem {
+  id: string;
+  model: string;
+  date: string;
+  tokens: string;
+  costUSD: string;
+  costPKR: string;
+}
+
+const rawApiBase = process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = rawApiBase.endsWith("/api/v1") ? rawApiBase : `${rawApiBase}/api/v1`;
+
 export default function UsagePage() {
-  const [balanceUSD, setBalanceUSD] = useState(48.50);
+  const [balanceUSD, setBalanceUSD] = useState(0.0);
+  const [usedThisMonthUSD, setUsedThisMonthUSD] = useState(0.0);
+  const [estimatedCostPKR, setEstimatedCostPKR] = useState(0.0);
+  const [timelinePoints, setTimelinePoints] = useState<number[]>(new Array(16).fill(0));
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
   const [topUpSuccess, setTopUpSuccess] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const balancePKR = balanceUSD * 300;
-  const usedThisMonthUSD = 12.80;
   const usedThisMonthPKR = usedThisMonthUSD * 300;
-  const remainingTokens = 745000;
+  const remainingTokens = Math.round(balanceUSD * 20000);
 
-  const handleTopUp = (amountUSD: number) => {
-    setBalanceUSD(prev => prev + amountUSD);
-    setTopUpSuccess(`Successfully topped up $${amountUSD} (≈ Rs ${(amountUSD * 300).toLocaleString()} PKR)!`);
-    setTimeout(() => setTopUpSuccess(null), 4000);
+  const fetchUsageData = useCallback(async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || localStorage.getItem("roxy_token") : null;
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch(`${API_BASE}/usage/stats`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setBalanceUSD(data.remaining_credits ?? 0.0);
+        setUsedThisMonthUSD(data.used_this_month ?? 0.0);
+        setEstimatedCostPKR(data.estimated_cost_pkr ?? 0.0);
+
+        if (Array.isArray(data.timeline) && data.timeline.length > 0) {
+          setTimelinePoints(data.timeline.map((t: any) => t.tokens || 0));
+        }
+
+        if (Array.isArray(data.recent_activity)) {
+          setRecentActivity(
+            data.recent_activity.map((a: any) => ({
+              id: a.id,
+              model: a.model || a.feature || "AI Inference",
+              date: a.time ? (a.time.includes("T") ? new Date(a.time).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : a.time) : "Recent",
+              tokens: `${(a.tokens || 0).toLocaleString()} tokens`,
+              costUSD: `$${(a.cost_usd || 0).toFixed(3)}`,
+              costPKR: `Rs ${(a.cost_pkr || 0).toFixed(1)}`,
+            }))
+          );
+        }
+      }
+    } catch {
+      // Offline or unauthenticated zeroed state
+      setBalanceUSD(0.0);
+      setUsedThisMonthUSD(0.0);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUsageData();
+  }, [fetchUsageData]);
+
+  const handleTopUp = async (packId: string, amountUSD: number) => {
+    setErrorMessage(null);
+    setTopUpSuccess(null);
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || localStorage.getItem("roxy_token") : null;
+    if (!token) {
+      setErrorMessage("Please sign in to purchase and sync wallet top-up packs.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/billing/topup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ pack_id: packId }),
+      });
+
+      if (res.ok) {
+        await fetchUsageData();
+        setTopUpSuccess(`Successfully topped up $${amountUSD} (≈ Rs ${(amountUSD * 300).toLocaleString()} PKR)!`);
+        setTimeout(() => setTopUpSuccess(null), 4000);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setErrorMessage(errData.detail || "Top-up checkout failed.");
+      }
+    } catch {
+      setErrorMessage("Network error while connecting to payment provider.");
+    }
   };
-
-  const recentActivity = [
-    { model: "Gemini 2.5 Flash", date: "Today, 15:42", tokens: "4,210 tokens", costUSD: "$0.02", costPKR: "Rs 6" },
-    { model: "Stable Diffusion XL", date: "Today, 14:10", tokens: "1 Image Render", costUSD: "$0.04", costPKR: "Rs 12" },
-    { model: "Grok 2 Reasoning", date: "Yesterday, 21:05", tokens: "8,920 tokens", costUSD: "$0.06", costPKR: "Rs 18" },
-    { model: "Knowledge Vault Embed", date: "Sep 13, 11:20", tokens: "18,400 tokens", costUSD: "$0.01", costPKR: "Rs 3" },
-  ];
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -55,6 +132,13 @@ export default function UsagePage() {
         </div>
       )}
 
+      {errorMessage && (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs font-semibold text-rose-600 flex items-center justify-between">
+          <span>⚠️ {errorMessage}</span>
+          <button onClick={() => setErrorMessage(null)} className="font-bold text-sm">✕</button>
+        </div>
+      )}
+
       {/* Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-2">
@@ -80,18 +164,24 @@ export default function UsagePage() {
               ≈ Rs {usedThisMonthPKR.toLocaleString()} PKR
             </div>
           </div>
-          <p className="text-[11px] text-slate-400">142,500 tokens consumed across all models</p>
+          <p className="text-[11px] text-slate-400">
+            {estimatedCostPKR > 0 ? `Est. PKR cost: Rs ${estimatedCostPKR.toLocaleString()}` : "Current billing cycle consumption"}
+          </p>
         </div>
 
         {/* Quick Top-up Packs */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-3">
           <span className="text-xs font-semibold text-slate-700 block">Quick Top-Up Packs</span>
           <div className="grid grid-cols-3 gap-2">
-            {[5, 10, 20].map((amt) => (
+            {[
+              { id: "pack_5", amt: 5 },
+              { id: "pack_10", amt: 10 },
+              { id: "pack_20", amt: 20 },
+            ].map(({ id, amt }) => (
               <button
-                key={amt}
+                key={id}
                 type="button"
-                onClick={() => handleTopUp(amt)}
+                onClick={() => handleTopUp(id, amt)}
                 className="py-2 px-1 text-center bg-slate-50 hover:bg-teal-50 border border-slate-200 hover:border-teal-300 rounded-xl transition-all group"
               >
                 <div className="text-xs font-bold text-slate-800 group-hover:text-[#0d9488]">+${amt}</div>
@@ -111,7 +201,7 @@ export default function UsagePage() {
             <p className="text-xs text-slate-500 mt-0.5">Daily aggregated input & output tokens</p>
           </div>
           <span className="text-xs font-bold text-[#0d9488] bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">
-            Avg: 4,750 tokens / day
+            Live Stream
           </span>
         </div>
 
@@ -146,19 +236,12 @@ export default function UsagePage() {
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-
-            {/* Data Dots */}
-            {[
-              [0, 140], [120, 110], [240, 70], [360, 95], [480, 40], [600, 25]
-            ].map(([cx, cy], i) => (
-              <circle key={i} cx={cx} cy={cy} r="4" fill="#ffffff" stroke="#0d9488" strokeWidth="2.5" />
-            ))}
           </svg>
         </div>
         <div className="flex justify-between text-[10px] text-slate-400 font-mono pt-2 border-t border-slate-100">
           <span>30 days ago</span>
           <span>15 days ago</span>
-          <span>Today (Peak)</span>
+          <span>Today</span>
         </div>
       </div>
 
@@ -169,28 +252,36 @@ export default function UsagePage() {
           <p className="text-xs text-slate-500 mt-0.5">Granular model inference breakdown</p>
         </div>
 
-        <table className="w-full text-left text-xs">
-          <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
-            <tr>
-              <th className="py-3 px-5">Model / Tool</th>
-              <th className="py-3 px-5">Timestamp</th>
-              <th className="py-3 px-5">Volume</th>
-              <th className="py-3 px-5 text-right">Cost (USD)</th>
-              <th className="py-3 px-5 text-right">Cost (PKR)</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {recentActivity.map((row, i) => (
-              <tr key={i} className="hover:bg-slate-50/80 transition-colors">
-                <td className="py-3.5 px-5 font-semibold text-slate-800">{row.model}</td>
-                <td className="py-3.5 px-5 text-slate-500">{row.date}</td>
-                <td className="py-3.5 px-5 font-mono text-[11px] text-slate-600">{row.tokens}</td>
-                <td className="py-3.5 px-5 text-right font-mono text-slate-800">{row.costUSD}</td>
-                <td className="py-3.5 px-5 text-right font-mono text-[#0d9488] font-semibold">{row.costPKR}</td>
+        {recentActivity.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">
+            <div className="text-2xl mb-1">📊</div>
+            <p className="text-xs font-semibold text-slate-700">No token activity recorded yet</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Run queries, schedule jobs, or generate images to view token logs.</p>
+          </div>
+        ) : (
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
+              <tr>
+                <th className="py-3 px-5">Model / Tool</th>
+                <th className="py-3 px-5">Timestamp</th>
+                <th className="py-3 px-5">Volume</th>
+                <th className="py-3 px-5 text-right">Cost (USD)</th>
+                <th className="py-3 px-5 text-right">Cost (PKR)</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {recentActivity.map((row) => (
+                <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-3.5 px-5 font-semibold text-slate-800">{row.model}</td>
+                  <td className="py-3.5 px-5 text-slate-500">{row.date}</td>
+                  <td className="py-3.5 px-5 font-mono text-[11px] text-slate-600">{row.tokens}</td>
+                  <td className="py-3.5 px-5 text-right font-mono text-slate-800">{row.costUSD}</td>
+                  <td className="py-3.5 px-5 text-right font-mono text-[#0d9488] font-semibold">{row.costPKR}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

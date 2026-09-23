@@ -46,6 +46,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   onBack,
   onNavigateView,
 }) => {
+  const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
+  const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : (rawApiBase ? `${rawApiBase}/api/v1` : '/api/v1');
+
   const [promptText, setPromptText] = useState('');
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [selectedModel, setSelectedModel] = useState('Google Gemini 2.0 Flash');
@@ -57,6 +60,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const [showRaastModal, setShowRaastModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isSendingChat, setIsSendingChat] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Raast Form
   const [raastBank, setRaastBank] = useState('Meezan Bank');
@@ -79,16 +85,26 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const [accounts, setAccounts] = useState<AccountItem[]>([]);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const [_isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const fetchFinance = async () => {
+    if (!accessToken) {
+      setIsLoading(false);
+      setFetchError(null);
+      setAccounts([]);
+      setTransactions([]);
+      setAlerts([]);
+      return;
+    }
     setIsLoading(true);
+    setFetchError(null);
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+      };
 
       // 1. Fetch financial summary
-      const sumRes = await fetch('/api/v1/finance/summary', { headers });
+      const sumRes = await fetch(`${API_BASE}/finance/summary`, { headers });
       if (sumRes.ok) {
         const sumData = await sumRes.json();
         if (Array.isArray(sumData.accounts)) {
@@ -110,10 +126,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
             }))
           );
         }
+      } else {
+        const err = await sumRes.json().catch(() => ({}));
+        setFetchError(err.detail || `Finance service returned status ${sumRes.status}`);
       }
 
       // 2. Fetch spending alerts
-      const alRes = await fetch('/api/v1/finance/alerts', { headers });
+      const alRes = await fetch(`${API_BASE}/finance/alerts`, { headers });
       if (alRes.ok) {
         const alData = await alRes.json();
         if (Array.isArray(alData.alerts)) {
@@ -130,7 +149,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       }
 
       // 3. Fetch real transactions with statementPeriod
-      const txRes = await fetch(`/api/v1/finance/transactions?period=${statementPeriod}`, { headers });
+      const txRes = await fetch(`${API_BASE}/finance/transactions?period=${statementPeriod}`, { headers });
       if (txRes.ok) {
         const txData = await txRes.json();
         if (Array.isArray(txData.transactions)) {
@@ -149,8 +168,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
           );
         }
       }
-    } catch {
-      // Keep state resilient
+    } catch (err: any) {
+      setFetchError(err?.message || 'Failed to connect to financial ledger service.');
     } finally {
       setIsLoading(false);
     }
@@ -162,17 +181,24 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   // Connect Plaid (Sandbox/Demo)
   const handleConnectPlaid = async () => {
+    if (!accessToken) {
+      setNotice({ type: 'error', text: 'Please sign in to link bank accounts via Plaid.' });
+      return;
+    }
     setIsConnecting(true);
+    setNotice(null);
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+      };
 
-      const res = await fetch('/api/v1/bank/demo-connect', {
+      const res = await fetch(`${API_BASE}/bank/demo-connect`, {
         method: 'POST',
         headers,
       });
       if (res.ok) {
         await fetchFinance();
+        setNotice({ type: 'success', text: 'Bank accounts connected via Plaid.' });
         setChatMessages((prev) => [
           ...prev,
           {
@@ -180,9 +206,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
             text: '🏦 Bank accounts successfully connected via Plaid (Chase Premier Checking & Savings). Real-time transactions and balance ledger synchronized.',
           },
         ]);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setNotice({ type: 'error', text: err.detail || 'Failed to connect Plaid account.' });
       }
-    } catch {
-      // Fallback
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || 'Network error connecting Plaid account.' });
     } finally {
       setIsConnecting(false);
     }
@@ -193,11 +222,19 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     e.preventDefault();
     if (!raastIban.trim() || !raastTitle.trim()) return;
 
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+    if (!accessToken) {
+      setNotice({ type: 'error', text: 'Please sign in to link Raast PISP accounts.' });
+      setShowRaastModal(false);
+      return;
+    }
 
-      const res = await fetch('/api/v1/raast/link', {
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      };
+
+      const res = await fetch(`${API_BASE}/raast/link`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -212,6 +249,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       if (res.ok) {
         setShowRaastModal(false);
         await fetchFinance();
+        setNotice({ type: 'success', text: `Linked ${raastBank} account via Raast.` });
         setChatMessages((prev) => [
           ...prev,
           {
@@ -219,8 +257,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
             text: `🇵🇰 Successfully linked ${raastBank} account via Pakistan's Raast PISP (Deewan Mode). Account Title: ${raastTitle}. Instant payment rail is now active.`,
           },
         ]);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setNotice({ type: 'error', text: err.detail || 'Failed to link Raast account.' });
       }
-    } catch {
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || 'Network error linking Raast account.' });
       setShowRaastModal(false);
     }
   };
@@ -231,11 +273,19 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     const amountNum = parseFloat(payAmount);
     if (!payReceiver.trim() || isNaN(amountNum) || amountNum <= 0) return;
 
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+    if (!accessToken) {
+      setNotice({ type: 'error', text: 'Please sign in to initiate Raast payments.' });
+      setShowPayModal(false);
+      return;
+    }
 
-      const res = await fetch('/api/v1/raast/initiate-payment', {
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      };
+
+      const res = await fetch(`${API_BASE}/raast/initiate-payment`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -249,6 +299,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         const data = await res.json();
         setShowPayModal(false);
         await fetchFinance();
+        setNotice({ type: 'success', text: `Raast payment of Rs ${amountNum.toLocaleString()} completed.` });
         setChatMessages((prev) => [
           ...prev,
           {
@@ -257,10 +308,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
           },
         ]);
       } else {
-        const err = await res.json();
-        alert(err.detail || 'Payment failed.');
+        const err = await res.json().catch(() => ({}));
+        setNotice({ type: 'error', text: err.detail || 'Payment failed on Raast network.' });
       }
-    } catch {
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || 'Network error processing payment.' });
       setShowPayModal(false);
     }
   };
@@ -268,16 +320,33 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   // Unlink / Delete Account
   const handleUnlinkAccount = async (accountId: string) => {
     if (!confirm('Are you sure you want to disconnect this financial account?')) return;
+    if (!accessToken) {
+      setNotice({ type: 'error', text: 'Authentication required to disconnect accounts.' });
+      return;
+    }
+
+    const previousAccounts = [...accounts];
+    setAccounts((prev) => prev.filter((a) => a.id !== accountId));
+
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      await fetch(`/api/v1/finance/accounts/${accountId}`, {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+      };
+      const res = await fetch(`${API_BASE}/finance/accounts/${accountId}`, {
         method: 'DELETE',
         headers,
       });
-      await fetchFinance();
-    } catch {
-      // Ignore
+      if (res.ok) {
+        setNotice({ type: 'success', text: 'Financial account disconnected.' });
+        await fetchFinance();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setAccounts(previousAccounts);
+        setNotice({ type: 'error', text: err.detail || 'Failed to disconnect account.' });
+      }
+    } catch (err: any) {
+      setAccounts(previousAccounts);
+      setNotice({ type: 'error', text: err?.message || 'Network error disconnecting account.' });
     }
   };
 
@@ -319,15 +388,27 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   // Live Chat with Finance Agent
   const handleSend = async () => {
-    if (!promptText.trim()) return;
+    if (!promptText.trim() || isSendingChat) return;
     const q = promptText.trim();
     setChatMessages((prev) => [...prev, { sender: 'user', text: q }]);
     setPromptText('');
+    setIsSendingChat(true);
+
+    if (!accessToken) {
+      setIsSendingChat(false);
+      setChatMessages((prev) => [
+        ...prev,
+        { sender: 'assistant', text: '🔒 Please sign in to consult with the Finance Agent and query your live accounts.' },
+      ]);
+      return;
+    }
 
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch('/api/v1/runtime/chat', {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      };
+      const res = await fetch(`${API_BASE}/runtime/chat`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -342,18 +423,21 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
           { sender: 'assistant', text: data.response },
         ]);
         return;
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setChatMessages((prev) => [
+          ...prev,
+          { sender: 'assistant', text: `⚠️ Finance Agent error: ${err.detail || 'Could not process financial query.'}` },
+        ]);
       }
-    } catch {
-      // Fallback below
+    } catch (err: any) {
+      setChatMessages((prev) => [
+        ...prev,
+        { sender: 'assistant', text: `⚠️ Unable to connect to Finance Agent: ${err?.message || 'Connection error'}.` },
+      ]);
+    } finally {
+      setIsSendingChat(false);
     }
-
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        sender: 'assistant',
-        text: `📊 Financial analysis complete for: "${q}". Accounts reconciled across Plaid & Raast (Deewan Mode). Net cash flow is healthy.`,
-      },
-    ]);
   };
 
   const toggleNumber = (id: string) => {
@@ -369,10 +453,20 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   };
 
   const togglePinTx = async (id: string) => {
+    if (!accessToken) {
+      setNotice({ type: 'error', text: 'Authentication required to pin transactions.' });
+      return;
+    }
+    const previousTx = [...transactions];
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, isPinned: !t.isPinned } : t))
+    );
+
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch(`/api/v1/finance/transactions/${id}/pin`, {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+      };
+      const res = await fetch(`${API_BASE}/finance/transactions/${id}/pin`, {
         method: 'PATCH',
         headers,
       });
@@ -381,21 +475,32 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         setTransactions((prev) =>
           prev.map((t) => (t.id === id ? { ...t, isPinned: Boolean(updated.is_pinned) } : t))
         );
-        return;
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setTransactions(previousTx);
+        setNotice({ type: 'error', text: err.detail || 'Failed to toggle transaction pin.' });
       }
-    } catch {
-      // Fallback local toggle
+    } catch (err: any) {
+      setTransactions(previousTx);
+      setNotice({ type: 'error', text: err?.message || 'Network error updating pin.' });
     }
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, isPinned: !t.isPinned } : t))
-    );
   };
 
   const toggleAlert = async (id: string) => {
+    if (!accessToken) {
+      setNotice({ type: 'error', text: 'Authentication required to update alerts.' });
+      return;
+    }
+    const previousAlerts = [...alerts];
+    setAlerts((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, status: a.status === 'Active' ? 'Pause' : 'Active' } : a))
+    );
+
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch(`/api/v1/finance/alerts/${id}/status`, {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+      };
+      const res = await fetch(`${API_BASE}/finance/alerts/${id}/status`, {
         method: 'PATCH',
         headers,
       });
@@ -404,28 +509,42 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         setAlerts((prev) =>
           prev.map((a) => (a.id === id ? { ...a, status: data.status as 'Active' | 'Pause' } : a))
         );
-        return;
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setAlerts(previousAlerts);
+        setNotice({ type: 'error', text: err.detail || 'Failed to update alert status.' });
       }
-    } catch {
-      // Fallback
+    } catch (err: any) {
+      setAlerts(previousAlerts);
+      setNotice({ type: 'error', text: err?.message || 'Network error updating alert.' });
     }
-    setAlerts((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: a.status === 'Active' ? 'Pause' : 'Active' } : a))
-    );
   };
 
   const deleteAlert = async (id: string) => {
+    if (!accessToken) {
+      setNotice({ type: 'error', text: 'Authentication required to delete alerts.' });
+      return;
+    }
+    const previousAlerts = [...alerts];
+    setAlerts((prev) => prev.filter((a) => a.id !== id));
+
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      await fetch(`/api/v1/finance/alerts/${id}`, {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${accessToken}`,
+      };
+      const res = await fetch(`${API_BASE}/finance/alerts/${id}`, {
         method: 'DELETE',
         headers,
       });
-    } catch {
-      // Ignore
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setAlerts(previousAlerts);
+        setNotice({ type: 'error', text: err.detail || 'Failed to delete alert.' });
+      }
+    } catch (err: any) {
+      setAlerts(previousAlerts);
+      setNotice({ type: 'error', text: err?.message || 'Network error deleting alert.' });
     }
-    setAlerts((prev) => prev.filter((a) => a.id !== id));
   };
 
   const downloadStatement = () => {
@@ -458,6 +577,49 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       </header>
 
       <div className="fin-view__body">
+        {/* Notice Toast */}
+        {notice && (
+          <div className={`finance-notice finance-notice--${notice.type}`}>
+            <span>{notice.type === 'success' ? '✓' : '⚠️'}</span>
+            <span className="finance-notice__text">{notice.text}</span>
+            <button type="button" className="finance-notice__close" onClick={() => setNotice(null)}>×</button>
+          </div>
+        )}
+
+        {/* Guest Auth Banner */}
+        {!accessToken && (
+          <div className="finance-auth-banner">
+            <div className="finance-auth-banner__icon">🔒</div>
+            <div className="finance-auth-banner__body">
+              <h4 className="finance-auth-banner__title">Guest Session Mode</h4>
+              <p className="finance-auth-banner__desc">
+                Sign in to your account to securely link verified bank institutions via Plaid, initiate instant transfers on Pakistan's Raast PISP network, and manage multi-tenant transaction ledgers.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Error Banner */}
+        {fetchError && (
+          <div className="finance-error-banner">
+            <div className="finance-error-banner__content">
+              <span className="finance-error-banner__icon">⚠️</span>
+              <div>
+                <h4 className="finance-error-banner__title">Failed to load financial records</h4>
+                <p className="finance-error-banner__msg">{fetchError}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="finance-error-banner__retry-btn"
+              onClick={fetchFinance}
+              disabled={isLoading}
+            >
+              {isLoading ? 'Retrying...' : '↻ Retry Connection'}
+            </button>
+          </div>
+        )}
+
         <p className="fin-view__desc">
           Ask Roxy-AI to audit expenses, monitor runway, transfer via Raast, or check statement trends.
         </p>

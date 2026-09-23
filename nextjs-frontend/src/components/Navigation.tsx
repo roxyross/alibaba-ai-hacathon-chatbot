@@ -20,6 +20,15 @@ export default function Navigation() {
 
   const navLinks = [
     { href: "/", label: "Chat", icon: "💬" },
+    { href: "/coding", label: "Coding", icon: "💻" },
+    { href: "/memory", label: "Memory", icon: "🧠" },
+    { href: "/audit", label: "Audit", icon: "🛡️" },
+    { href: "/study", label: "Study", icon: "🎓" },
+    { href: "/browser", label: "Browser", icon: "🌐" },
+    { href: "/research", label: "Research", icon: "🔬" },
+    { href: "/voice", label: "Voice", icon: "🎙️" },
+    { href: "/calendar", label: "Calendar", icon: "📅" },
+    { href: "/email", label: "Email", icon: "📧" },
     { href: "/image-studio", label: "Image Studio", icon: "🎨" },
     { href: "/knowledge-vault", label: "Knowledge Vault", icon: "📚" },
     { href: "/workspace-hub", label: "Workspace Hub", icon: "📁" },

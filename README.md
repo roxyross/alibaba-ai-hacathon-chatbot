@@ -1,95 +1,96 @@
-# ROXY — Personal AI Assistant
+# ROXY — Autonomous Personal AI Assistant & Multi-Agent Operating System
 
-ROXY is a multi-agent AI assistant with a FastAPI backend and a React/TypeScript frontend. It routes every user request to the right specialist agent — research, coding, finance, automation, voice, and more — using a keyword-classification Coordinator and a multi-provider AI gateway with automatic failover.
-
----
-
-## Tech Stack
-
-**Backend** — Python 3.11+ · FastAPI · Pydantic · APScheduler · httpx · structlog
-
-**Frontend** — TypeScript · React 18 · Vite · CSS custom properties (Catppuccin Mocha theme)
-
-**AI Providers** (in priority order, with automatic failover):
-- **Gemini** — primary model
-- **Grok** — fallback when Gemini is unavailable
-- **DeepSeek** — fallback #2
-- **OpenAI** — fallback #3
-
-**Voice** — Whisper (STT) · OpenAI TTS / ElevenLabs (TTS)
-
-**Banking** — Plaid OAuth (sandbox)
-
-**Email** — Gmail API (OAuth2) · SMTP fallback
+**ROXY** is a production-hardened, multi-agent AI personal operating system powered by a high-performance **FastAPI** backend, a modern **React 18 / Vite SPA**, and a **Next.js 16 (Turbopack)** companion application. It coordinates 22+ specialist agents through an intent-classifying Coordinator, a multi-provider AI gateway with automatic failover, and 18 dedicated productivity studios.
 
 ---
 
-## Project Structure
+## 🌟 Key Highlights & Architecture
+
+- **Multi-Agent Runtime & Coordinator**: Intelligent keyword and semantic classification routing requests across 22+ specialist agents (Coding, Memory, Audit, Research, Browser, Voice, Finance, Study, etc.).
+- **Multi-Provider AI Gateway with Failover**: Hierarchical fault-tolerant failover: **Gemini → Grok → DeepSeek → OpenAI**, ensuring zero downtime with provider attribution and token logging.
+- **18 Specialized Studios**: Full-featured, production-ready interfaces with optimistic UI mutations, resilient retryable error banners, non-intrusive guest authentication guidance, and zero mock demo data.
+- **Dual Frontend Architecture**:
+  - **React 18 / Vite SPA (`frontend/`)**: Ultra-responsive single-page application with dark mode styling (`#162020` card surfaces, `#273636` borders, `#0d9488` teal / `#10b981` emerald accents).
+  - **Next.js 16 (Turbopack) Companion (`nextjs-frontend/`)**: Static pre-rendered companion suite compiling 22/22 routes for global CDN edge deployment.
+- **Enterprise Security & Compliance**:
+  - **§10.12 Immutable Audit Ledger**: Append-only 1-year compliance retention with strict prohibition of record modification or deletion.
+  - **Pre-Execution Risk Gate (Security Agent)**: Automated T1 (Safe Read), T2 (Caution External Action), and T3 (Destructive / Exfiltration Block) verification.
+  - **GDPR / CCPA "Right to be Forgotten"**: Instant portable JSON data exports and verified permanent erasure across all data vaults.
+
+---
+
+## 🛠️ The 18 Specialized Studios
+
+| Studio | Features & Capabilities |
+|---|---|
+| 💬 **Chat & Multi-Agent Runtime** | SSE streaming, Critic pre-flight review (>200 chars), multi-agent chat grounding, and session history persistence. |
+| 💻 **Coding & Execution Studio** | Multi-language runner (`python`, `js`, `ts`, `bash`, `sql`), stdin drawer, live stdout/stderr execution terminal, AI copilot (Generate, Explain, Debug), and snippets library. |
+| 🧠 **Semantic Memory & Curator** | Cross-session facts vault, Forever importance pinning, soft-delete archive, autonomous clustering & pruning curator, scored hybrid retrieval, and GDPR export/purge. |
+| 🛡️ **Audit, Security & Activity** | Immutable 1-year audit ledger, Pre-Execution Risk Gate simulator (T1/T2/T3 verdicts, blast radius analysis), and compliance archive export. |
+| 🎓 **Study & Learning Studio** | Leitner 5-box spaced repetition deck reviewer, AI flashcard synthesis from topic or lecture notes, and interactive 4-choice practice quizzes. |
+| 🌐 **Browser Automation Studio** | Live URL inspector, heading hierarchy (H1-H6), hyperlinks directory, forms & inputs detector, visual snapshot capture, and autonomous multi-step execution flows. |
+| 🔬 **Deep Research Hub** | Multi-source academic & web synthesis, deep topic breakdown, live citations, and markdown research report exports. |
+| 🎙️ **Voice Session Studio** | Push-to-talk voice recording, Whisper speech-to-text (STT), runtime coordination, and ElevenLabs / OpenAI TTS playback with real-time waveform. |
+| 📅 **Calendar & Scheduling** | Schedule management, conflict detection, recurring agenda tracking, and ICS calendar exports. |
+| 📧 **Email Hub** | Gmail OAuth2 integration, SMTP fallback engine, rich email composer, recipient validation, and inbox telemetry. |
+| 🎨 **Image Studio** | Multi-model generative image synthesis, aspect ratio controls, prompt enhancement, and gallery management. |
+| 📚 **Knowledge Vault** | Multi-format document ingestion (PDF, DOCX, TXT), semantic vector chunking, and similarity search grounding. |
+| 📁 **Workspace Hub** | Multi-project organization, sandboxed artifacts storage, contextual notes, and multi-tenant isolation. |
+| ⏰ **Scheduled Jobs Studio** | APScheduler-powered recurring tasks (Cron, Interval, One-shot ISO), job pause/resume/cancel controls, and execution history. |
+| 💳 **Finance Dashboard** | Plaid sandbox banking OAuth, real-time balance inquiries, spending category analysis, and budget tracking. |
+| 📊 **Usage Telemetry** | Real-time token consumption metrics, cost breakdown by provider and agent, and quota status. |
+| 📑 **Billing & Subscriptions** | Subscription plan upgrades/downgrades (Free, Pro, Enterprise), payment history, and downloadable PDF invoices. |
+| 💳 **Payment Methods** | Safepay & Stripe card management, default payment selector, and PCI-compliant tokenization. |
+
+---
+
+## 🏗️ Project Structure
 
 ```
 roxy-personal-ai/
-├── backend/src/app/
-│   ├── main.py                  # FastAPI entry point, CORS, route registration
-│   ├── api/v1/                  # REST endpoints
-│   │   ├── runtime/            # Coordinator router (keyword → agent dispatch)
-│   │   ├── ai/                 # Direct AI chat
-│   │   ├── session/            # Chat sessions
-│   │   ├── chat_history/       # Per-session message history
-│   │   ├── bank/               # Plaid OAuth + account/transactions API
-│   │   └── finance/            # Budget + spending insights
-│   ├── skills/                 # 17 skill executors (store_memory, web_search, …)
-│   ├── ai_gateway/             # Multi-provider AI abstraction layer
-│   │   ├── adapters/           # Gemini, Grok, DeepSeek, OpenAI adapters
-│   │   └── services/router.py  # Failover routing, token logging
-│   └── job_scheduler.py         # APScheduler integration for scheduled jobs
-├── frontend/src/
-│   ├── App.tsx                 # Root component, view switcher
-│   ├── components/
-│   │   ├── ChatWindow/         # Streaming message list
-│   │   ├── ChatInput/          # Text input with model picker
-│   │   ├── VoiceSession/       # Push-to-talk voice UI
-│   │   ├── FinanceDashboard/    # Bank accounts, budgets, spending
-│   │   ├── ScheduledJobsPanel/ # Create/list/pause/cancel jobs
-│   │   ├── EmailSendPanel/     # Compose and send emails
-│   │   └── SensitiveActionConfirm/ # Confirmation modal for sensitive ops
-│   └── hooks/
-│       └── useChat.ts          # SSE streaming + one-shot chat hook
-├── .claude/agents/             # 22 agent system prompts (markdown)
-└── .claude/skills/             # Skill definitions (markdown + SKILL.md)
+├── backend/                         # FastAPI Python Backend
+│   ├── src/app/
+│   │   ├── api/v1/                  # REST API routers (coding, memory, audit, study, browser, etc.)
+│   │   ├── ai_gateway/              # Multi-provider AI gateway (Gemini, Grok, DeepSeek, OpenAI)
+│   │   ├── auth/                    # OAuth2 (Google, GitHub), Magic Link, JWT session auth
+│   │   ├── memory/                  # Semantic vector memory repository & autonomous curator
+│   │   ├── audit/                   # §10.12 Immutable audit ledger & risk gate verification
+│   │   ├── skills/                  # Standalone skill executors
+│   │   └── main.py                  # App entry point, CORS, and lifecycle handlers
+│   ├── tests/integration/           # 24 Master integration test suites (100% passing)
+│   ├── alembic/                     # Database migrations (PostgreSQL / SQLite)
+│   └── vercel.json                  # Vercel serverless function deployment config
+├── frontend/                        # React 18 / Vite SPA
+│   ├── src/
+│   │   ├── components/              # 18 Studio UI components & common design system
+│   │   ├── session/                 # SessionSidebar, session management
+│   │   ├── auth/                    # AuthGate & authentication modal
+│   │   └── App.tsx                  # Root switcher & global state
+│   └── vite.config.ts               # Vite bundler configuration
+├── nextjs-frontend/                 # Next.js 16 Companion App (Turbopack)
+│   ├── src/app/                     # 22 Static routes (/coding, /memory, /audit, /study, etc.)
+│   ├── src/components/              # Navigation header, shared cards, and layout wrappers
+│   └── next.config.ts               # Next.js Turbopack configuration
+└── specs/                           # Engineering specifications and phase blueprints
 ```
 
 ---
 
-## Features
+## 🚀 Getting Started
 
-| Feature | Description |
-|---|---|
-| **Multi-Agent Orchestration** | Keyword-classification Coordinator routes to 10+ specialist agents |
-| **AI Failover** | Automatic switch to next provider when one is unavailable |
-| **Streaming Chat** | SSE-based token streaming with per-provider attribution |
-| **Skill System** | 17 standalone skills — memory, search, email, banking, calendar, voice |
-| **Scheduled Jobs** | APScheduler-powered recurring jobs with cron/ISO scheduling |
-| **Voice** | Push-to-talk recording → Whisper STT → Runtime → TTS playback |
-| **Banking** | Plaid OAuth connect, account balances, transaction history |
-| **Email** | Gmail OAuth2 compose & send, SMTP fallback |
-| **Sensitive Action Gate** | Confirmation modal before email send, bank connect, job creation |
-| **Critic Pre-flight** | Silent review of all responses > 200 chars before delivery |
-| **Session History** | Persistent chat sessions with full turn history |
-
----
-
-## Getting Started
-
-### Backend
+### 1. Backend Setup
 
 ```bash
 cd backend
-cp .env.example .env   # fill in API keys
-pip install -e .
+cp .env.example .env   # Configure your API keys (Gemini, OpenAI, Database URL, etc.)
+python -m venv .venv
+# On Windows: .venv\Scripts\activate
+# On Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend
+### 2. React Vite SPA Setup
 
 ```bash
 cd frontend
@@ -97,19 +98,41 @@ cp .env.example .env
 npm install
 npm run dev
 ```
+The React SPA runs at `http://localhost:5173` and proxies requests to `http://localhost:8000`.
 
-The frontend runs on `http://localhost:5173` and calls the backend at `http://localhost:8000`.
+### 3. Next.js Companion App Setup
+
+```bash
+cd nextjs-frontend
+cp .env.example .env.local
+npm install
+npm run dev
+```
+The Next.js companion runs at `http://localhost:3000`.
 
 ---
 
-## API Keys Required
+## 🧪 Testing & Verification
 
-| Service | Environment Variable |
-|---|---|
-| Gemini | `GEMINI_API_KEY` |
-| Grok | `GROK_API_KEY` |
-| DeepSeek | `DEEPSEEK_API_KEY` |
-| OpenAI | `OPENAI_API_KEY` |
-| Gmail (send) | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REDIRECT_URI` |
-| SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` |
-| Plaid | `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENVIRONMENT` |
+The system includes comprehensive automated test coverage across all architectural phases:
+
+```bash
+# Run all integration test suites
+cd backend
+pytest tests/integration/ -v
+
+# Run frontend typecheck and build
+cd ../frontend
+npm run typecheck
+npm run build
+
+# Run Next.js companion Turbopack build
+cd ../nextjs-frontend
+npm run build
+```
+
+---
+
+## 🛡️ License & Attributions
+
+Developed for the **Alibaba AI Hackathon**. Built with FastAPI, React, Next.js, and multi-agent AI orchestration.

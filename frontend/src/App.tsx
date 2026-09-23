@@ -746,6 +746,7 @@ export function ChatScreen() {
           />
         ) : activeView === 'audit' ? (
           <AuditStudio
+            accessToken={accessToken}
             onBack={() => setActiveView('chat')}
           />
         ) : (
@@ -821,8 +822,13 @@ export function ChatScreen() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         userEmail={user?.email}
+        accessToken={accessToken}
         currentTheme={theme}
         onToggleTheme={toggleTheme}
+        onNavigateView={(view) => {
+          setActiveView(view as any);
+          setIsSettingsOpen(false);
+        }}
         onClearAllHistory={() => {
           localStorage.removeItem('roxy-sidebar-collapsed');
           localStorage.removeItem('roxy-custom-persona');

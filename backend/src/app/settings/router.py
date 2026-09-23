@@ -16,15 +16,22 @@ _repo = SettingsRepository()
 
 
 def _to_response(row: Any) -> SettingsResponse:
-    return SettingsResponse(
-        theme=getattr(row, "theme", "dark") or "dark",
-        custom_persona=getattr(row, "custom_persona", "") or "",
-        stream_speed=getattr(row, "stream_speed", "fast") or "fast",
-        sound_effects=bool(getattr(row, "sound_effects", True)),
-        auto_scroll=bool(getattr(row, "auto_scroll", True)),
-        voice_id=getattr(row, "voice_id", "aura-asteria-en") or "aura-asteria-en",
-        preferred_provider=getattr(row, "preferred_provider", None),
-    )
+    extra = dict(getattr(row, "extra_settings", {}) or {})
+    base_dict: dict[str, Any] = {
+        "theme": getattr(row, "theme", "dark") or "dark",
+        "custom_persona": getattr(row, "custom_persona", "") or "",
+        "stream_speed": getattr(row, "stream_speed", "fast") or "fast",
+        "sound_effects": bool(getattr(row, "sound_effects", True)),
+        "auto_scroll": bool(getattr(row, "auto_scroll", True)),
+        "voice_id": getattr(row, "voice_id", "aura-asteria-en") or "aura-asteria-en",
+        "preferred_provider": getattr(row, "preferred_provider", None),
+        "extra_settings": extra,
+    }
+    for k, v in extra.items():
+        if k not in base_dict:
+            base_dict[k] = v
+    return SettingsResponse(**base_dict)
+
 
 
 @router.get("", response_model=SettingsResponse)

@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './ScheduledJobsView.css';
 
+const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
+const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : (rawApiBase ? `${rawApiBase}/api/v1` : '/api/v1');
+
 interface ScheduledJobItem {
   id: string;
   name: string;
@@ -49,7 +52,8 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
   ]);
 
   const [jobs, setJobs] = useState<ScheduledJobItem[]>([]);
-  const [_isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [runningJobId, setRunningJobId] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -60,36 +64,40 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
 
   const fetchJobs = async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       const headers: Record<string, string> = {};
       if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch('/api/v1/jobs', { headers });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.jobs)) {
-          setJobs(
-            data.jobs.map((j: any) => ({
-              id: j.id,
-              name: j.name,
-              description: j.description || '',
-              schedule: j.schedule || 'Daily',
-              timezone: j.timezone || 'UTC',
-              status: j.status === 'Pause' ? 'Pause' : 'Active',
-              next_run: j.next_run || '',
-              last_status: j.last_status,
-            }))
-          );
-        }
+      const res = await fetch(`${API_BASE}/jobs`, { headers });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        throw new Error(err.detail || `Server returned status ${res.status}`);
       }
-    } catch {
-      // Keep empty
+      const data = await res.json();
+      if (Array.isArray(data.jobs)) {
+        setJobs(
+          data.jobs.map((j: any) => ({
+            id: j.id,
+            name: j.name,
+            description: j.description || '',
+            schedule: j.schedule || 'Daily',
+            timezone: j.timezone || 'UTC',
+            status: j.status === 'Pause' ? 'Pause' : 'Active',
+            next_run: j.next_run || '',
+            last_status: j.last_status,
+          }))
+        );
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Network error loading scheduled jobs';
+      setFetchError(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchJobs();
+    void fetchJobs();
   }, [accessToken]);
 
   // Voice input support
@@ -136,13 +144,30 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
     setChatMessages((prev) => [...prev, { sender: 'user', text: userPrompt }]);
     setPromptText('');
 
+    if (!accessToken) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          sender: 'assistant',
+          text: '🔒 Authentication required: Please sign in to create persistent autonomous background jobs that run 24/7 on the server.',
+        },
+      ]);
+      setActionNotice({
+        type: 'error',
+        text: 'Please sign in to configure background jobs.',
+      });
+      return;
+    }
+
     const jobName = userPrompt.length > 35 ? `${userPrompt.slice(0, 35)}...` : userPrompt;
     const jobDesc = `Automated scheduled action configured via prompt: "${userPrompt}". Model: ${selectedModel}`;
 
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch('/api/v1/jobs', {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      };
+      const res = await fetch(`${API_BASE}/jobs`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -153,6 +178,7 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
           prompt: userPrompt,
         }),
       });
+
       if (res.ok) {
         const data = await res.json();
         const created = data.job;
@@ -173,34 +199,49 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
             text: `✅ Scheduled task created: **"${newJob.name}"** running on schedule (${selectedTimezone}). Added to your active jobs below.`,
           },
         ]);
+        setActionNotice({
+          type: 'success',
+          text: `Scheduled job "${newJob.name}" registered successfully on server.`,
+        });
         return;
+      } else {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        const errMsg = err.detail || 'Server error creating scheduled job';
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            sender: 'assistant',
+            text: `❌ Could not register task: ${errMsg}. Please verify parameters and retry.`,
+          },
+        ]);
+        setActionNotice({
+          type: 'error',
+          text: `Job registration failed: ${errMsg}`,
+        });
       }
-    } catch {
-      // fallback local
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Network error';
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          sender: 'assistant',
+          text: `❌ Network connection failed while scheduling task: ${errMsg}.`,
+        },
+      ]);
+      setActionNotice({
+        type: 'error',
+        text: `Network failure: ${errMsg}`,
+      });
     }
-
-    const localJob: ScheduledJobItem = {
-      id: `job-${Date.now()}`,
-      name: jobName,
-      description: jobDesc,
-      schedule: 'Every day at 08:00 AM',
-      timezone: selectedTimezone,
-      status: 'Active',
-    };
-    setJobs((prev) => [localJob, ...prev]);
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        sender: 'assistant',
-        text: `✅ Scheduled task created: **"${localJob.name}"** running on schedule (${selectedTimezone}). Added to your active jobs below.`,
-      },
-    ]);
   };
 
   const toggleJobStatus = async (id: string) => {
     const job = jobs.find((j) => j.id === id);
     if (!job) return;
-    const newStatus: 'Active' | 'Pause' = job.status === 'Active' ? 'Pause' : 'Active';
+    const prevStatus = job.status;
+    const newStatus: 'Active' | 'Pause' = prevStatus === 'Active' ? 'Pause' : 'Active';
+
+    // Optimistically update
     setJobs((prev) =>
       prev.map((j) => (j.id === id ? { ...j, status: newStatus } : j))
     );
@@ -208,7 +249,7 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch(`/api/v1/jobs/${id}/status`, {
+      const res = await fetch(`${API_BASE}/jobs/${id}/status`, {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ status: newStatus }),
@@ -220,9 +261,29 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
             prev.map((j) => (j.id === id ? { ...j, next_run: data.job.next_run } : j))
           );
         }
+        setActionNotice({
+          type: 'success',
+          text: `Task status changed to ${newStatus}.`,
+        });
+      } else {
+        // Revert on failure
+        setJobs((prev) =>
+          prev.map((j) => (j.id === id ? { ...j, status: prevStatus } : j))
+        );
+        setActionNotice({
+          type: 'error',
+          text: 'Failed to update job status on server.',
+        });
       }
     } catch {
-      // local state already toggled
+      // Revert on error
+      setJobs((prev) =>
+        prev.map((j) => (j.id === id ? { ...j, status: prevStatus } : j))
+      );
+      setActionNotice({
+        type: 'error',
+        text: 'Network error updating job status.',
+      });
     }
   };
 
@@ -232,7 +293,7 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
     try {
       const headers: Record<string, string> = {};
       if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch(`/api/v1/jobs/${id}/run`, {
+      const res = await fetch(`${API_BASE}/jobs/${id}/run`, {
         method: 'POST',
         headers,
       });
@@ -273,13 +334,21 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
     try {
       const headers: Record<string, string> = {};
       if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch(`/api/v1/jobs/${job.id}/history`, { headers });
+      const res = await fetch(`${API_BASE}/jobs/${job.id}/history`, { headers });
       if (res.ok) {
         const data = await res.json();
         setExecutions(data.executions || []);
+      } else {
+        setActionNotice({
+          type: 'error',
+          text: 'Failed to retrieve execution logs from server.',
+        });
       }
     } catch {
-      // ignore
+      setActionNotice({
+        type: 'error',
+        text: 'Network error retrieving history.',
+      });
     } finally {
       setLoadingHistory(false);
     }
@@ -287,17 +356,34 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
 
   const deleteJob = async (id: string) => {
     if (!confirm('Are you sure you want to delete this scheduled job?')) return;
+    const originalJobs = [...jobs];
     setJobs((prev) => prev.filter((j) => j.id !== id));
 
     try {
       const headers: Record<string, string> = {};
       if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      await fetch(`/api/v1/jobs/${id}`, {
+      const res = await fetch(`${API_BASE}/jobs/${id}`, {
         method: 'DELETE',
         headers,
       });
+      if (res.ok) {
+        setActionNotice({
+          type: 'success',
+          text: 'Scheduled job deleted successfully.',
+        });
+      } else {
+        setJobs(originalJobs);
+        setActionNotice({
+          type: 'error',
+          text: 'Failed to delete scheduled job from server.',
+        });
+      }
     } catch {
-      // local state already deleted
+      setJobs(originalJobs);
+      setActionNotice({
+        type: 'error',
+        text: 'Network error deleting scheduled job.',
+      });
     }
   };
 
@@ -331,6 +417,27 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
               onClick={() => setActionNotice(null)}
             >
               ×
+            </button>
+          </div>
+        )}
+
+        {/* Error Banner with Retry Button */}
+        {fetchError && (
+          <div className="sched-error-banner">
+            <div className="sched-error-banner__content">
+              <span className="sched-error-banner__icon">⚠️</span>
+              <div>
+                <h4 className="sched-error-banner__title">Unable to reach Scheduled Jobs service</h4>
+                <p className="sched-error-banner__msg">{fetchError}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="sched-error-banner__retry-btn"
+              onClick={() => void fetchJobs()}
+              disabled={isLoading}
+            >
+              {isLoading ? 'Retrying…' : '↻ Retry Connection'}
             </button>
           </div>
         )}
@@ -521,7 +628,7 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
         <div className="sched-view__jobs-section">
           <h2 className="sched-view__section-title">Active & Configured Jobs</h2>
 
-          {jobs.length === 0 ? (
+          {jobs.length === 0 && !fetchError && (
             <div className="sched-view__empty-state">
               <div className="sched-view__empty-icon">⏱️</div>
               <h3 className="sched-view__empty-title">No scheduled jobs yet</h3>
@@ -529,7 +636,9 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
                 Type or speak a prompt like "Run daily market briefing at 9am" or "Audit cloud expenses every Monday" to schedule an autonomous recurring task.
               </p>
             </div>
-          ) : (
+          )}
+
+          {jobs.length > 0 && (
             <div className="sched-view__rows">
               {jobs.map((job) => (
                 <div key={job.id} className="sched-job-row">

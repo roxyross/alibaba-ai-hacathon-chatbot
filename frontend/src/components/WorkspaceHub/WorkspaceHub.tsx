@@ -35,6 +35,9 @@ interface WorkspaceHubProps {
   onOpenProject?: (projectId: string) => void;
 }
 
+const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
+const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : (rawApiBase ? `${rawApiBase}/api/v1` : '/api/v1');
+
 export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
   accessToken,
   onBack,
@@ -44,6 +47,8 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
   const [showNewModal, setShowNewModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
 
   // Project Detail Drawer / Modal
   const [activeProject, setActiveProject] = useState<ProjectItem | null>(null);
@@ -57,11 +62,17 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
   const [_isLoading, setIsLoading] = useState(false);
 
   const fetchProjects = useCallback(async () => {
+    if (!accessToken) {
+      setProjects([]);
+      return;
+    }
     setIsLoading(true);
+    setErrorBanner(null);
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch('/api/v1/projects', { headers });
+      const queryParam = filterStatus !== 'all' ? `?status=${filterStatus}` : '';
+      const res = await fetch(`${API_BASE}/projects${queryParam}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.projects)) {
@@ -77,13 +88,16 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
             }))
           );
         }
+      } else {
+        setErrorBanner('Failed to load workspace projects.');
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      console.error('Failed to fetch projects', err);
+      setErrorBanner('Could not load projects from server. Check network connection.');
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, filterStatus]);
 
   useEffect(() => {
     fetchProjects();
@@ -94,16 +108,19 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
     try {
       const headers: Record<string, string> = {};
       if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch(`/api/v1/projects/${project.id}`, { headers });
+      const res = await fetch(`${API_BASE}/projects/${project.id}`, { headers });
       if (res.ok) {
         const data = await res.json();
         const p = data.project;
         setProjectTasks(p.tasks || []);
         setProjectDocs(p.documents || []);
+      } else {
+        setErrorBanner('Failed to fetch full project details.');
       }
     } catch {
       setProjectTasks([]);
       setProjectDocs([]);
+      setErrorBanner('Network error loading project details.');
     }
   };
 
@@ -111,12 +128,18 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
     e.preventDefault();
     if (!activeProject || !newTaskTitle.trim()) return;
 
+    if (!accessToken) {
+      setErrorBanner('Please sign in to add and persist tasks.');
+      return;
+    }
+
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch(`/api/v1/projects/${activeProject.id}/tasks`, {
+      const res = await fetch(`${API_BASE}/projects/${activeProject.id}/tasks`, {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           title: newTaskTitle.trim(),
           status: 'todo',
@@ -129,59 +152,68 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
         setProjectTasks((prev) => [...prev, data.task]);
         setNewTaskTitle('');
         fetchProjects();
-        return;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setErrorBanner(errData.detail || 'Could not create task on server.');
       }
     } catch {
-      // Local fallback
+      setErrorBanner('Network error while creating task.');
     }
-
-    const mockTask: TaskItem = {
-      id: `task-${Date.now()}`,
-      project_id: activeProject.id,
-      title: newTaskTitle.trim(),
-      status: 'todo',
-      priority: 'medium',
-    };
-    setProjectTasks((prev) => [...prev, mockTask]);
-    setNewTaskTitle('');
   };
 
   const handleToggleTaskStatus = async (task: TaskItem) => {
     if (!activeProject) return;
     const nextStatus = task.status === 'done' ? 'todo' : 'done';
+    const previousTasks = [...projectTasks];
 
     setProjectTasks((prev) =>
       prev.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t))
     );
 
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      await fetch(`/api/v1/projects/${activeProject.id}/tasks/${task.id}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      fetchProjects();
+      if (accessToken) {
+        const res = await fetch(`${API_BASE}/projects/${activeProject.id}/tasks/${task.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ status: nextStatus }),
+        });
+        if (!res.ok) {
+          setProjectTasks(previousTasks);
+          setErrorBanner('Failed to update task status on server.');
+        } else {
+          fetchProjects();
+        }
+      }
     } catch {
-      // Local state updated
+      setProjectTasks(previousTasks);
+      setErrorBanner('Network error while updating task status.');
     }
   };
 
   const handleDeleteTask = async (taskId: string) => {
     if (!activeProject) return;
+    const previousTasks = [...projectTasks];
     setProjectTasks((prev) => prev.filter((t) => t.id !== taskId));
 
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      await fetch(`/api/v1/projects/${activeProject.id}/tasks/${taskId}`, {
-        method: 'DELETE',
-        headers,
-      });
-      fetchProjects();
+      if (accessToken) {
+        const res = await fetch(`${API_BASE}/projects/${activeProject.id}/tasks/${taskId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!res.ok) {
+          setProjectTasks(previousTasks);
+          setErrorBanner('Failed to delete task on server.');
+        } else {
+          fetchProjects();
+        }
+      }
     } catch {
-      // Local state updated
+      setProjectTasks(previousTasks);
+      setErrorBanner('Network error while deleting task.');
     }
   };
 
@@ -189,13 +221,19 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
     e.preventDefault();
     if (!activeProject || !newDocTitle.trim()) return;
 
-    const docId = newDocId.trim() || `doc-${Date.now()}`;
+    if (!accessToken) {
+      setErrorBanner('Please sign in to link documents to this workspace project.');
+      return;
+    }
+
+    const docId = newDocId.trim() || `doc_${newDocTitle.trim().toLowerCase().replace(/\s+/g, '_')}`;
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch(`/api/v1/projects/${activeProject.id}/documents`, {
+      const res = await fetch(`${API_BASE}/projects/${activeProject.id}/documents`, {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           document_id: docId,
           title: newDocTitle.trim(),
@@ -208,37 +246,34 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
         setProjectDocs((prev) => [data.document, ...prev]);
         setNewDocTitle('');
         setNewDocId('');
-        return;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setErrorBanner(errData.detail || 'Could not link document.');
       }
     } catch {
-      // Fallback
+      setErrorBanner('Network error while linking document.');
     }
-
-    const mockDoc: DocItem = {
-      id: `doclink-${Date.now()}`,
-      project_id: activeProject.id,
-      document_id: docId,
-      title: newDocTitle.trim(),
-      file_type: 'document',
-    };
-    setProjectDocs((prev) => [mockDoc, ...prev]);
-    setNewDocTitle('');
-    setNewDocId('');
   };
 
   const handleUnlinkDocument = async (docLinkId: string) => {
     if (!activeProject) return;
+    const previousDocs = [...projectDocs];
     setProjectDocs((prev) => prev.filter((d) => d.id !== docLinkId));
 
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      await fetch(`/api/v1/projects/${activeProject.id}/documents/${docLinkId}`, {
-        method: 'DELETE',
-        headers,
-      });
+      if (accessToken) {
+        const res = await fetch(`${API_BASE}/projects/${activeProject.id}/documents/${docLinkId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!res.ok) {
+          setProjectDocs(previousDocs);
+          setErrorBanner('Failed to unlink document on server.');
+        }
+      }
     } catch {
-      // Local state updated
+      setProjectDocs(previousDocs);
+      setErrorBanner('Network error while unlinking document.');
     }
   };
 
@@ -251,12 +286,18 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
     e.preventDefault();
     if (!newTitle.trim()) return;
 
+    if (!accessToken) {
+      setErrorBanner('Please sign in to create persistent workspace projects.');
+      return;
+    }
+
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch('/api/v1/projects', {
+      const res = await fetch(`${API_BASE}/projects`, {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           name: newTitle.trim(),
           description: newDesc.trim() || 'Custom workspace project.',
@@ -280,62 +321,66 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
         setNewTitle('');
         setNewDesc('');
         setShowNewModal(false);
-        return;
+        setNotification(`Created project "${p.name}".`);
+        setTimeout(() => setNotification(null), 4000);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setErrorBanner(errData.detail || 'Could not create project.');
       }
     } catch {
-      // Fallback
+      setErrorBanner('Network error creating workspace project.');
     }
-
-    const newProject: ProjectItem = {
-      id: `proj-${Date.now()}`,
-      name: newTitle.trim(),
-      description: newDesc.trim() || 'Custom workspace project.',
-      status: 'active',
-      lastUpdated: 'Just now',
-      tasksCount: 0,
-      completedCount: 0,
-    };
-
-    setProjects((prev) => [newProject, ...prev]);
-    setNewTitle('');
-    setNewDesc('');
-    setShowNewModal(false);
   };
 
   const handleStatusChange = async (id: string, newStatus: ProjectItem['status']) => {
+    const previousProjects = [...projects];
     setProjects((prev) =>
       prev.map((p) => (p.id === id ? { ...p, status: newStatus, lastUpdated: 'Just now' } : p))
     );
 
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      await fetch(`/api/v1/projects/${id}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({ status: newStatus }),
-      });
+      if (accessToken) {
+        const res = await fetch(`${API_BASE}/projects/${id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ status: newStatus }),
+        });
+        if (!res.ok) {
+          setProjects(previousProjects);
+          setErrorBanner('Failed to update project status on server.');
+        }
+      }
     } catch {
-      // Local update persisted
+      setProjects(previousProjects);
+      setErrorBanner('Network error while updating project status.');
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this project?')) return;
+    if (!confirm('Are you sure you want to delete this project? All associated tasks will be removed.')) return;
+    const previousProjects = [...projects];
     setProjects((prev) => prev.filter((p) => p.id !== id));
     if (activeProject && activeProject.id === id) {
       setActiveProject(null);
     }
 
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      await fetch(`/api/v1/projects/${id}`, {
-        method: 'DELETE',
-        headers,
-      });
+      if (accessToken) {
+        const res = await fetch(`${API_BASE}/projects/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!res.ok) {
+          setProjects(previousProjects);
+          setErrorBanner('Failed to delete project on server.');
+        }
+      }
     } catch {
-      // Local deletion persisted
+      setProjects(previousProjects);
+      setErrorBanner('Network error while deleting project.');
     }
   };
 
@@ -364,6 +409,41 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
             Manage your autonomous multi-agent projects, active tasks, and team knowledge artifacts.
           </p>
         </div>
+
+        {!accessToken && (
+          <div className="workspace-hub__alert" role="status" style={{ background: '#f8fafc', border: '1px solid #cbd5e1', color: '#475569', padding: '0.85rem 1.25rem', borderRadius: '0.75rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+            <span>🔒</span>
+            <span>You are currently in guest mode. Sign in to create persistent workspace projects, assign agent tasks, and link documents.</span>
+          </div>
+        )}
+
+        {errorBanner && (
+          <div className="workspace-hub__alert" role="alert" style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', padding: '0.85rem 1.25rem', borderRadius: '0.75rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+            <span>⚠️</span>
+            <span>{errorBanner}</span>
+            <button
+              type="button"
+              onClick={fetchProjects}
+              style={{ marginLeft: 'auto', background: '#991b1b', color: '#fff', border: 'none', borderRadius: '4px', padding: '3px 10px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => setErrorBanner(null)}
+              style={{ background: 'transparent', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {notification && (
+          <div className="workspace-hub__alert" role="status" style={{ background: '#f0fdfa', border: '1px solid #99f6e4', color: '#0d9488', padding: '0.85rem 1.25rem', borderRadius: '0.75rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+            <span>✨</span>
+            <span>{notification}</span>
+          </div>
+        )}
 
         {/* Filter Bar */}
         <div className="workspace-hub__filters">

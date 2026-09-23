@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
@@ -139,13 +139,13 @@ async def update_memory(
     return MemoryResponse(**updated)
 
 
-@router.delete("/entries/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/entries/{memory_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_memory(
     memory_id: str,
     permanent: bool = Query(False, description="Whether to permanently purge"),
     current_user: User = Depends(get_current_user),
     service: MemoryService = Depends(get_service),
-) -> None:
+) -> Response:
     """Delete a semantic memory. Default is soft-delete; permanent=true purges."""
     deleted = await service.repo.delete_memory(
         user_id=current_user.id,
@@ -157,6 +157,7 @@ async def delete_memory(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Memory entry not found or access denied.",
         )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/entries/{memory_id}/restore", response_model=MemoryResponse)
@@ -275,6 +276,7 @@ async def export_memory_data(
     return DataExportResponse(**bundle)
 
 
+@router.post("/purge-all", status_code=status.HTTP_200_OK, include_in_schema=False)
 @router.delete("/purge-all", status_code=status.HTTP_200_OK)
 async def purge_all_memories(
     current_user: User = Depends(get_current_user),

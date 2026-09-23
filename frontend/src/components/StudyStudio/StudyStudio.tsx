@@ -15,6 +15,7 @@ import {
   Clock,
   HelpCircle,
   FileText,
+  AlertCircle,
 } from 'lucide-react';
 import './StudyStudio.css';
 
@@ -97,6 +98,7 @@ export const StudyStudio: React.FC<StudyStudioProps> = ({
   // Decks & Cards State
   const [decks, setDecks] = useState<StudyDeckItem[]>([]);
   const [loadingDecks, setLoadingDecks] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSubject, setSelectedSubject] = useState('All');
   const [stats, setStats] = useState<StudyStats>({
@@ -165,6 +167,7 @@ export const StudyStudio: React.FC<StudyStudioProps> = ({
   const loadDecksAndStats = useCallback(async () => {
     if (!accessToken) return;
     setLoadingDecks(true);
+    setFetchError(null);
     try {
       const [dRes, sRes] = await Promise.all([
         fetch(`${API_BASE}/study/decks?limit=100`, { headers: authHeaders }),
@@ -173,13 +176,15 @@ export const StudyStudio: React.FC<StudyStudioProps> = ({
       if (dRes.ok) {
         const dData = await dRes.json();
         setDecks(dData.decks || []);
+      } else {
+        setFetchError('Failed to load study decks from the server.');
       }
       if (sRes.ok) {
         const sData = await sRes.json();
         setStats(sData);
       }
-    } catch {
-      // Offline fallback
+    } catch (err: unknown) {
+      setFetchError(err instanceof Error ? err.message : 'Connection failed while loading study decks.');
     } finally {
       setLoadingDecks(false);
     }
@@ -237,19 +242,30 @@ export const StudyStudio: React.FC<StudyStudioProps> = ({
     }
   };
 
-  // Delete Deck
+  // Delete Deck (Optimistic with automatic rollback on error)
   const handleDeleteDeck = async (deckId: string) => {
-    if (!confirm('Are you sure you want to delete this study deck and its flashcards?')) return;
+    const previousDecks = [...decks];
+    const previousStats = { ...stats };
+    setDecks((prev) => prev.filter((d) => d.id !== deckId));
+    setStats((prev) => ({
+      ...prev,
+      total_decks: Math.max(0, prev.total_decks - 1),
+    }));
+
     try {
       const res = await fetch(`${API_BASE}/study/decks/${deckId}`, {
         method: 'DELETE',
         headers: authHeaders,
       });
-      if (res.ok) {
-        await loadDecksAndStats();
+      if (!res.ok) {
+        throw new Error(`Failed to delete deck (HTTP ${res.status})`);
       }
-    } catch {
-      // Offline
+      await loadDecksAndStats();
+    } catch (err: unknown) {
+      console.error('Delete deck failed, rolling back:', err);
+      setDecks(previousDecks);
+      setStats(previousStats);
+      setFetchError(err instanceof Error ? err.message : 'Failed to delete study deck. Rolled back.');
     }
   };
 
@@ -496,6 +512,32 @@ export const StudyStudio: React.FC<StudyStudioProps> = ({
           </div>
         </div>
       </header>
+
+      {/* Guest Mode Notice */}
+      {!accessToken && (
+        <div className="study-studio__auth-banner">
+          <Award size={18} />
+          <span>
+            You are in <strong>Guest Mode</strong>. Active recall and local quizzes work, but saving decks, spaced repetition tracking, and cross-device sync require signing in.
+          </span>
+        </div>
+      )}
+
+      {/* Error Banner */}
+      {fetchError && (
+        <div className="study-studio__error-banner">
+          <AlertCircle size={18} />
+          <span style={{ flex: 1 }}>{fetchError}</span>
+          <button
+            type="button"
+            className="study-studio__retry-btn"
+            onClick={() => loadDecksAndStats()}
+          >
+            <RotateCw size={13} />
+            <span>Retry Connection</span>
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <nav className="study-studio__tabs">

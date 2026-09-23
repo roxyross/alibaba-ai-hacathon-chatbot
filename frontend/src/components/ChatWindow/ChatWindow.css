@@ -339,6 +339,78 @@
   z-index: 15;
 }
 
+/* ─── Floating Reply Now Pill (Phase 5 UX Polish) ─── */
+.chat-window__floating-reply-pill {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  animation: reply-pill-slide-up 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes reply-pill-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-window__reply-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
+  color: var(--color-accent, #0d9488);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.chat-window__reply-pill-btn:hover {
+  background: var(--color-surface, #ffffff);
+  border-color: var(--color-accent, #0d9488);
+  color: var(--color-accent, #0d9488);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(13, 148, 136, 0.18);
+}
+
+.chat-window__reply-pill-btn:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.chat-window__reply-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-accent, #0d9488);
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+
+[data-theme="dark"] .chat-window__reply-pill-btn {
+  background: #192222;
+  border-color: #2c3a3a;
+  color: #2dd4bf;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .chat-window__reply-pill-btn:hover {
+  background: #1e2929;
+  border-color: #14b8a6;
+  color: #5eead4;
+  box-shadow: 0 6px 18px rgba(20, 184, 166, 0.25);
+}
+
 /* ─── Mobile Responsiveness ─── */
 @media (max-width: 768px) {
   .chat-window__hero {

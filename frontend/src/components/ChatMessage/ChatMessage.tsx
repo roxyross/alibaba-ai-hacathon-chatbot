@@ -58,7 +58,165 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   );
 }
 
-function FormattedContent({ content }: { content: string }) {
+export interface SourceItem {
+  id: string;
+  title: string;
+  url?: string;
+  domain?: string;
+  snippet?: string;
+  type: 'youtube' | 'search' | 'pdf' | 'vault' | 'web';
+  citationNumber?: number;
+}
+
+function parseDomain(urlStr?: string): string | undefined {
+  if (!urlStr) return undefined;
+  try {
+    const parsed = new URL(urlStr);
+    return parsed.hostname.replace(/^www\./, '');
+  } catch {
+    return undefined;
+  }
+}
+
+function determineSourceType(urlStr?: string, title?: string): SourceItem['type'] {
+  const target = `${urlStr || ''} ${title || ''}`.toLowerCase();
+  if (target.includes('youtube.com') || target.includes('youtu.be')) return 'youtube';
+  if (target.includes('google.com/search') || target.includes('bing.com') || target.includes('duckduckgo.com')) return 'search';
+  if (target.includes('.pdf') || target.includes('/pdf/')) return 'pdf';
+  if (target.includes('vault') || target.includes('document') || target.includes('knowledge')) return 'vault';
+  return 'web';
+}
+
+function extractSources(content: string, attribution?: Attribution): SourceItem[] {
+  const sourcesMap = new Map<string, SourceItem>();
+
+  // 1. Any sources from backend attribution
+  const attrRecord = attribution as unknown as Record<string, unknown> | undefined;
+  if (attrRecord && Array.isArray(attrRecord.sources)) {
+    for (const src of attrRecord.sources as Array<Record<string, unknown> | string>) {
+      if (!src) continue;
+      const url = typeof src === 'string' ? src : (src.url as string | undefined);
+      const title = typeof src === 'object' && src.title ? (src.title as string) : url || 'Document';
+      const key = (url || title).trim().toLowerCase();
+      if (!sourcesMap.has(key)) {
+        const domain = parseDomain(url) || (typeof src === 'object' && src.type === 'vault' ? 'Knowledge Vault' : undefined);
+        sourcesMap.set(key, {
+          id: `src-${sourcesMap.size + 1}`,
+          title: typeof src === 'object' && src.title ? (src.title as string) : title,
+          url,
+          domain,
+          snippet: typeof src === 'object' && src.snippet ? (src.snippet as string) : undefined,
+          type: (typeof src === 'object' && src.type as SourceItem['type']) || determineSourceType(url, title),
+          citationNumber: sourcesMap.size + 1,
+        });
+      }
+    }
+  }
+
+  // 2. Bracketed sources in content: [Source: ...], [Sources: ...], [Vault: ...]
+  const bracketRegex = /\[(?:Source|Sources|Vault|Document|Ref):\s*([^\]]+)\]/gi;
+  let bMatch: RegExpExecArray | null;
+  while ((bMatch = bracketRegex.exec(content)) !== null) {
+    const rawContent = bMatch[1].trim();
+    const parts = rawContent.split(/[,;]\s*(?=[A-Za-z0-9])/);
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const titleUrlMatch = /^(.*?)\s*\((https?:\/\/[^\s)]+)\)$/.exec(trimmed);
+      let title = trimmed;
+      let url: string | undefined = undefined;
+      if (titleUrlMatch) {
+        title = titleUrlMatch[1].trim() || titleUrlMatch[2];
+        url = titleUrlMatch[2].trim();
+      } else if (/^https?:\/\//i.test(trimmed)) {
+        url = trimmed;
+        title = parseDomain(trimmed) || trimmed;
+      }
+      const key = (url || title).trim().toLowerCase();
+      if (!sourcesMap.has(key)) {
+        const domain = parseDomain(url) || (!url ? 'Knowledge Vault' : undefined);
+        sourcesMap.set(key, {
+          id: `src-${sourcesMap.size + 1}`,
+          title,
+          url,
+          domain,
+          type: determineSourceType(url, title),
+          citationNumber: sourcesMap.size + 1,
+        });
+      }
+    }
+  }
+
+  // 3. Markdown links: [Title](https://...)
+  const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  let lMatch: RegExpExecArray | null;
+  while ((lMatch = linkRegex.exec(content)) !== null) {
+    const title = lMatch[1].trim();
+    const url = lMatch[2].trim();
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      const key = url.toLowerCase();
+      if (!sourcesMap.has(key)) {
+        const domain = parseDomain(url);
+        sourcesMap.set(key, {
+          id: `src-${sourcesMap.size + 1}`,
+          title: title || domain || url,
+          url,
+          domain,
+          type: determineSourceType(url, title),
+          citationNumber: sourcesMap.size + 1,
+        });
+      }
+    }
+  }
+
+  return Array.from(sourcesMap.values());
+}
+
+function parseContentWithReasoning(rawContent: string): {
+  reasoning: string | null;
+  mainContent: string;
+  isThinkingActive: boolean;
+} {
+  if (!rawContent) {
+    return { reasoning: null, mainContent: '', isThinkingActive: false };
+  }
+
+  const openTagIdx = rawContent.indexOf('<think>');
+  if (openTagIdx === -1) {
+    return { reasoning: null, mainContent: rawContent, isThinkingActive: false };
+  }
+
+  const beforeThink = rawContent.substring(0, openTagIdx).trim();
+  const afterOpenTag = rawContent.substring(openTagIdx + '<think>'.length);
+  const closeTagIdx = afterOpenTag.indexOf('</think>');
+
+  if (closeTagIdx !== -1) {
+    const reasoning = afterOpenTag.substring(0, closeTagIdx).trim();
+    const afterThink = afterOpenTag.substring(closeTagIdx + '</think>'.length).trim();
+    const mainContent = beforeThink ? `${beforeThink}\n\n${afterThink}` : afterThink;
+    return {
+      reasoning: reasoning || null,
+      mainContent,
+      isThinkingActive: false,
+    };
+  } else {
+    // Unclosed <think> — actively streaming reasoning
+    const reasoning = afterOpenTag.trim();
+    return {
+      reasoning: reasoning || null,
+      mainContent: beforeThink,
+      isThinkingActive: true,
+    };
+  }
+}
+
+function FormattedContent({
+  content,
+  onSelectCitation,
+}: {
+  content: string;
+  onSelectCitation?: (num: number) => void;
+}) {
   if (!content) return null;
 
   const tokens: React.ReactNode[] = [];
@@ -106,7 +264,7 @@ function FormattedContent({ content }: { content: string }) {
           const lineContent = isBullet ? line.trim().substring(2) : line;
 
           const formattedParts: React.ReactNode[] = [];
-          const inlineRegex = /(\*\*.*?\*\*|`.*?`|\[.*?\]\(https?:\/\/[^\s)]+\))/g;
+          const inlineRegex = /(\*\*.*?\*\*|`.*?`|\[.*?\]\(https?:\/\/[^\s)]+\)|\[\^?\d+\]|\[(?:Source|Sources|Vault|Document|Ref):\s*[^\]]+\])/gi;
           let inlineLast = 0;
           let inlineMatch: RegExpExecArray | null;
 
@@ -119,6 +277,29 @@ function FormattedContent({ content }: { content: string }) {
               formattedParts.push(<strong key={inlineMatch.index}>{matchedToken.slice(2, -2)}</strong>);
             } else if (matchedToken.startsWith('`') && matchedToken.endsWith('`')) {
               formattedParts.push(<code key={inlineMatch.index} className="chat-message__inline-code">{matchedToken.slice(1, -1)}</code>);
+            } else if (/^\[\^?\d+\]$/.test(matchedToken)) {
+              const num = parseInt(matchedToken.replace(/[^0-9]/g, ''), 10);
+              formattedParts.push(
+                <button
+                  key={`cite-${inlineMatch.index}`}
+                  type="button"
+                  className="chat-message__citation-chip"
+                  onClick={() => onSelectCitation?.(num)}
+                  title={`Jump to source [${num}]`}
+                  aria-label={`Citation ${num}`}
+                >
+                  {num}
+                </button>
+              );
+            } else if (/^\[(?:Source|Sources|Vault|Document|Ref):\s*[^\]]+\]$/i.test(matchedToken)) {
+              const srcMatch = /^\[(?:Source|Sources|Vault|Document|Ref):\s*([^\]]+)\]$/i.exec(matchedToken);
+              const label = srcMatch ? srcMatch[1].trim() : matchedToken;
+              formattedParts.push(
+                <span key={`src-badge-${inlineMatch.index}`} className="chat-message__inline-source-badge">
+                  <span className="chat-message__inline-source-icon">📑</span>
+                  <span>{label}</span>
+                </span>
+              );
             } else if (matchedToken.startsWith('[') && matchedToken.includes('](')) {
               const linkMatch = /^\[(.*?)\]\((https?:\/\/[^\s)]+)\)$/.exec(matchedToken);
               if (linkMatch) {
@@ -131,6 +312,11 @@ function FormattedContent({ content }: { content: string }) {
                     className="chat-message__link"
                   >
                     {linkMatch[1]}
+                    <svg className="chat-message__inline-link-icon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
                   </a>
                 );
               } else {
@@ -194,13 +380,36 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [showReferences, setShowReferences] = useState(false);
+  const [showReasoning, setShowReasoning] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const referencesRef = useRef<HTMLDivElement>(null);
 
-  const citedSources = React.useMemo(() => {
-    const matches = Array.from(displayContent.matchAll(/\[Source:\s*([^\]]+)\]/gi));
-    return Array.from(new Set(matches.map((m) => m[1].trim())));
+  const { reasoning, mainContent, isThinkingActive } = React.useMemo(() => {
+    return parseContentWithReasoning(displayContent);
   }, [displayContent]);
+
+  const extractedSources = React.useMemo(() => {
+    return extractSources(displayContent, attribution);
+  }, [displayContent, attribution]);
+
+  // Keep reasoning accordion open during active streaming of thinking
+  useEffect(() => {
+    if (isThinkingActive) {
+      setShowReasoning(true);
+    }
+  }, [isThinkingActive]);
+
+  const handleSelectCitation = (citationNum: number) => {
+    setShowReferences(true);
+    setTimeout(() => {
+      const el = document.getElementById(`ref-card-${citationNum}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        el.classList.add('chat-message__ref-card--highlight');
+        setTimeout(() => el.classList.remove('chat-message__ref-card--highlight'), 2000);
+      }
+    }, 100);
+  };
 
   useEffect(() => {
     setDisplayContent(content);
@@ -262,7 +471,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
 
     window.speechSynthesis.cancel();
 
-    const textToSpeak = displayContent
+    const textToSpeak = (mainContent || displayContent)
       .replace(/```[\s\S]*?```/g, 'Code block omitted.')
       .replace(/`([^`]+)`/g, '$1')
       .replace(/[*#_~>\[\]]/g, '')
@@ -284,12 +493,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(displayContent);
+      await navigator.clipboard.writeText(mainContent || displayContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       const ta = document.createElement('textarea');
-      ta.value = displayContent;
+      ta.value = mainContent || displayContent;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
@@ -300,7 +509,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   };
 
   const handleDownload = () => {
-    const blob = new Blob([displayContent], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([mainContent || displayContent], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -346,16 +555,42 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
           </div>
         ) : (
           <>
-            {displayContent ? (
-              <FormattedContent content={displayContent} />
-            ) : isStreaming ? (
+            {reasoning && (
+              <div className="chat-message__reasoning-accordion">
+                <button
+                  type="button"
+                  className={`chat-message__reasoning-toggle ${showReasoning ? 'chat-message__reasoning-toggle--open' : ''}`}
+                  onClick={() => setShowReasoning((prev) => !prev)}
+                  aria-expanded={showReasoning}
+                  title={showReasoning ? 'Collapse thought process' : 'Expand thought process'}
+                >
+                  <span className="chat-message__reasoning-icon">🧠</span>
+                  <span className="chat-message__reasoning-title">
+                    {isThinkingActive ? 'Thinking & reasoning...' : 'Thought Process'}
+                  </span>
+                  {isThinkingActive && <span className="chat-message__reasoning-pulse" />}
+                  <span className="chat-message__reasoning-chevron">
+                    {showReasoning ? '▲' : '▼'}
+                  </span>
+                </button>
+                {showReasoning && (
+                  <div className="chat-message__reasoning-body">
+                    <pre className="chat-message__reasoning-text">{reasoning}</pre>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {mainContent ? (
+              <FormattedContent content={mainContent} onSelectCitation={handleSelectCitation} />
+            ) : isStreaming && !reasoning ? (
               <div className="chat-message__shimmer-skeleton" aria-label="Thinking...">
                 <div className="chat-message__shimmer-line chat-message__shimmer-line--long" />
                 <div className="chat-message__shimmer-line chat-message__shimmer-line--medium" />
                 <div className="chat-message__shimmer-line chat-message__shimmer-line--short" />
               </div>
             ) : null}
-            {isStreaming && displayContent && (
+            {isStreaming && (mainContent || reasoning) && (
               <span className="chat-message__cursor" aria-hidden="true" />
             )}
           </>
@@ -363,7 +598,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       </div>
 
       {/* Inline References Citation Control immediately after completed assistant response */}
-      {role === 'assistant' && !isStreaming && !isEditing && (
+      {role === 'assistant' && !isStreaming && !isEditing && extractedSources.length > 0 && (
         <div className="chat-message__references-wrapper" ref={referencesRef}>
           <div className="chat-message__references-badge-bar">
             <button
@@ -379,10 +614,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               </svg>
               <span className="chat-message__ref-pill-label">References</span>
               <span className="chat-message__ref-pill-sources">
-                {citedSources.length > 0 ? `${citedSources.length} document citation${citedSources.length > 1 ? 's' : ''}` : '3 sources'}
+                {extractedSources.length} source{extractedSources.length > 1 ? 's' : ''}
               </span>
               <span className="chat-message__ref-pill-chevron" aria-hidden="true">
-                {showReferences ? '˄' : '˅'}
+                {showReferences ? '▲' : '▼'}
               </span>
             </button>
           </div>
@@ -400,7 +635,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                     <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                     <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
                   </svg>
-                  <strong>Sources &amp; References</strong>
+                  <strong>Sources &amp; References ({extractedSources.length})</strong>
                 </div>
                 <button
                   type="button"
@@ -414,72 +649,72 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               </div>
 
               <div className="chat-message__references-cards">
-                <div className="chat-message__ref-card">
-                  <div className="chat-message__ref-card-icon">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z" />
-                      <path d="M12 6v6l4 2" />
-                    </svg>
-                  </div>
-                  <div className="chat-message__ref-card-text">
-                    <span className="chat-message__ref-card-title">
-                      {attribution?.model || attribution?.provider || 'Core Reasoning Model'}
-                    </span>
-                    <span className="chat-message__ref-card-subtitle">
-                      Direct neural reasoning · Routed via {attribution?.agentSlug || 'coordinator'} agent
-                    </span>
-                  </div>
-                </div>
-
-                <div className="chat-message__ref-card">
-                  <div className="chat-message__ref-card-icon">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="2" y1="12" x2="22" y2="12" />
-                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                    </svg>
-                  </div>
-                  <div className="chat-message__ref-card-text">
-                    <a
-                      href="https://roxy-personal-ai.vercel.app"
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="chat-message__ref-card-link"
-                    >
-                      roxy-personal-ai.vercel.app
-                    </a>
-                    <span className="chat-message__ref-card-subtitle">
-                      Verified web workspace context &amp; multi-agent session state
-                    </span>
-                  </div>
-                </div>
-
-                <div className="chat-message__ref-card">
-                  <div className="chat-message__ref-card-icon">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                  </div>
-                  <div className="chat-message__ref-card-text">
-                    <span className="chat-message__ref-card-title">Knowledge Base &amp; Web Retrieval</span>
-                    <span className="chat-message__ref-card-subtitle">
-                      Verified retrieval operation executed with grounding context
-                    </span>
-                  </div>
-                </div>
-
-                {citedSources.map((docName, idx) => (
-                  <div key={`doc-cite-${idx}`} className="chat-message__ref-card">
+                {extractedSources.map((source, idx) => (
+                  <div
+                    key={source.id || idx}
+                    id={`ref-card-${source.citationNumber || idx + 1}`}
+                    className="chat-message__ref-card"
+                  >
                     <div className="chat-message__ref-card-icon">
-                      <span style={{ fontSize: '1.1rem' }}>📑</span>
+                      {source.type === 'youtube' ? (
+                        <span className="chat-message__ref-icon--youtube" title="YouTube video">▶</span>
+                      ) : source.type === 'pdf' ? (
+                        <span className="chat-message__ref-icon--pdf" title="PDF document">📕</span>
+                      ) : source.type === 'vault' ? (
+                        <span className="chat-message__ref-icon--vault" title="Knowledge Vault document">📑</span>
+                      ) : source.type === 'search' ? (
+                        <span className="chat-message__ref-icon--search" title="Web search">🔍</span>
+                      ) : source.domain ? (
+                        <img
+                          src={`https://www.google.com/s2/favicons?domain=${source.domain}&sz=32`}
+                          alt=""
+                          className="chat-message__ref-favicon"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <span className="chat-message__ref-icon--web">🌐</span>
+                      )}
                     </div>
+
                     <div className="chat-message__ref-card-text">
-                      <span className="chat-message__ref-card-title">{docName}</span>
-                      <span className="chat-message__ref-card-subtitle">
-                        Knowledge Vault Document · Verified Grounded Excerpt
-                      </span>
+                      <div className="chat-message__ref-card-header-row">
+                        {source.citationNumber && (
+                          <span className="chat-message__ref-card-num">[{source.citationNumber}]</span>
+                        )}
+                        {source.url ? (
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="chat-message__ref-card-title-link"
+                            title={source.url}
+                          >
+                            {source.title}
+                            <svg className="chat-message__ref-external-icon" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                              <polyline points="15 3 21 3 21 9" />
+                              <line x1="10" y1="14" x2="21" y2="3" />
+                            </svg>
+                          </a>
+                        ) : (
+                          <span className="chat-message__ref-card-title">{source.title}</span>
+                        )}
+                      </div>
+
+                      <div className="chat-message__ref-card-meta">
+                        {source.domain && (
+                          <span className="chat-message__ref-card-domain">{source.domain}</span>
+                        )}
+                        <span className="chat-message__ref-card-type-badge">
+                          {source.type === 'vault' ? 'Vault Document' : source.type === 'youtube' ? 'Video' : source.type === 'pdf' ? 'PDF' : source.type === 'search' ? 'Search Result' : 'Web Page'}
+                        </span>
+                      </div>
+
+                      {source.snippet && (
+                        <p className="chat-message__ref-card-snippet">{source.snippet}</p>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -670,7 +905,18 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               </div>
             </div>
             <div className="chat-message__modal-body">
-              <FormattedContent content={displayContent} />
+              {reasoning && (
+                <div className="chat-message__reasoning-accordion chat-message__reasoning-accordion--modal">
+                  <div className="chat-message__reasoning-toggle" style={{ cursor: 'default' }}>
+                    <span className="chat-message__reasoning-icon">🧠</span>
+                    <span className="chat-message__reasoning-title">Thought Process</span>
+                  </div>
+                  <div className="chat-message__reasoning-body">
+                    <pre className="chat-message__reasoning-text">{reasoning}</pre>
+                  </div>
+                </div>
+              )}
+              <FormattedContent content={mainContent || displayContent} onSelectCitation={handleSelectCitation} />
             </div>
           </div>
         </div>

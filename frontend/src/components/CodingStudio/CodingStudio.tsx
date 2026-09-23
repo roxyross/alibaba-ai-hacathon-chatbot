@@ -13,6 +13,8 @@ import {
   Search,
   Bug,
   BookOpen,
+  AlertCircle,
+  RotateCw,
 } from 'lucide-react';
 import './CodingStudio.css';
 
@@ -97,6 +99,7 @@ export const CodingStudio: React.FC<CodingStudioProps> = ({ onBack, accessToken,
 
   // Snippets State
   const [snippets, setSnippets] = useState<CodeSnippetItem[]>([]);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [snippetSearch, setSnippetSearch] = useState('');
   const [snippetLangFilter, setSnippetLangFilter] = useState('All');
   const [saveModalOpen, setSaveModalOpen] = useState(false);
@@ -151,6 +154,7 @@ export const CodingStudio: React.FC<CodingStudioProps> = ({ onBack, accessToken,
 
   // Load Data
   const loadSnippetsAndStats = useCallback(async () => {
+    setFetchError(null);
     try {
       const [snipRes, statsRes] = await Promise.all([
         fetch(`${API_BASE}/coding/snippets`, { headers: authHeaders }),
@@ -159,13 +163,15 @@ export const CodingStudio: React.FC<CodingStudioProps> = ({ onBack, accessToken,
       if (snipRes.ok) {
         const data = await snipRes.json();
         setSnippets(data.snippets || []);
+      } else {
+        setFetchError('Failed to load code snippets from server.');
       }
       if (statsRes.ok) {
         const data = await statsRes.json();
         setStats(data);
       }
-    } catch {
-      // Offline fallback
+    } catch (err: unknown) {
+      setFetchError(err instanceof Error ? err.message : 'Connection failed while loading code snippets.');
     }
   }, [authHeaders]);
 
@@ -256,17 +262,28 @@ export const CodingStudio: React.FC<CodingStudioProps> = ({ onBack, accessToken,
     }
   };
 
-  // Delete Snippet
+  // Delete Snippet (Optimistic with automatic rollback on error)
   const handleDeleteSnippet = async (snippetId: string) => {
-    if (!window.confirm('Delete this code snippet?')) return;
+    const previousSnippets = [...snippets];
+    const previousStats = { ...stats };
+    setSnippets((prev) => prev.filter((s) => s.id !== snippetId));
+    setStats((prev) => ({
+      ...prev,
+      total_snippets: Math.max(0, prev.total_snippets - 1),
+    }));
+
     try {
-      await fetch(`${API_BASE}/coding/snippets/${snippetId}`, {
+      const res = await fetch(`${API_BASE}/coding/snippets/${snippetId}`, {
         method: 'DELETE',
         headers: authHeaders,
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await loadSnippetsAndStats();
-    } catch {
-      // Offline
+    } catch (err: unknown) {
+      console.error('Delete snippet failed, rolling back:', err);
+      setSnippets(previousSnippets);
+      setStats(previousStats);
+      setFetchError(err instanceof Error ? err.message : 'Failed to delete code snippet. Rolled back.');
     }
   };
 
@@ -424,6 +441,32 @@ export const CodingStudio: React.FC<CodingStudioProps> = ({ onBack, accessToken,
           </div>
         </div>
       </header>
+
+      {/* Guest Mode Notice */}
+      {!accessToken && (
+        <div className="coding-studio__auth-banner">
+          <Code2 size={16} />
+          <span>
+            You are in <strong>Guest Mode</strong>. Running code and AI assistance work locally, but saving snippets and cloud execution history require signing in.
+          </span>
+        </div>
+      )}
+
+      {/* Error Banner */}
+      {fetchError && (
+        <div className="coding-studio__error-banner">
+          <AlertCircle size={16} />
+          <span style={{ flex: 1 }}>{fetchError}</span>
+          <button
+            type="button"
+            className="coding-studio__retry-btn"
+            onClick={() => loadSnippetsAndStats()}
+          >
+            <RotateCw size={13} />
+            <span>Retry Connection</span>
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <nav className="coding-studio__tabs">

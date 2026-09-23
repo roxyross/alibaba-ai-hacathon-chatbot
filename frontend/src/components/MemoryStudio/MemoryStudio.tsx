@@ -114,6 +114,7 @@ export const MemoryStudio: React.FC<MemoryStudioProps> = ({
     last_curated_at: null,
   });
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -170,14 +171,18 @@ export const MemoryStudio: React.FC<MemoryStudioProps> = ({
   // 1. Fetch Memories
   const fetchMemories = useCallback(async () => {
     setLoading(true);
+    setFetchError(null);
     try {
-      const url = `${API_BASE}/memory?include_soft_deleted=${includeArchived}&limit=100`;
+      const url = `${API_BASE}/memory/entries?include_soft_deleted=${includeArchived}&limit=100`;
       const res = await fetch(url, { headers: authHeaders });
       if (!res.ok) throw new Error(`Failed to fetch memories: ${res.statusText}`);
-      const data: MemoryItem[] = await res.json();
-      setMemories(data);
+      const data = await res.json();
+      const items: MemoryItem[] = Array.isArray(data) ? data : (data.entries || []);
+      setMemories(items);
     } catch (err: any) {
-      showToast('error', err.message || 'Error loading memories');
+      const msg = err.message || 'Error loading memories';
+      setFetchError(msg);
+      showToast('error', msg);
     } finally {
       setLoading(false);
     }
@@ -240,7 +245,7 @@ export const MemoryStudio: React.FC<MemoryStudioProps> = ({
     try {
       if (editingMemoryId) {
         // PATCH
-        const res = await fetch(`${API_BASE}/memory/${editingMemoryId}`, {
+        const res = await fetch(`${API_BASE}/memory/entries/${editingMemoryId}`, {
           method: 'PATCH',
           headers: authHeaders,
           body: JSON.stringify({
@@ -253,7 +258,7 @@ export const MemoryStudio: React.FC<MemoryStudioProps> = ({
         showToast('success', 'Memory updated successfully.');
       } else {
         // POST
-        const res = await fetch(`${API_BASE}/memory`, {
+        const res = await fetch(`${API_BASE}/memory/entries`, {
           method: 'POST',
           headers: authHeaders,
           body: JSON.stringify({
@@ -279,11 +284,15 @@ export const MemoryStudio: React.FC<MemoryStudioProps> = ({
     }
   };
 
-  // Toggle Forever Importance
+  // Toggle Forever Importance (Optimistic with rollback)
   const handleToggleForever = async (mem: MemoryItem) => {
     const nextImportance: ImportanceLevel = mem.importance === 'forever' ? 'normal' : 'forever';
+    const previous = [...memories];
+    setMemories((prev) =>
+      prev.map((m) => (m.id === mem.id ? { ...m, importance: nextImportance } : m))
+    );
     try {
-      const res = await fetch(`${API_BASE}/memory/${mem.id}`, {
+      const res = await fetch(`${API_BASE}/memory/entries/${mem.id}`, {
         method: 'PATCH',
         headers: authHeaders,
         body: JSON.stringify({ importance: nextImportance }),
@@ -293,61 +302,72 @@ export const MemoryStudio: React.FC<MemoryStudioProps> = ({
         'success',
         nextImportance === 'forever' ? 'Pinned as Forever Memory.' : 'Unpinned from Forever.'
       );
-      fetchMemories();
       fetchStats();
     } catch (err: any) {
-      showToast('error', err.message);
+      setMemories(previous);
+      showToast('error', err.message || 'Failed to update memory pin.');
     }
   };
 
-  // Soft Delete / Archive
+  // Soft Delete / Archive (Optimistic with rollback)
   const handleSoftDelete = async (id: string) => {
+    const previous = [...memories];
+    if (!includeArchived) {
+      setMemories((prev) => prev.filter((m) => m.id !== id));
+    } else {
+      setMemories((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, is_soft_deleted: true } : m))
+      );
+    }
     try {
-      const res = await fetch(`${API_BASE}/memory/${id}`, {
+      const res = await fetch(`${API_BASE}/memory/entries/${id}`, {
         method: 'DELETE',
         headers: authHeaders,
       });
       if (!res.ok) throw new Error('Failed to archive memory');
       showToast('success', 'Memory moved to soft-delete archive.');
-      fetchMemories();
       fetchStats();
     } catch (err: any) {
-      showToast('error', err.message);
+      setMemories(previous);
+      showToast('error', err.message || 'Failed to archive memory.');
     }
   };
 
-  // Restore Memory
+  // Restore Memory (Optimistic with rollback)
   const handleRestore = async (id: string) => {
+    const previous = [...memories];
+    setMemories((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, is_soft_deleted: false } : m))
+    );
     try {
-      const res = await fetch(`${API_BASE}/memory/${id}/restore`, {
+      const res = await fetch(`${API_BASE}/memory/entries/${id}/restore`, {
         method: 'POST',
         headers: authHeaders,
       });
       if (!res.ok) throw new Error('Failed to restore memory');
       showToast('success', 'Memory restored to active vault.');
-      fetchMemories();
       fetchStats();
     } catch (err: any) {
-      showToast('error', err.message);
+      setMemories(previous);
+      showToast('error', err.message || 'Failed to restore memory.');
     }
   };
 
-  // Permanent Delete
+  // Permanent Delete (Optimistic with rollback)
   const handlePermanentDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to permanently delete this memory? This cannot be undone.')) {
-      return;
-    }
+    const previous = [...memories];
+    setMemories((prev) => prev.filter((m) => m.id !== id));
     try {
-      const res = await fetch(`${API_BASE}/memory/${id}?permanent=true`, {
+      const res = await fetch(`${API_BASE}/memory/entries/${id}?permanent=true`, {
         method: 'DELETE',
         headers: authHeaders,
       });
       if (!res.ok) throw new Error('Failed to delete memory permanently');
       showToast('success', 'Memory permanently purged.');
-      fetchMemories();
       fetchStats();
     } catch (err: any) {
-      showToast('error', err.message);
+      setMemories(previous);
+      showToast('error', err.message || 'Failed to delete memory.');
     }
   };
 
@@ -443,12 +463,13 @@ export const MemoryStudio: React.FC<MemoryStudioProps> = ({
     setIsPurging(true);
     try {
       const res = await fetch(`${API_BASE}/memory/purge-all`, {
-        method: 'POST',
+        method: 'DELETE',
         headers: authHeaders,
       });
       if (!res.ok) throw new Error('Purge failed');
       const data = await res.json();
-      showToast('success', `Purged ${data.deleted_count} memories permanently.`);
+      const purged = data.purged_count ?? data.deleted_count ?? 0;
+      showToast('success', `Purged ${purged} memories permanently.`);
       setPurgeInput('');
       fetchMemories();
       fetchStats();
@@ -528,6 +549,29 @@ export const MemoryStudio: React.FC<MemoryStudioProps> = ({
           </div>
         </div>
       </header>
+
+      {!accessToken && (
+        <div className="memory-studio__auth-banner" role="status">
+          <span>ℹ️ You are viewing Memory Studio in guest mode. Sign in to synchronize your semantic memory vault across sessions and enable autonomous curator passes.</span>
+        </div>
+      )}
+
+      {fetchError && (
+        <div className="memory-studio__error-banner" role="alert">
+          <span>⚠️ {fetchError}</span>
+          <button
+            type="button"
+            className="memory-studio__retry-btn"
+            onClick={() => {
+              fetchMemories();
+              fetchStats();
+              if (activeTab === 'curator') fetchCuratorData();
+            }}
+          >
+            ↻ Retry Connection
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <nav className="memory-studio__tabs" aria-label="Memory Studio Sections">

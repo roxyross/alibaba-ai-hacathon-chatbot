@@ -796,3 +796,201 @@
   background: #059669;
 }
 
+/* Error Banner */
+.finance-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.25rem;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.finance-error-banner__content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.finance-error-banner__icon {
+  font-size: 1.25rem;
+}
+
+.finance-error-banner__title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #dc2626;
+}
+
+.finance-error-banner__msg {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.finance-error-banner__retry-btn {
+  padding: 0.4rem 0.85rem;
+  background: #ef4444;
+  border: 1px solid #ef4444;
+  color: #ffffff;
+  border-radius: 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.finance-error-banner__retry-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.finance-error-banner__retry-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* Auth Banner */
+.finance-auth-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.85rem 1.15rem;
+  background: rgba(13, 148, 136, 0.08);
+  border: 1px solid rgba(13, 148, 136, 0.25);
+  border-radius: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.finance-auth-banner__icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+.finance-auth-banner__body {
+  flex: 1;
+}
+
+.finance-auth-banner__title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--color-accent, #0d9488);
+}
+
+.finance-auth-banner__desc {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+/* Action Notice Toast */
+.finance-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.85rem;
+  border-radius: 0.65rem;
+  margin-bottom: 1rem;
+  animation: slideInDown 0.2s ease-out;
+}
+
+.finance-notice--success {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #065f46;
+}
+
+.finance-notice--error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #991b1b;
+}
+
+.finance-notice__text {
+  flex: 1;
+}
+
+.finance-notice__close {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.finance-notice__close:hover {
+  opacity: 1;
+}
+
+/* Dark Mode Overrides */
+[data-theme="dark"] .fin-view {
+  background: #141d1d;
+  color: #f1f5f9;
+}
+
+[data-theme="dark"] .fin-view__header {
+  background: #162020;
+  border-color: #273636;
+}
+
+[data-theme="dark"] .fin-card,
+[data-theme="dark"] .fin-tx-card,
+[data-theme="dark"] .fin-alert-card,
+[data-theme="dark"] .fin-btn-action,
+[data-theme="dark"] .fin-period-btn,
+[data-theme="dark"] .fin-empty-card,
+[data-theme="dark"] .fin-modal {
+  background: #162020;
+  border-color: #273636;
+  color: #f1f5f9;
+}
+
+[data-theme="dark"] .fin-card__holder,
+[data-theme="dark"] .fin-tx-desc,
+[data-theme="dark"] .fin-alert-desc,
+[data-theme="dark"] .fin-section__title,
+[data-theme="dark"] .fin-empty-title {
+  color: #f1f5f9;
+}
+
+[data-theme="dark"] .fin-card__num,
+[data-theme="dark"] .fin-tx-reason,
+[data-theme="dark"] .fin-empty-desc,
+[data-theme="dark"] .finance-auth-banner__desc,
+[data-theme="dark"] .finance-error-banner__msg {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .fin-tx-row:hover {
+  background: #1a2626;
+}
+
+[data-theme="dark"] .fin-view__chat-box {
+  background: #141d1d;
+  border-color: #273636;
+}
+
+[data-theme="dark"] .fin-bubble--assistant {
+  background: #1a2626;
+  border-color: #273636;
+  color: #f1f5f9;
+}
+
+[data-theme="dark"] .finance-error-banner {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+[data-theme="dark"] .finance-auth-banner {
+  background: rgba(45, 212, 191, 0.08);
+  border-color: rgba(45, 212, 191, 0.3);
+}
+

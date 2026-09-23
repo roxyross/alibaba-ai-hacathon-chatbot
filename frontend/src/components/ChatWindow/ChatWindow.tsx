@@ -55,11 +55,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       bottomRef.current;
 
     if (activeEl) {
-      activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      activeEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
       if (activeEl instanceof HTMLElement) {
         activeEl.tabIndex = -1;
         activeEl.focus({ preventScroll: true });
       }
+    } else if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
     }
   }, []);
 
@@ -250,8 +255,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 <AgentActivityTimeline
                   isStreaming={isStreaming}
                   prompt={lastUserMessage?.content}
-                  onStop={onStop}
-                  onReplyNow={handleReplyNow}
                   agentSlug={attribution?.agentSlug || 'coordinator'}
                 />
               )}
@@ -300,6 +303,24 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
           {/* Floating Bottom Single Input */}
           <div className="chat-window__bottom-bar">
+            {isStreaming && (
+              <div className="chat-window__floating-reply-pill">
+                <button
+                  type="button"
+                  className="chat-window__reply-pill-btn"
+                  onClick={handleReplyNow}
+                  title="Jump to live response"
+                  aria-label="Jump to live response"
+                >
+                  <span className="chat-window__reply-pill-dot" />
+                  <span>Reply now</span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <polyline points="19 12 12 19 5 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
 
             <ChatInput
               onSend={onSend}

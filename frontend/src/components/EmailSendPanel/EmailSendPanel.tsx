@@ -78,14 +78,22 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
 
   // Optional SMTP Credentials configuration (for users without Google OAuth)
   const [showSettings, setShowSettings] = useState(false);
-  const [senderEmail, setSenderEmail] = useState(() => localStorage.getItem('roxy_smtp_user') || 'rijjienterprise@gmail.com');
+  const [senderEmail, setSenderEmail] = useState(() => localStorage.getItem('roxy_smtp_user') || '');
   const [appPassword, setAppPassword] = useState(() => localStorage.getItem('roxy_smtp_pass') || '');
   const [savedSettings, setSavedSettings] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const showNotice = (msg: string) => {
+    setNotice(msg);
+    setTimeout(() => setNotice((curr) => (curr === msg ? null : curr)), 4000);
+  };
 
   // Fetch emails list (drafts or sent)
   const loadEmails = useCallback(async () => {
     if (!accessToken) return;
     setLoadingList(true);
+    setFetchError(null);
     try {
       const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
       const [draftRes, sentRes] = await Promise.all([
@@ -100,8 +108,11 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
         const s = await sentRes.json();
         setSentEmails(s.emails || []);
       }
+      if (!draftRes.ok && !sentRes.ok) {
+        setFetchError('Unable to retrieve email records from the server.');
+      }
     } catch {
-      // ignore network error
+      setFetchError('Unable to connect to email service. Check connection or backend status.');
     } finally {
       setLoadingList(false);
     }
@@ -385,13 +396,20 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
   // ── Delete Draft/Message ──────────────────────────────────────────────────
   const handleDelete = async (id: string) => {
     if (!accessToken) return;
+    const prevDrafts = [...drafts];
+    const prevSent = [...sentEmails];
+    setDrafts((prev) => prev.filter((d) => d.id !== id));
+    setSentEmails((prev) => prev.filter((s) => s.id !== id));
     try {
       const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
-      await fetch(`${API_BASE}/emails/${id}`, { method: 'DELETE', headers });
+      const res = await fetch(`${API_BASE}/emails/${id}`, { method: 'DELETE', headers });
+      if (!res.ok) throw new Error('Failed to delete email record');
       if (editingDraftId === id) resetComposer();
-      void loadEmails();
+      showNotice('Email record deleted successfully.');
     } catch {
-      // ignore
+      setDrafts(prevDrafts);
+      setSentEmails(prevSent);
+      setError('Failed to delete email item. Changes rolled back.');
     }
   };
 
@@ -484,6 +502,29 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           📋 Templates <span className="esp__tab-count">{templates.length}</span>
         </button>
       </div>
+
+      {notice && (
+        <div className="esp__notice">
+          <span>✨ {notice}</span>
+          <button type="button" onClick={() => setNotice(null)} className="esp__notice-close">✕</button>
+        </div>
+      )}
+
+      {fetchError && (
+        <div className="esp__error-banner">
+          <span>⚠️ {fetchError}</span>
+          <button type="button" onClick={() => void loadEmails()} className="esp__retry-btn">
+            ↻ Retry Connection
+          </button>
+        </div>
+      )}
+
+      {!accessToken && (
+        <div className="esp__auth-banner">
+          <span>🔒</span>
+          <span>Guest Mode: Sign in to persist drafts, sync sent communications, and access your email records across devices.</span>
+        </div>
+      )}
 
       <div className="esp__body">
         {/* TAB 1: COMPOSE */}

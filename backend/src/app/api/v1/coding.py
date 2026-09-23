@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
@@ -137,12 +137,12 @@ async def update_snippet(
     return CodeSnippetResponse(**item)
 
 
-@router.delete("/snippets/{snippet_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/snippets/{snippet_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_snippet(
     snippet_id: str,
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[CodingService, Depends(get_coding_service)],
-) -> None:
+) -> Response:
     """Delete snippet permanently (returns 404 for unowned)."""
     deleted = await service.repo.delete_snippet(current_user.id, snippet_id)
     if not deleted:
@@ -150,6 +150,7 @@ async def delete_snippet(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Code snippet not found",
         )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------

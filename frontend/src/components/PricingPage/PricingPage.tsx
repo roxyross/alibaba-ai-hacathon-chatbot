@@ -70,6 +70,9 @@ interface PricingPageProps {
   onSelectPlan?: (planId: string) => void;
 }
 
+const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
+const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : (rawApiBase ? `${rawApiBase}/api/v1` : '/api/v1');
+
 export const PricingPage: React.FC<PricingPageProps> = ({ accessToken, onBack, onSelectPlan }) => {
   const [currency, setCurrency] = useState<'both' | 'usd' | 'pkr'>('both');
   const [selectedProvider, setSelectedProvider] = useState<'automatic' | 'stripe' | 'safepay'>('automatic');
@@ -85,7 +88,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ accessToken, onBack, o
     if (planId === 'free') {
       try {
         if (accessToken) {
-          await fetch('/api/v1/billing/subscribe', {
+          await fetch(`${API_BASE}/billing/subscribe`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -93,8 +96,10 @@ export const PricingPage: React.FC<PricingPageProps> = ({ accessToken, onBack, o
             },
             body: JSON.stringify({ plan_id: 'free' }),
           });
+          setSuccessMessage('Free plan active! Enjoy unlimited local chat and voice input.');
+        } else {
+          setSuccessMessage('Free plan active! Sign in to sync across devices and access document memory.');
         }
-        setSuccessMessage('Free plan active! Enjoy unlimited local chat and voice input.');
         onSelectPlan?.('free');
       } catch {
         setSuccessMessage('Free plan activated.');
@@ -119,40 +124,39 @@ export const PricingPage: React.FC<PricingPageProps> = ({ accessToken, onBack, o
       const checkoutCurrency = currency === 'pkr' ? 'PKR' : 'USD';
       const provParam = selectedProvider === 'automatic' ? (checkoutCurrency === 'PKR' ? 'safepay' : 'stripe') : selectedProvider;
 
-      if (accessToken) {
-        const res = await fetch('/api/v1/billing/checkout', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            plan_id: planId,
-            currency: checkoutCurrency,
-            provider: provParam,
-            return_url: `${window.location.origin}/billing?success=true`,
-            cancel_url: `${window.location.origin}/pricing?canceled=true`,
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const providerName = data.provider === 'safepay' ? 'Safepay' : 'Stripe';
-          setSuccessMessage(`Checkout session created with ${providerName}! Redirecting to secure checkout...`);
-          if (data.checkout_url && data.checkout_url.startsWith('http')) {
-            window.location.href = data.checkout_url;
-            return;
-          }
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          setErrorMessage(errData.detail || 'Could not initiate checkout session.');
-        }
-      } else {
-        // Unauthenticated demo fallback
-        const provName = provParam === 'safepay' ? 'Safepay' : 'Stripe';
-        setSuccessMessage(`Redirecting to secure ${provName} checkout for Roxy-AI Pro ($19 / Rs 5,700)...`);
+      if (!accessToken) {
+        setErrorMessage('Please sign in or create an account to start your Pro subscription checkout.');
+        return;
       }
-      onSelectPlan?.(planId);
+
+      const res = await fetch(`${API_BASE}/billing/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          plan_id: planId,
+          currency: checkoutCurrency,
+          provider: provParam,
+          return_url: `${window.location.origin}/billing?success=true`,
+          cancel_url: `${window.location.origin}/pricing?canceled=true`,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const providerName = data.provider === 'safepay' ? 'Safepay' : 'Stripe';
+        setSuccessMessage(`Checkout session created with ${providerName}! Redirecting to secure checkout...`);
+        if (data.checkout_url && data.checkout_url.startsWith('http')) {
+          window.location.href = data.checkout_url;
+          return;
+        }
+        onSelectPlan?.(planId);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setErrorMessage(errData.detail || 'Could not initiate checkout session.');
+      }
     } catch (err: any) {
       setErrorMessage(err.message || 'An unexpected checkout error occurred.');
     } finally {

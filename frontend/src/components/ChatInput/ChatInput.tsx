@@ -1098,11 +1098,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 type="button"
                 className="chat-input__send-btn chat-input__send-btn--stop"
                 onClick={onStop}
-                title="Stop generating (interrupt server)"
+                title="Stop generating"
                 aria-label="Stop generating"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="5" y="5" width="14" height="14" rx="2" />
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
               </button>
             ) : hasContent || !onVoiceClick ? (

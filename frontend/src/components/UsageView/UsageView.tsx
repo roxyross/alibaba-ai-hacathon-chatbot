@@ -7,12 +7,16 @@ interface UsageViewProps {
   onNavigateBilling?: () => void;
 }
 
+const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
+const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : (rawApiBase ? `${rawApiBase}/api/v1` : '/api/v1');
+
 export const UsageView: React.FC<UsageViewProps> = ({
   accessToken,
   onBack,
   onNavigateBilling,
 }) => {
   const [topUpSuccess, setTopUpSuccess] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [stats, setStats] = useState({
     remainingCredits: 100.0,
@@ -35,45 +39,46 @@ export const UsageView: React.FC<UsageViewProps> = ({
     }>
   >([]);
 
-  useEffect(() => {
-    const fetchUsage = async () => {
-      try {
-        const headers: Record<string, string> = {};
-        if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-        const res = await fetch('/api/v1/usage/stats', { headers });
-        if (res.ok) {
-          const data = await res.json();
-          setStats({
-            remainingCredits: data.remaining_credits ?? 100.0,
-            usedThisMonth: data.used_this_month ?? 0.0,
-            estimatedCostUsd: data.estimated_cost_usd ?? 0.0,
-            estimatedCostPkr: data.estimated_cost_pkr ?? 0.0,
-          });
+  const fetchUsage = React.useCallback(async () => {
+    try {
+      const headers: Record<string, string> = {};
+      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      const res = await fetch(`${API_BASE}/usage/stats`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setStats({
+          remainingCredits: data.remaining_credits ?? 100.0,
+          usedThisMonth: data.used_this_month ?? 0.0,
+          estimatedCostUsd: data.estimated_cost_usd ?? 0.0,
+          estimatedCostPkr: data.estimated_cost_pkr ?? 0.0,
+        });
 
-          if (Array.isArray(data.timeline) && data.timeline.length > 0) {
-            setTimelinePoints(data.timeline.map((t: any) => t.tokens || 0));
-          }
-
-          if (Array.isArray(data.recent_activity)) {
-            setRecentActivity(
-              data.recent_activity.map((a: any) => ({
-                id: a.id,
-                feature: a.feature || 'AI Inference',
-                model: a.model || 'model',
-                tokens: a.tokens || 0,
-                costUsd: a.cost_usd || 0,
-                costPkr: a.cost_pkr || 0,
-                time: a.time ? (a.time.includes('T') ? new Date(a.time).toLocaleTimeString() : a.time) : 'Recently',
-              }))
-            );
-          }
+        if (Array.isArray(data.timeline) && data.timeline.length > 0) {
+          setTimelinePoints(data.timeline.map((t: any) => t.tokens || 0));
         }
-      } catch {
-        // Keep zeroed empty states
+
+        if (Array.isArray(data.recent_activity)) {
+          setRecentActivity(
+            data.recent_activity.map((a: any) => ({
+              id: a.id,
+              feature: a.feature || 'AI Inference',
+              model: a.model || 'model',
+              tokens: a.tokens || 0,
+              costUsd: a.cost_usd || 0,
+              costPkr: a.cost_pkr || 0,
+              time: a.time ? (a.time.includes('T') ? new Date(a.time).toLocaleTimeString() : a.time) : 'Recently',
+            }))
+          );
+        }
       }
-    };
-    fetchUsage();
+    } catch {
+      // Keep zeroed empty states
+    }
   }, [accessToken]);
+
+  useEffect(() => {
+    fetchUsage();
+  }, [fetchUsage]);
 
   const maxTokens = Math.max(...timelinePoints);
   const minTokens = Math.min(...timelinePoints);
@@ -99,19 +104,34 @@ export const UsageView: React.FC<UsageViewProps> = ({
   ];
 
   const handleTopUp = async (packId: string, packName: string, usd: number, pkr: number) => {
+    setErrorMessage(null);
+    setTopUpSuccess(null);
+
+    if (!accessToken) {
+      setErrorMessage('Please sign in with your account to purchase credit top-up packs.');
+      return;
+    }
+
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      await fetch('/api/v1/billing/topup', {
+      const res = await fetch(`${API_BASE}/billing/topup`, {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({ pack_id: packId }),
       });
+      if (res.ok) {
+        await fetchUsage();
+        setTopUpSuccess(`Added ${packName} ($${usd} / Rs ${pkr.toLocaleString()}) to your credit wallet.`);
+        setTimeout(() => setTopUpSuccess(null), 5000);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setErrorMessage(errData.detail || 'Top-up transaction could not be completed.');
+      }
     } catch {
-      // local feedback
+      setErrorMessage('Network connection error while purchasing credit pack.');
     }
-    setTopUpSuccess(`Added ${packName} ($${usd} / Rs ${pkr.toLocaleString()}) to your credit wallet.`);
-    setTimeout(() => setTopUpSuccess(null), 5000);
   };
 
   return (
@@ -133,6 +153,27 @@ export const UsageView: React.FC<UsageViewProps> = ({
       </header>
 
       <div className="usage-view__body">
+        {!accessToken && (
+          <div className="usage-view__alert" role="status" style={{ background: '#f8fafc', borderColor: '#cbd5e1', color: '#475569' }}>
+            <span>🔒</span>
+            <span>Guest mode: Sign in to sync your token wallet and view real-time model usage.</span>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="usage-view__alert" role="alert" style={{ background: '#fef2f2', borderColor: '#fca5a5', color: '#991b1b' }}>
+            <span>⚠️</span>
+            <span>{errorMessage}</span>
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {topUpSuccess && (
           <div className="usage-view__alert" role="status">
             <span>✨</span>

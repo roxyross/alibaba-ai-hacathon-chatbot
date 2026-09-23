@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import './KnowledgeVault.css';
 
 interface DocItem {
@@ -10,54 +10,81 @@ interface DocItem {
   snippet: string;
 }
 
+interface VaultChatMessage {
+  sender: 'user' | 'assistant';
+  text: string;
+  sources?: string[];
+  error?: boolean;
+}
+
 interface KnowledgeVaultProps {
   accessToken: string | null;
   onBack: () => void;
 }
 
 export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken, onBack }) => {
+  const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
+  const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : (rawApiBase ? `${rawApiBase}/api/v1` : '/api/v1');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string>('All');
   const [activeDoc, setActiveDoc] = useState<DocItem | null>(null);
   const [chatInput, setChatInput] = useState('');
-  const [vaultChatMessages, setVaultChatMessages] = useState<Array<{ sender: 'user' | 'assistant'; text: string }>>([
+  const [vaultChatMessages, setVaultChatMessages] = useState<VaultChatMessage[]>([
     { sender: 'assistant', text: 'Ask questions grounded directly in your private Knowledge Vault documents.' },
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [documents, setDocuments] = useState<DocItem[]>([]);
-  const [_isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isQuerying, setIsQuerying] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchDocs = useCallback(async () => {
+    if (!accessToken) {
+      setIsLoading(false);
+      setFetchError(null);
+      setDocuments([]);
+      return;
+    }
+    setIsLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch(`${API_BASE}/documents`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.documents)) {
+          setDocuments(
+            data.documents.map((d: any) => ({
+              id: d.document_id,
+              name: d.document_name,
+              folder: 'General',
+              size: `${d.chunk_count || 1} chunks`,
+              updatedAt: d.last_ingested ? new Date(d.last_ingested).toLocaleDateString() : 'Recently',
+              snippet: `Indexed document with ${d.chunk_count || 1} chunks ready for RAG querying.`,
+            }))
+          );
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setFetchError(err.detail || `Server returned error (${res.status})`);
+      }
+    } catch (err: any) {
+      setFetchError(err?.message || 'Failed to connect to Knowledge Vault service.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [accessToken, API_BASE]);
 
   useEffect(() => {
-    const fetchDocs = async () => {
-      setIsLoading(true);
-      try {
-        const headers: Record<string, string> = {};
-        if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-        const res = await fetch('/api/v1/documents', { headers });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.documents)) {
-            setDocuments(
-              data.documents.map((d: any) => ({
-                id: d.document_id,
-                name: d.document_name,
-                folder: 'General',
-                size: `${d.chunk_count || 1} chunks`,
-                updatedAt: d.last_ingested ? new Date(d.last_ingested).toLocaleDateString() : 'Recently',
-                snippet: `Indexed document with ${d.chunk_count || 1} chunks ready for RAG querying.`,
-              }))
-            );
-          }
-        }
-      } catch {
-        // Keep empty
-      } finally {
-        setIsLoading(false);
-      }
-    };
     fetchDocs();
-  }, [accessToken]);
+  }, [fetchDocs]);
 
   const folders = ['All', 'Finance', 'Engineering', 'Strategy', 'General'];
 
@@ -73,79 +100,120 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken, onB
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (!accessToken) {
+      setNotice({ type: 'error', text: 'Please sign in to upload documents to your private Knowledge Vault.' });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    // 50 MB limit
+    if (file.size > 50 * 1024 * 1024) {
+      setNotice({ type: 'error', text: `File "${file.name}" exceeds the maximum allowed size of 50 MB.` });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setIsUploading(true);
+    setNotice(null);
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+      formData.append('document_name', file.name);
 
-      const res = await fetch('/api/v1/documents/upload', {
+      const res = await fetch(`${API_BASE}/documents/upload`, {
         method: 'POST',
-        headers,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: formData,
       });
+
       if (res.ok) {
         const data = await res.json();
         const newDoc: DocItem = {
           id: data.document_id || `doc-${Date.now()}`,
           name: data.document_name || file.name,
           folder: selectedFolder === 'All' ? 'General' : selectedFolder,
-          size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+          size: `${data.chunks_stored || 1} chunks`,
           updatedAt: 'Just now',
-          snippet: `Indexed document containing text from ${file.name}. Vector embeddings generated.`,
+          snippet: `Indexed document containing ${data.chunks_stored || 1} chunks from ${file.name}. Vector embeddings generated.`,
         };
         setDocuments((prev) => [newDoc, ...prev]);
-        return;
+        setNotice({ type: 'success', text: `Successfully indexed "${file.name}" into your Knowledge Vault.` });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setNotice({ type: 'error', text: err.detail || `Failed to index "${file.name}".` });
       }
-    } catch {
-      // fallback local
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || `Network error uploading "${file.name}".` });
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-
-    const localDoc: DocItem = {
-      id: `doc-${Date.now()}`,
-      name: file.name,
-      folder: selectedFolder === 'All' ? 'General' : selectedFolder,
-      size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-      updatedAt: 'Just now',
-      snippet: `Indexed document containing text from ${file.name}. Vector embeddings generated.`,
-    };
-    setDocuments((prev) => [localDoc, ...prev]);
   };
 
-  const handleDelete = async (e: React.MouseEvent, docId: string) => {
+  const handleDelete = async (e: React.MouseEvent, docId: string, docName: string) => {
     e.stopPropagation();
-    try {
-      const headers: Record<string, string> = {};
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-      const res = await fetch(`/api/v1/documents/${docId}`, {
-        method: 'DELETE',
-        headers,
-      });
-      if (res.ok) {
-        setDocuments((prev) => prev.filter((d) => d.id !== docId));
-        if (activeDoc?.id === docId) setActiveDoc(null);
-        return;
-      }
-    } catch {
-      // fallback
+    if (!accessToken) {
+      setNotice({ type: 'error', text: 'Authentication required to delete documents.' });
+      return;
     }
+
+    const confirmed = window.confirm(`Are you sure you want to delete "${docName}" from your Knowledge Vault? This will permanently remove all associated vector embeddings.`);
+    if (!confirmed) return;
+
+    const previousDocs = [...documents];
     setDocuments((prev) => prev.filter((d) => d.id !== docId));
     if (activeDoc?.id === docId) setActiveDoc(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/documents/${docId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (res.ok) {
+        setNotice({ type: 'success', text: `Document "${docName}" deleted from Knowledge Vault.` });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setDocuments(previousDocs);
+        setNotice({ type: 'error', text: err.detail || `Failed to delete "${docName}".` });
+      }
+    } catch (err: any) {
+      setDocuments(previousDocs);
+      setNotice({ type: 'error', text: err?.message || `Network error deleting "${docName}".` });
+    }
   };
 
   const handleSendChat = async () => {
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || isQuerying) return;
     const q = chatInput;
     setVaultChatMessages((prev) => [...prev, { sender: 'user', text: q }]);
     setChatInput('');
+    setIsQuerying(true);
+
+    if (!accessToken) {
+      setIsQuerying(false);
+      setVaultChatMessages((prev) => [
+        ...prev,
+        {
+          sender: 'assistant',
+          text: '🔒 Please sign in to query your private Knowledge Vault documents.',
+          error: true,
+        },
+      ]);
+      return;
+    }
 
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-
-      const res = await fetch('/api/v1/documents/query', {
+      const res = await fetch(`${API_BASE}/documents/query`, {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           query: q,
           document_ids: activeDoc ? [activeDoc.id] : undefined,
@@ -154,29 +222,39 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken, onB
 
       if (res.ok) {
         const data = await res.json();
-        if (data.answer) {
-          setVaultChatMessages((prev) => [
-            ...prev,
-            {
-              sender: 'assistant',
-              text: data.answer,
-            },
-          ]);
-          return;
-        }
+        const answer = data.answer || 'No relevant information found in your selected documents matching this query.';
+        const sources: string[] = Array.isArray(data.sources) ? data.sources : [];
+        setVaultChatMessages((prev) => [
+          ...prev,
+          {
+            sender: 'assistant',
+            text: answer,
+            sources: sources.length > 0 ? sources : undefined,
+          },
+        ]);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setVaultChatMessages((prev) => [
+          ...prev,
+          {
+            sender: 'assistant',
+            text: `⚠️ Query failed: ${err.detail || 'The server could not process the RAG request.'}`,
+            error: true,
+          },
+        ]);
       }
-    } catch {
-      // fallback
+    } catch (err: any) {
+      setVaultChatMessages((prev) => [
+        ...prev,
+        {
+          sender: 'assistant',
+          text: `⚠️ Unable to reach Knowledge Vault service: ${err?.message || 'Connection error'}.`,
+          error: true,
+        },
+      ]);
+    } finally {
+      setIsQuerying(false);
     }
-
-    const targetName = activeDoc ? activeDoc.name : 'Knowledge Vault';
-    setVaultChatMessages((prev) => [
-      ...prev,
-      {
-        sender: 'assistant',
-        text: `Grounded in **${targetName}**: Relevant excerpts indicate verified data points matching "${q}".`,
-      },
-    ]);
   };
 
   return (
@@ -193,22 +271,81 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken, onB
           <button
             type="button"
             className="knowledge-vault__upload-btn"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              if (!accessToken) {
+                setNotice({ type: 'error', text: 'Please sign in to upload documents to your Knowledge Vault.' });
+                return;
+              }
+              fileInputRef.current?.click();
+            }}
+            disabled={isUploading}
           >
-            + Upload Document
+            {isUploading ? 'Uploading...' : '+ Upload Document'}
           </button>
           <input
             type="file"
             ref={fileInputRef}
             style={{ display: 'none' }}
             onChange={handleUpload}
+            accept=".pdf,.docx,.pptx,.txt,.csv,.md,.json"
           />
         </div>
       </header>
 
+      {/* Action Toast Notice */}
+      {notice && (
+        <div className={`vault-notice vault-notice--${notice.type}`}>
+          <span className="vault-notice__icon">{notice.type === 'success' ? '✓' : '⚠️'}</span>
+          <span className="vault-notice__text">{notice.text}</span>
+          <button type="button" className="vault-notice__close" onClick={() => setNotice(null)}>×</button>
+        </div>
+      )}
+
+      {/* Uploading Banner */}
+      {isUploading && (
+        <div className="vault-uploading-bar">
+          <span className="vault-spinner"></span>
+          <span>Indexing document and generating vector embeddings for RAG...</span>
+        </div>
+      )}
+
       <div className="knowledge-vault__content">
         {/* Document Explorer Left Area */}
         <div className="knowledge-vault__explorer">
+          {/* Guest Auth Banner */}
+          {!accessToken && (
+            <div className="vault-auth-banner">
+              <div className="vault-auth-banner__icon">🔒</div>
+              <div className="vault-auth-banner__body">
+                <h4 className="vault-auth-banner__title">Guest Session Mode</h4>
+                <p className="vault-auth-banner__desc">
+                  Sign in to your account to upload documents, generate vector embeddings, and chat with AI grounded in your private knowledge base.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Connection Error Banner */}
+          {fetchError && (
+            <div className="vault-error-banner">
+              <div className="vault-error-banner__content">
+                <span className="vault-error-banner__icon">⚠️</span>
+                <div>
+                  <h4 className="vault-error-banner__title">Failed to load Knowledge Vault</h4>
+                  <p className="vault-error-banner__msg">{fetchError}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="vault-error-banner__retry-btn"
+                onClick={fetchDocs}
+                disabled={isLoading}
+              >
+                {isLoading ? 'Retrying...' : '↻ Retry Connection'}
+              </button>
+            </div>
+          )}
+
           {/* Search & Folder filters */}
           <div className="knowledge-vault__filters">
             <div className="knowledge-vault__search">
@@ -236,23 +373,41 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken, onB
 
           {/* Recent Documents Table / List */}
           <div className="knowledge-vault__list-section">
-            <h3 className="knowledge-vault__section-title">Recent Documents ({filteredDocs.length})</h3>
-            {filteredDocs.length === 0 ? (
+            <div className="knowledge-vault__section-header">
+              <h3 className="knowledge-vault__section-title">Recent Documents ({filteredDocs.length})</h3>
+              {activeDoc && (
+                <span className="knowledge-vault__active-filter-badge">
+                  Filtered to: <strong>{activeDoc.name}</strong>
+                  <button type="button" onClick={() => setActiveDoc(null)}>✕</button>
+                </span>
+              )}
+            </div>
+
+            {isLoading ? (
+              <div className="knowledge-vault__empty" style={{ padding: '3rem 1.5rem', textAlign: 'center' }}>
+                <span className="vault-spinner" style={{ margin: '0 auto 1rem', display: 'block' }}></span>
+                <p style={{ color: 'var(--color-muted, #64748b)', fontSize: '0.88rem' }}>Loading documents...</p>
+              </div>
+            ) : filteredDocs.length === 0 ? (
               <div className="knowledge-vault__empty" style={{ padding: '3rem 1.5rem', textAlign: 'center' }}>
                 <span style={{ fontSize: '2.5rem', display: 'block', marginBottom: '0.6rem' }}>📂</span>
                 <h4 style={{ margin: '0 0 0.4rem 0', fontWeight: 700, fontSize: '1.1rem' }}>
-                  Your Knowledge Vault is empty
+                  {!accessToken ? 'No documents available in guest mode' : 'Your Knowledge Vault is empty'}
                 </h4>
-                <p style={{ color: 'var(--color-muted, #64748b)', fontSize: '0.88rem', maxWidth: '420px', margin: '0 auto 1rem' }}>
-                  Upload PDFs, Word documents, spreadsheets, or text files to index your files and ground AI answers.
+                <p style={{ color: 'var(--color-muted, #64748b)', fontSize: '0.88rem', maxWidth: '440px', margin: '0 auto 1rem' }}>
+                  {!accessToken
+                    ? 'Please sign in to upload and manage your private files with vector search and RAG synthesis.'
+                    : 'Upload PDFs, Word documents, spreadsheets, or text files to index your files and ground AI answers.'}
                 </p>
-                <button
-                  type="button"
-                  className="knowledge-vault__upload-btn"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  + Upload Document
-                </button>
+                {accessToken && (
+                  <button
+                    type="button"
+                    className="knowledge-vault__upload-btn"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    + Upload Document
+                  </button>
+                )}
               </div>
             ) : (
               <div className="knowledge-vault__docs-grid">
@@ -260,7 +415,7 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken, onB
                   <div
                     key={doc.id}
                     className={`doc-card ${activeDoc?.id === doc.id ? 'doc-card--active' : ''}`}
-                    onClick={() => setActiveDoc(doc)}
+                    onClick={() => setActiveDoc(activeDoc?.id === doc.id ? null : doc)}
                   >
                     <div className="doc-card__header">
                       <span className="doc-card__icon">📄</span>
@@ -269,9 +424,9 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken, onB
                         <button
                           type="button"
                           className="doc-card__delete-btn"
-                          onClick={(e) => handleDelete(e, doc.id)}
-                          title="Delete document"
-                          aria-label="Delete document"
+                          onClick={(e) => handleDelete(e, doc.id, doc.name)}
+                          title={`Delete "${doc.name}"`}
+                          aria-label={`Delete "${doc.name}"`}
                         >
                           🗑️
                         </button>
@@ -303,17 +458,32 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken, onB
                 className="vault-chat__clear-filter"
                 onClick={() => setActiveDoc(null)}
               >
-                Clear selection
+                Clear filter
               </button>
             )}
           </div>
 
           <div className="vault-chat__messages">
             {vaultChatMessages.map((m, idx) => (
-              <div key={idx} className={`vault-chat__bubble vault-chat__bubble--${m.sender}`}>
-                {m.text}
+              <div key={idx} className={`vault-chat__bubble vault-chat__bubble--${m.sender} ${m.error ? 'vault-chat__bubble--error' : ''}`}>
+                <div className="vault-chat__text">{m.text}</div>
+                {m.sources && m.sources.length > 0 && (
+                  <div className="vault-chat__sources">
+                    <div className="vault-chat__sources-title">Verified Sources:</div>
+                    <div className="vault-chat__sources-list">
+                      {m.sources.map((src, i) => (
+                        <span key={i} className="vault-chat__source-tag">📄 {src}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
+            {isQuerying && (
+              <div className="vault-chat__bubble vault-chat__bubble--assistant vault-chat__bubble--thinking">
+                <span className="vault-pulse-dot"></span> Synthesizing answer from documents...
+              </div>
+            )}
           </div>
 
           <div className="vault-chat__input-area">
@@ -326,14 +496,15 @@ export const KnowledgeVault: React.FC<KnowledgeVaultProps> = ({ accessToken, onB
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSendChat();
               }}
+              disabled={isQuerying}
             />
             <button
               type="button"
               className="vault-chat__send-btn"
               onClick={handleSendChat}
-              disabled={!chatInput.trim()}
+              disabled={!chatInput.trim() || isQuerying}
             >
-              Send
+              {isQuerying ? '...' : 'Send'}
             </button>
           </div>
         </aside>

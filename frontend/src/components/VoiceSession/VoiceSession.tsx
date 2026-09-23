@@ -111,10 +111,12 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSavingNote, setIsSavingNote] = useState<boolean>(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const fetchSavedRecordings = useCallback(async (search?: string) => {
     if (!accessToken) return;
     setLoadingRecordings(true);
+    setFetchError(null);
     try {
       const q = search ? `?search=${encodeURIComponent(search)}` : '';
       const data = await fetchJSON<{ recordings: VoiceRecordingItem[]; total: number }>(
@@ -123,7 +125,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       );
       setSavedRecordings(data.recordings || []);
     } catch {
-      // ignore
+      setFetchError('Unable to connect to the voice service. Check connection or backend status.');
     } finally {
       setLoadingRecordings(false);
     }
@@ -758,15 +760,16 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
 
   const handleDeleteRecording = async (recId: string) => {
     if (!accessToken) return;
-    if (!window.confirm('Delete this voice recording note?')) return;
+    const prev = [...savedRecordings];
+    setSavedRecordings((curr) => curr.filter((r) => r.id !== recId));
     try {
       await fetchJSON(`${API_BASE}/voice/recordings/${recId}`, accessToken, {
         method: 'DELETE',
       });
-      setSavedRecordings((prev) => prev.filter((r) => r.id !== recId));
       setToastMessage('🗑️ Voice note deleted');
       setTimeout(() => setToastMessage(null), 2500);
     } catch (err) {
+      setSavedRecordings(prev);
       setError(`Failed to delete recording: ${(err as Error).message}`);
     }
   };
@@ -925,6 +928,12 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       {/* VIEW 1: LIVE VOICE SESSION */}
       {activeTab === 'live' && (
         <>
+          {!accessToken && (
+            <div className="vs__auth-banner" style={{ margin: '0 0 0.5rem 0' }}>
+              <span>🔒</span>
+              <span>Guest Mode: Real-time speech interaction is active. Sign in to save transcripts to your Voice Notes library.</span>
+            </div>
+          )}
           {/* Transcript list */}
           <div className="vs__transcripts" aria-label="Transcripts" aria-live="polite">
             {transcripts.length === 0 && !isProcessing && !isRecording && (
@@ -1072,6 +1081,26 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       {/* VIEW 2: VOICE NOTES & TRANSCRIPTS LIBRARY */}
       {activeTab === 'library' && (
         <div className="vs__library" aria-label="Voice Notes Library">
+          {fetchError && (
+            <div className="vs__error-banner" role="alert">
+              <span>⚠️ {fetchError}</span>
+              <button
+                type="button"
+                className="vs__retry-btn"
+                onClick={() => void fetchSavedRecordings(searchQuery)}
+              >
+                ↻ Retry Connection
+              </button>
+            </div>
+          )}
+
+          {!accessToken && (
+            <div className="vs__auth-banner">
+              <span>🔒</span>
+              <span>Guest Mode: Sign in to persist voice notes, extract audio intelligence summaries, and sync memos across devices.</span>
+            </div>
+          )}
+
           <div className="vs__library-toolbar">
             <input
               type="search"

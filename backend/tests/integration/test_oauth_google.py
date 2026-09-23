@@ -26,8 +26,10 @@ import base64
 import json
 import sys
 import time
+from collections.abc import AsyncIterator, Generator
 from typing import Any
 
+import httpx
 import jwt
 import pytest
 import respx
@@ -104,7 +106,7 @@ def _sign_id_token(
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _google_env(monkeypatch: pytest.MonkeyPatch):
+def _google_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     """Set Google OAuth env for every test, then clear on teardown."""
     monkeypatch.setenv("GOOGLE_CLIENT_ID", CLIENT_ID)
     monkeypatch.setenv("GOOGLE_CLIENT_SECRET", CLIENT_SECRET)
@@ -124,9 +126,7 @@ def anyio_backend() -> str:
 
 
 @pytest.fixture
-async def async_client():
-    import httpx
-
+async def async_client() -> AsyncIterator[httpx.AsyncClient]:
     from app.main import app
 
     async with httpx.AsyncClient(
@@ -142,7 +142,7 @@ async def async_client():
 
 
 async def test_start_redirects_to_google_with_state_cookie(
-    async_client, rsa_keypair
+    async_client: httpx.AsyncClient, rsa_keypair: tuple[rsa.RSAPrivateKey, dict[str, Any]]
 ) -> None:
     """With env keys set, /start 302s to accounts.google.com and sets state cookie."""
     with respx.mock(assert_all_called=False) as mock:
@@ -167,7 +167,9 @@ async def test_start_redirects_to_google_with_state_cookie(
         assert "samesite=lax" in set_cookie.lower()
 
 
-async def test_github_provider_is_now_implemented(async_client, monkeypatch) -> None:
+async def test_github_provider_is_now_implemented(
+    async_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GitHub was a future provider when this test was written; it is now
     implemented in ADR-002's in-cluster extension. The /start endpoint should
     302 to github.com, not 501 (or 503).
@@ -189,7 +191,7 @@ async def test_github_provider_is_now_implemented(async_client, monkeypatch) -> 
 
 
 async def test_callback_happy_path_redirects_to_frontend_with_jwt_in_hash(
-    async_client, rsa_keypair
+    async_client: httpx.AsyncClient, rsa_keypair: tuple[rsa.RSAPrivateKey, dict[str, Any]]
 ) -> None:
     """End-to-end: exchange code, verify id_token, mint session, 302 to frontend."""
     private_key, jwks = rsa_keypair
@@ -231,7 +233,7 @@ async def test_callback_happy_path_redirects_to_frontend_with_jwt_in_hash(
         assert qs["access_token"].count(".") == 2
 
 
-async def test_callback_rejects_bad_state(async_client) -> None:
+async def test_callback_rejects_bad_state(async_client: httpx.AsyncClient) -> None:
     """A callback with a state that doesn't match the cookie → 400."""
     r = await async_client.get(
         "/api/v1/auth/oauth/google/callback",
@@ -242,7 +244,7 @@ async def test_callback_rejects_bad_state(async_client) -> None:
     assert "state" in r.json()["detail"].lower()
 
 
-async def test_callback_rejects_missing_code(async_client) -> None:
+async def test_callback_rejects_missing_code(async_client: httpx.AsyncClient) -> None:
     """Callback with no `code` param → 400."""
     r = await async_client.get(
         "/api/v1/auth/oauth/google/callback",
@@ -253,7 +255,7 @@ async def test_callback_rejects_missing_code(async_client) -> None:
 
 
 async def test_callback_provider_error_redirects_to_frontend(
-    async_client, rsa_keypair
+    async_client: httpx.AsyncClient, rsa_keypair: tuple[rsa.RSAPrivateKey, dict[str, Any]]
 ) -> None:
     """If Google sends ?error=... we redirect back to the frontend with it in the hash."""
     r = await async_client.get(
@@ -269,7 +271,7 @@ async def test_callback_provider_error_redirects_to_frontend(
 
 
 async def test_callback_rejects_unverified_email(
-    async_client, rsa_keypair
+    async_client: httpx.AsyncClient, rsa_keypair: tuple[rsa.RSAPrivateKey, dict[str, Any]]
 ) -> None:
     """`email_verified: false` must redirect back to the frontend with an error."""
     private_key, jwks = rsa_keypair
@@ -295,7 +297,7 @@ async def test_callback_rejects_unverified_email(
 
 
 async def test_repeated_oauth_login_reuses_same_user(
-    async_client, rsa_keypair
+    async_client: httpx.AsyncClient, rsa_keypair: tuple[rsa.RSAPrivateKey, dict[str, Any]]
 ) -> None:
     """Same email via OAuth twice → same user_id. Account linking by email."""
     private_key, jwks = rsa_keypair
@@ -334,7 +336,7 @@ async def test_repeated_oauth_login_reuses_same_user(
         assert sub_1 == sub_2  # same user
 
 
-async def test_state_is_single_use(async_client) -> None:
+async def test_state_is_single_use(async_client: httpx.AsyncClient) -> None:
     """Replaying the same (code, state) must fail the second time."""
     # First: /start (sets cookie+state), then /callback (consumes state).
     r1 = await async_client.get(
@@ -353,7 +355,9 @@ async def test_state_is_single_use(async_client) -> None:
 
 
 async def test_stateless_hmac_state_in_production_without_cookie(
-    async_client, rsa_keypair, monkeypatch
+    async_client: httpx.AsyncClient,
+    rsa_keypair: tuple[rsa.RSAPrivateKey, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """In production (e.g. Vercel), Chrome Incognito blocks cookies, but signed HMAC state succeeds."""
     monkeypatch.setenv("VERCEL", "1")
@@ -388,7 +392,9 @@ async def test_stateless_hmac_state_in_production_without_cookie(
 
 
 async def test_stateless_hmac_state_in_production_with_stale_cookie(
-    async_client, rsa_keypair, monkeypatch
+    async_client: httpx.AsyncClient,
+    rsa_keypair: tuple[rsa.RSAPrivateKey, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """In production, if browser holds a stale cookie from a previous session, fresh HMAC state still succeeds."""
     monkeypatch.setenv("VERCEL", "1")
@@ -420,4 +426,62 @@ async def test_stateless_hmac_state_in_production_with_stale_cookie(
         )
         assert r2.status_code == 302
         assert "access_token=" in r2.headers["location"]
+
+
+async def test_callback_fallback_to_userinfo_when_jwks_fails(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """When JWKS signature check fails, callback falls back to Google's userinfo endpoint."""
+    userinfo_url = "https://www.googleapis.com/oauth2/v3/userinfo"
+    with respx.mock(assert_all_called=False) as respx_mock:
+        respx_mock.get(GOOGLE_JWKS_URL).respond(500)
+        respx_mock.post(GOOGLE_TOKEN_URL).respond(
+            200,
+            json={
+                "id_token": "malformed.or.unverifiable.token",
+                "access_token": "valid-google-access-token",
+                "token_type": "Bearer",
+            },
+        )
+        respx_mock.get(userinfo_url).respond(
+            200,
+            json={
+                "email": "userinfo-fallback@example.com",
+                "email_verified": True,
+                "sub": "userinfo-sub-999",
+            },
+        )
+        r1 = await async_client.get(
+            "/api/v1/auth/oauth/google/start", follow_redirects=False
+        )
+        state = r1.headers["location"].split("state=")[1].split("&")[0]
+
+        r2 = await async_client.get(
+            "/api/v1/auth/oauth/google/callback",
+            params={"code": "valid-code", "state": state},
+            follow_redirects=False,
+        )
+        assert r2.status_code == 302
+        assert "access_token=" in r2.headers["location"]
+
+
+async def test_callback_unexpected_error_redirects_gracefully(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """When token endpoint returns 500, callback redirects to frontend with error rather than crashing."""
+    with respx.mock(assert_all_called=False) as respx_mock:
+        respx_mock.post(GOOGLE_TOKEN_URL).respond(500)
+        r1 = await async_client.get(
+            "/api/v1/auth/oauth/google/start", follow_redirects=False
+        )
+        state = r1.headers["location"].split("state=")[1].split("&")[0]
+
+        r2 = await async_client.get(
+            "/api/v1/auth/oauth/google/callback",
+            params={"code": "valid-code", "state": state},
+            follow_redirects=False,
+        )
+        assert r2.status_code == 302
+        assert "error=" in r2.headers["location"]
+
 

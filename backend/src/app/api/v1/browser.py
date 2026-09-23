@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
@@ -132,11 +132,11 @@ async def update_browser_task(
     return BrowserTaskResponse(task=updated)
 
 
-@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_browser_task(
     task_id: str,
     current_user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     """Delete a browser task, enforcing strict tenant isolation."""
     user_id = str(current_user.id)
     repo = BrowserRepository()
@@ -146,6 +146,7 @@ async def delete_browser_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Browser task '{task_id}' not found.",
         )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/navigate", response_model=BrowserNavigateResponse)

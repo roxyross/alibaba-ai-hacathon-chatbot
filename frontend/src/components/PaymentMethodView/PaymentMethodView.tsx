@@ -14,6 +14,9 @@ interface SavedMethod {
   isPrimary: boolean;
 }
 
+const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
+const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : (rawApiBase ? `${rawApiBase}/api/v1` : '/api/v1');
+
 export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToken, onBack }) => {
   const [cardNumber, setCardNumber] = useState('');
   const [expiry, setExpiry] = useState('');
@@ -21,14 +24,18 @@ export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToke
   const [nameOnCard, setNameOnCard] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [savedMethods, setSavedMethods] = useState<SavedMethod[]>([]);
   const [_isLoading, setIsLoading] = useState(false);
 
   const fetchMethods = useCallback(async () => {
-    if (!accessToken) return;
+    if (!accessToken) {
+      setSavedMethods([]);
+      return;
+    }
     setIsLoading(true);
     try {
-      const res = await fetch('/api/v1/billing/payment-methods', {
+      const res = await fetch(`${API_BASE}/billing/payment-methods`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (res.ok) {
@@ -58,9 +65,12 @@ export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToke
           });
         });
         setSavedMethods(items);
+      } else {
+        setErrorMessage('Failed to load saved payment methods.');
       }
     } catch (err) {
       console.error('Failed to fetch payment methods', err);
+      setErrorMessage('Could not load payment methods from server.');
     } finally {
       setIsLoading(false);
     }
@@ -73,8 +83,15 @@ export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToke
   const handleAddCard = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cardNumber || !expiry || !cvc) return;
-    setIsProcessing(true);
+    setSuccessMessage(null);
+    setErrorMessage(null);
 
+    if (!accessToken) {
+      setErrorMessage('Please sign in to securely link and tokenize payment cards on your account.');
+      return;
+    }
+
+    setIsProcessing(true);
     try {
       const cleanNum = cardNumber.replace(/\s+/g, '');
       const [expM, expY] = expiry.split('/').map((s) => parseInt(s.trim(), 10));
@@ -83,49 +100,36 @@ export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToke
       const brand = cleanNum.startsWith('4') ? 'Visa' : 'Mastercard';
       const last4 = cleanNum.slice(-4) || '1234';
 
-      if (accessToken) {
-        const res = await fetch('/api/v1/billing/payment-methods', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            brand,
-            last4,
-            exp_month: expMonth,
-            exp_year: expYear,
-            set_as_default: savedMethods.length === 0,
-          }),
-        });
-        if (res.ok) {
-          await fetchMethods();
-          setSuccessMessage('Card saved securely via Stripe Elements.');
-          setCardNumber('');
-          setExpiry('');
-          setCvc('');
-          setNameOnCard('');
-          setTimeout(() => setSuccessMessage(null), 5000);
-          return;
-        }
-      }
+      const res = await fetch(`${API_BASE}/billing/payment-methods`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          brand,
+          last4,
+          exp_month: expMonth,
+          exp_year: expYear,
+          set_as_default: savedMethods.length === 0,
+        }),
+      });
 
-      const newMethod: SavedMethod = {
-        id: `pm-${Date.now()}`,
-        brand,
-        last4,
-        expiry: expiry || '05/29',
-        isPrimary: savedMethods.length === 0,
-      };
-      setSavedMethods((prev) => [...prev, newMethod]);
-      setSuccessMessage('Card saved securely via Stripe Elements.');
-      setCardNumber('');
-      setExpiry('');
-      setCvc('');
-      setNameOnCard('');
-      setTimeout(() => setSuccessMessage(null), 5000);
-    } catch (err) {
+      if (res.ok) {
+        await fetchMethods();
+        setSuccessMessage('Card saved and tokenized securely via Stripe Elements.');
+        setCardNumber('');
+        setExpiry('');
+        setCvc('');
+        setNameOnCard('');
+        setTimeout(() => setSuccessMessage(null), 5000);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setErrorMessage(errData.detail || 'Failed to authorize and save card.');
+      }
+    } catch (err: any) {
       console.error('Failed to save card', err);
+      setErrorMessage(err.message || 'Payment method authorization failed.');
     } finally {
       setIsProcessing(false);
     }
@@ -139,16 +143,23 @@ export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToke
 
   const handleDeleteMethod = async (id: string) => {
     if (!confirm('Remove this saved card?')) return;
+    const previous = [...savedMethods];
+    setSavedMethods((prev) => prev.filter((m) => m.id !== id));
     try {
       if (accessToken) {
-        await fetch(`/api/v1/billing/payment-methods/${id}`, {
+        const res = await fetch(`${API_BASE}/billing/payment-methods/${id}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${accessToken}` },
         });
+        if (!res.ok) {
+          setSavedMethods(previous);
+          setErrorMessage('Failed to delete payment method on server.');
+        }
       }
-      setSavedMethods((prev) => prev.filter((m) => m.id !== id));
     } catch (err) {
       console.error('Failed to remove card', err);
+      setSavedMethods(previous);
+      setErrorMessage('Could not remove card due to network error.');
     }
   };
 
@@ -165,6 +176,27 @@ export const PaymentMethodView: React.FC<PaymentMethodViewProps> = ({ accessToke
       </header>
 
       <div className="pm-view__body">
+        {!accessToken && (
+          <div className="pm-view__alert" role="status" style={{ background: '#f8fafc', borderColor: '#cbd5e1', color: '#475569' }}>
+            <span>🔒</span>
+            <span>Guest mode: Sign in to manage your saved cards and authorize real tokenized transactions.</span>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="pm-view__alert" role="alert" style={{ background: '#fef2f2', borderColor: '#fca5a5', color: '#991b1b' }}>
+            <span>⚠️</span>
+            <span>{errorMessage}</span>
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {successMessage && (
           <div className="pm-view__alert" role="status">
             <span>✨</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 
 interface MediaItem {
   id: string;
@@ -9,7 +9,13 @@ interface MediaItem {
   aspectRatio: string;
   type: "image" | "video";
   timestamp: string;
+  is_favorite?: boolean;
+  style_preset?: string;
+  vault_document_id?: string;
 }
+
+const rawApiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api/v1";
+const API_BASE = rawApiBase.endsWith("/api/v1") ? rawApiBase : `${rawApiBase}/api/v1`;
 
 export default function ImageStudioPage() {
   const [sidebarTab, setSidebarTab] = useState<"generations" | "uploads">("generations");
@@ -20,52 +26,175 @@ export default function ImageStudioPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const [generations, setGenerations] = useState<MediaItem[]>([
-    {
-      id: "1",
-      url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80",
-      prompt: "Minimalist architectural pavilion in misty Nordic forest, ethereal morning light, soft teal reflections",
-      aspectRatio: "16:9",
-      type: "image",
-      timestamp: "10 mins ago"
-    },
-    {
-      id: "2",
-      url: "https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?auto=format&fit=crop&w=800&q=80",
-      prompt: "Abstract fluid dynamics in emerald and soft teal gradients, smooth caustics, clean render",
-      aspectRatio: "1:1",
-      type: "image",
-      timestamp: "1 hour ago"
-    }
-  ]);
-
+  const [generations, setGenerations] = useState<MediaItem[]>([]);
   const [uploads, setUploads] = useState<MediaItem[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleGenerate = () => {
+  const showNotice = (msg: string) => {
+    setNotice(msg);
+    setTimeout(() => setNotice((curr) => (curr === msg ? null : curr)), 4000);
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const tok = localStorage.getItem("roxy_access_token") || localStorage.getItem("access_token");
+      setAccessToken(tok);
+    }
+  }, []);
+
+  const fetchGenerations = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      setErrorBanner(null);
+      const res = await fetch(`${API_BASE}/images/generations`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const mapped: MediaItem[] = (data.generations || []).map((g: any) => ({
+          id: g.id,
+          url: g.media_url,
+          prompt: g.prompt,
+          aspectRatio: g.aspect_ratio || "1:1",
+          type: g.media_type || "image",
+          timestamp: g.created_at ? new Date(g.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Recently",
+          is_favorite: Boolean(g.is_favorite),
+          style_preset: g.style_preset,
+          vault_document_id: g.vault_document_id,
+        }));
+        setGenerations(mapped);
+      } else {
+        setErrorBanner("Failed to retrieve image gallery from the server.");
+      }
+    } catch {
+      setErrorBanner("Could not connect to Image Studio server.");
+    }
+  }, [accessToken]);
+
+  const fetchUploads = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const res = await fetch(`${API_BASE}/images/uploads`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const mapped: MediaItem[] = (data.uploads || []).map((u: any) => ({
+          id: u.id,
+          url: u.media_url,
+          prompt: u.filename,
+          aspectRatio: "Original",
+          type: u.media_type || "image",
+          timestamp: u.created_at ? new Date(u.created_at).toLocaleDateString() : "Recently",
+        }));
+        setUploads(mapped);
+      }
+    } catch {
+      // offline error handled gracefully
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (accessToken) {
+      fetchGenerations();
+      fetchUploads();
+    }
+  }, [accessToken, fetchGenerations, fetchUploads]);
+
+  const handleGenerate = async () => {
     if (!prompt.trim() || isGenerating) return;
+    if (!accessToken) {
+      showNotice("Please sign in to generate and save artwork.");
+      return;
+    }
     setIsGenerating(true);
+    setErrorBanner(null);
 
-    setTimeout(() => {
-      const newItem: MediaItem = {
-        id: Date.now().toString(),
-        url: "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=800&q=80",
-        prompt: prompt,
-        aspectRatio: aspectRatio,
-        type: mediaType,
-        timestamp: "Just now"
-      };
-      setGenerations(prev => [newItem, ...prev]);
+    try {
+      const res = await fetch(`${API_BASE}/images/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          media_type: mediaType,
+          aspect_ratio: aspectRatio,
+          speed: speedQuality,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const g = data.generation;
+        const newItem: MediaItem = {
+          id: g.id,
+          url: g.media_url,
+          prompt: g.prompt,
+          aspectRatio: g.aspect_ratio || aspectRatio,
+          type: g.media_type || mediaType,
+          timestamp: "Just now",
+          is_favorite: false,
+          style_preset: g.style_preset,
+        };
+        setGenerations((prev) => [newItem, ...prev]);
+        setPrompt("");
+        showNotice("Artwork synthesized successfully!");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setErrorBanner(err.detail || "Image generation failed. Please try again.");
+      }
+    } catch {
+      setErrorBanner("Network error during image synthesis.");
+    } finally {
       setIsGenerating(false);
-      setPrompt("");
-    }, 1800);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!accessToken) {
+      showNotice("Please sign in to upload reference assets.");
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/images/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: formData,
+      });
+
+      if (res.ok) {
+        await fetchUploads();
+        setSidebarTab("uploads");
+        showNotice(`Uploaded "${file.name}" successfully.`);
+      } else {
+        showNotice("Failed to upload reference media.");
+      }
+    } catch {
+      showNotice("Network error during upload.");
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
   };
 
   const toggleVoiceInput = () => {
     const SpeechRec = (typeof window !== "undefined" && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
 
     if (!SpeechRec) {
-      alert("Speech recognition is not supported in this browser.");
+      showNotice("Speech recognition is not supported in this browser.");
       return;
     }
 
@@ -83,24 +212,12 @@ export default function ImageStudioPage() {
       recognition.onerror = () => setIsListening(false);
       recognition.onresult = (e: any) => {
         const text = e.results[0][0].transcript;
-        setPrompt(prev => prev ? `${prev} ${text}` : text);
+        setPrompt((prev) => (prev ? `${prev} ${text}` : text));
       };
       recognition.start();
     } catch {
       setIsListening(false);
     }
-  };
-
-  const handleSimulateUpload = () => {
-    const newUpload: MediaItem = {
-      id: Date.now().toString(),
-      url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80",
-      prompt: "Uploaded raw reference photo - coastal dunes",
-      aspectRatio: "16:9",
-      type: "image",
-      timestamp: "Just now"
-    };
-    setUploads(prev => [newUpload, ...prev]);
   };
 
   return (
@@ -117,7 +234,7 @@ export default function ImageStudioPage() {
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
-              Generations
+              Generations ({generations.length})
             </button>
             <button
               onClick={() => setSidebarTab("uploads")}
@@ -127,7 +244,7 @@ export default function ImageStudioPage() {
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
-              Uploads
+              Uploads ({uploads.length})
             </button>
           </div>
         </div>
@@ -135,36 +252,51 @@ export default function ImageStudioPage() {
         {/* Action Button in sidebar */}
         <div className="p-3 border-b border-slate-100">
           <button
-            onClick={handleSimulateUpload}
+            onClick={() => fileInputRef.current?.click()}
             className="w-full py-2 px-3 rounded-lg text-xs font-semibold bg-black text-white hover:bg-slate-800 flex items-center justify-center gap-1.5 shadow-sm transition-all"
           >
             <span>+</span>
-            <span>Upload Media</span>
+            <span>Upload Reference</span>
           </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: "none" }}
+            accept="image/*,video/*"
+            onChange={handleFileUpload}
+          />
         </div>
 
         {/* List of generated or uploaded thumbnails */}
         <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
           {sidebarTab === "generations" ? (
-            generations.map((item) => (
-              <div
-                key={item.id}
-                className="group relative rounded-lg overflow-hidden border border-slate-200 bg-white hover:border-[#0d9488] transition-all cursor-pointer"
-              >
-                <img src={item.url} alt={item.prompt} className="w-full h-24 object-cover" />
-                <div className="p-2">
-                  <p className="text-[11px] font-medium text-slate-700 truncate">{item.prompt}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{item.aspectRatio} · {item.timestamp}</p>
-                </div>
+            generations.length === 0 ? (
+              <div className="text-center py-10 px-4">
+                <div className="text-3xl mb-2 text-slate-300">🎨</div>
+                <p className="text-xs font-semibold text-slate-700">No artwork yet</p>
+                <p className="text-[11px] text-slate-400 mt-1">Synthesize an image below to populate your gallery</p>
               </div>
-            ))
+            ) : (
+              generations.map((item) => (
+                <div
+                  key={item.id}
+                  className="group relative rounded-lg overflow-hidden border border-slate-200 bg-white hover:border-[#0d9488] transition-all cursor-pointer"
+                >
+                  <img src={item.url} alt={item.prompt} className="w-full h-24 object-cover" />
+                  <div className="p-2">
+                    <p className="text-[11px] font-medium text-slate-700 truncate">{item.prompt}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{item.aspectRatio} · {item.timestamp}</p>
+                  </div>
+                </div>
+              ))
+            )
           ) : uploads.length === 0 ? (
             <div className="text-center py-10 px-4">
               <div className="text-3xl mb-2 text-slate-300">📁</div>
               <p className="text-xs font-semibold text-slate-700">No media uploaded</p>
               <p className="text-[11px] text-slate-400 mt-1">Upload reference images to augment your prompts</p>
               <button
-                onClick={handleSimulateUpload}
+                onClick={() => fileInputRef.current?.click()}
                 className="mt-3 text-xs text-[#0d9488] font-semibold hover:underline"
               >
                 Upload now
@@ -192,54 +324,96 @@ export default function ImageStudioPage() {
         {/* Gallery / Workspace */}
         <div className="flex-1 overflow-y-auto p-6 sm:p-8">
           <div className="max-w-5xl mx-auto space-y-6">
+            {/* Notification Toast */}
+            {notice && (
+              <div className="p-3 bg-teal-50 border border-teal-200 text-teal-800 rounded-xl text-xs flex items-center justify-between">
+                <span>✨ {notice}</span>
+                <button onClick={() => setNotice(null)} className="text-teal-600 font-bold hover:text-teal-900">✕</button>
+              </div>
+            )}
+
+            {/* Error Banner */}
+            {errorBanner && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center justify-between">
+                <span>⚠️ {errorBanner}</span>
+                <button
+                  onClick={() => {
+                    fetchGenerations();
+                    fetchUploads();
+                  }}
+                  className="px-2 py-1 bg-rose-600 text-white rounded text-[11px] font-semibold hover:bg-rose-700"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* Guest Banner */}
+            {!accessToken && (
+              <div className="p-3 bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs flex items-center gap-2">
+                <span>🔒</span>
+                <span>You are in guest preview mode. Sign in to synthesize and save artwork permanently to your gallery.</span>
+              </div>
+            )}
+
             <div className="text-center sm:text-left">
               <h1 className="text-2xl sm:text-3xl font-bold text-[#1e292b] tracking-tight">
                 What should we imagine?
               </h1>
               <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                Generate hyper-detailed visuals or cinematic motion clips with Gemini Omni & Stable Diffusion XL.
+                Generate hyper-detailed visuals or cinematic motion clips with Gemini Omni & FLUX.
               </p>
             </div>
 
             {/* Generated Items Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-              {generations.map((item) => (
-                <div
-                  key={item.id}
-                  className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col"
-                >
-                  <div className="relative aspect-video bg-slate-100 overflow-hidden">
-                    <img
-                      src={item.url}
-                      alt={item.prompt}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <div className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[10px] text-white font-medium">
-                      {item.aspectRatio}
+            {generations.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+                <div className="text-4xl mb-3">🎨</div>
+                <h3 className="text-base font-semibold text-slate-800">Your neural gallery is empty</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+                  Describe any scene or creative concept in the prompt bar below to synthesize high-resolution artwork.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                {generations.map((item) => (
+                  <div
+                    key={item.id}
+                    className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col group"
+                  >
+                    <div className="relative aspect-video bg-slate-100 overflow-hidden">
+                      <img
+                        src={item.url}
+                        alt={item.prompt}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                      <div className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[10px] text-white font-medium">
+                        {item.aspectRatio}
+                      </div>
+                    </div>
+                    <div className="p-4 flex-1 flex flex-col justify-between">
+                      <div>
+                        <p className="text-xs text-slate-800 leading-relaxed font-medium">
+                          &quot;{item.prompt}&quot;
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-100 text-[11px] text-slate-400">
+                        <span>{item.timestamp}</span>
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#0d9488] font-semibold hover:underline flex items-center gap-1"
+                        >
+                          <span>High-Res</span>
+                          <span>↗</span>
+                        </a>
+                      </div>
                     </div>
                   </div>
-                  <div className="p-4 flex-1 flex flex-col justify-between">
-                    <div>
-                      <p className="text-xs text-slate-800 leading-relaxed font-medium">
-                        &quot;{item.prompt}&quot;
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-100 text-[11px] text-slate-400">
-                      <span>{item.timestamp}</span>
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[#0d9488] font-semibold hover:underline flex items-center gap-1"
-                      >
-                        <span>Download</span>
-                        <span>↓</span>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -300,7 +474,7 @@ export default function ImageStudioPage() {
               </div>
 
               <span className="text-[11px] text-slate-400">
-                1 Credit per render · High-res upscale available
+                1 Credit per render · High-res neural synthesis
               </span>
             </div>
 
@@ -316,11 +490,11 @@ export default function ImageStudioPage() {
                   +
                 </button>
                 {plusMenuOpen && (
-                  <div className="absolute bottom-11 left-0 w-48 bg-white rounded-xl shadow-xl border border-slate-200 p-2 z-50">
+                  <div className="absolute bottom-11 left-0 w-52 bg-white rounded-xl shadow-xl border border-slate-200 p-2 z-50">
                     <button
                       onClick={() => {
                         setPlusMenuOpen(false);
-                        handleSimulateUpload();
+                        fileInputRef.current?.click();
                       }}
                       className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
                     >

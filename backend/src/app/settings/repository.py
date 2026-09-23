@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy import select
 
@@ -23,6 +24,7 @@ class _MemSettings:
     auto_scroll: bool = True
     voice_id: str = "aura-asteria-en"
     preferred_provider: str | None = None
+    extra_settings: dict[str, Any] = field(default_factory=dict)
 
 
 class SettingsRepository:
@@ -58,6 +60,7 @@ class SettingsRepository:
                     auto_scroll=True,
                     voice_id="aura-asteria-en",
                     preferred_provider=None,
+                    extra_settings={},
                 )
                 session.add(row)
                 await session.commit()
@@ -67,6 +70,10 @@ class SettingsRepository:
     async def update_for_user(
         self, user_id: str, payload: SettingsUpdateRequest
     ) -> UserPreference | _MemSettings:
+        extra_payload = dict(payload.extra_settings or {})
+        if payload.model_extra:
+            extra_payload.update(payload.model_extra)
+
         factory = get_session_factory()
         if factory is None:
             settings = await self.get_for_user(user_id)
@@ -84,6 +91,10 @@ class SettingsRepository:
                 settings.voice_id = payload.voice_id
             if payload.preferred_provider is not None:
                 settings.preferred_provider = payload.preferred_provider
+            if extra_payload:
+                curr_mem = dict(settings.extra_settings or {})
+                curr_mem.update(extra_payload)
+                settings.extra_settings = curr_mem
             return settings
 
         async with factory() as session:
@@ -103,6 +114,7 @@ class SettingsRepository:
                     auto_scroll=payload.auto_scroll if payload.auto_scroll is not None else True,
                     voice_id=payload.voice_id or "aura-asteria-en",
                     preferred_provider=payload.preferred_provider,
+                    extra_settings=extra_payload,
                 )
                 session.add(row)
             else:
@@ -120,7 +132,12 @@ class SettingsRepository:
                     row.voice_id = payload.voice_id
                 if payload.preferred_provider is not None:
                     row.preferred_provider = payload.preferred_provider
+                if extra_payload:
+                    curr = dict(row.extra_settings or {})
+                    curr.update(extra_payload)
+                    row.extra_settings = curr
 
             await session.commit()
             await session.refresh(row)
             return row
+

@@ -243,6 +243,9 @@ async def oauth_callback(
                 reason=exc.reason,
             )
             return _redirect_with_error(provider, exc.reason, frontend_base=frontend_base)
+        except Exception as exc:
+            log.exception("auth.oauth.callback.unexpected_error", provider=provider, error=str(exc))
+            return _redirect_with_error(provider, "oauth_internal_error", frontend_base=frontend_base)
         log.info("auth.oauth.callback.success", provider=provider, user_id=user.id)
         return _redirect_with_jwt(jwt_token, ttl, frontend_base=frontend_base)
 
@@ -262,6 +265,9 @@ async def oauth_callback(
                 reason=exc.reason,
             )
             return _redirect_with_error(provider, exc.reason, frontend_base=frontend_base)
+        except Exception as exc:
+            log.exception("auth.oauth.callback.unexpected_error", provider=provider, error=str(exc))
+            return _redirect_with_error(provider, "oauth_internal_error", frontend_base=frontend_base)
         log.info("auth.oauth.callback.success", provider=provider, user_id=user.id)
         return _redirect_with_jwt(jwt_token, ttl, frontend_base=frontend_base)
 

@@ -122,6 +122,7 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
   const [isLoadingReports, setIsLoadingReports] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // URL Fetcher State
   const [fetchUrl, setFetchUrl] = useState('');
@@ -131,14 +132,15 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
   // Load Saved Reports
   const loadReports = useCallback(async () => {
     setIsLoadingReports(true);
+    setFetchError(null);
     try {
       const data = await fetchJSON<{ reports: ResearchReportItem[]; total: number }>(
         `${API_BASE}/research`,
         accessToken,
       );
       setSavedReports(data.reports || []);
-    } catch (err: unknown) {
-      console.warn('Could not load saved research reports:', err);
+    } catch {
+      setFetchError('Unable to retrieve research reports. Check connection or backend status.');
     } finally {
       setIsLoadingReports(false);
     }
@@ -239,7 +241,11 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
   // Delete saved report
   const handleDeleteReport = async (reportId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (!window.confirm('Delete this research report permanently?')) return;
+    const prev = [...savedReports];
+    setSavedReports((curr) => curr.filter((r) => r.id !== reportId));
+    if (activeReport && 'id' in activeReport && activeReport.id === reportId) {
+      setActiveReport(null);
+    }
     try {
       await fetchJSON<{ status: string }>(
         `${API_BASE}/research/${reportId}`,
@@ -247,13 +253,10 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
         { method: 'DELETE' },
       );
       showToast('Report deleted.');
-      setSavedReports((prev) => prev.filter((r) => r.id !== reportId));
-      if (activeReport && 'id' in activeReport && activeReport.id === reportId) {
-        setActiveReport(null);
-      }
     } catch (err: unknown) {
+      setSavedReports(prev);
       const msg = err instanceof Error ? err.message : String(err);
-      setErrorMsg(`Failed to delete report: ${msg}`);
+      setErrorMsg(`Failed to delete report: ${msg}. Changes rolled back.`);
     }
   };
 
@@ -425,6 +428,29 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
           >
             &times;
           </button>
+        </div>
+      )}
+
+      {/* Connection Error Banner */}
+      {fetchError && (
+        <div className="research-hub__error-banner" role="alert">
+          <AlertCircle size={18} />
+          <span>{fetchError}</span>
+          <button
+            type="button"
+            className="research-hub__retry-btn"
+            onClick={() => void loadReports()}
+          >
+            ↻ Retry Connection
+          </button>
+        </div>
+      )}
+
+      {/* Guest Mode Notice Banner */}
+      {!accessToken && (
+        <div className="research-hub__auth-banner">
+          <span>🔒</span>
+          <span>Guest Mode: Sign in to persist deep investigations, save research dossiers, and sync sources across devices.</span>
         </div>
       )}
 
