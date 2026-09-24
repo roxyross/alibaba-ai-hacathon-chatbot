@@ -70,7 +70,21 @@ class SettingsRepository:
     async def update_for_user(
         self, user_id: str, payload: SettingsUpdateRequest
     ) -> UserPreference | _MemSettings:
+        dumped = payload.model_dump(exclude_unset=True)
+        core_keys = {
+            "theme",
+            "custom_persona",
+            "stream_speed",
+            "sound_effects",
+            "auto_scroll",
+            "voice_id",
+            "preferred_provider",
+            "extra_settings",
+        }
         extra_payload = dict(payload.extra_settings or {})
+        for k, v in dumped.items():
+            if k not in core_keys and v is not None:
+                extra_payload[k] = v
         if payload.model_extra:
             extra_payload.update(payload.model_extra)
 

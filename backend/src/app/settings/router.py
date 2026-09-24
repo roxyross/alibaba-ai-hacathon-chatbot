@@ -1,4 +1,4 @@
-"""Settings routes: GET and PATCH /settings for current user."""
+"""Settings routes: GET and PATCH /settings for current user across all 15 sections."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from app.settings.schemas import SettingsResponse, SettingsUpdateRequest
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 _repo = SettingsRepository()
+
+
 
 
 def _to_response(row: Any) -> SettingsResponse:
@@ -30,8 +32,8 @@ def _to_response(row: Any) -> SettingsResponse:
     for k, v in extra.items():
         if k not in base_dict:
             base_dict[k] = v
-    return SettingsResponse(**base_dict)
 
+    return SettingsResponse(**base_dict)
 
 
 @router.get("", response_model=SettingsResponse)
@@ -49,6 +51,16 @@ async def update_settings(
     payload: SettingsUpdateRequest,
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> SettingsResponse:
-    """Update settings for the current authenticated user."""
+    """Update settings for the current authenticated user across all 15 sections."""
+    # Filter out masked BYOK values to prevent overwriting existing keys with bullet dots
+    existing_row = await _repo.get_for_user(current_user.id)
+    existing_extra = dict(getattr(existing_row, "extra_settings", {}) or {})
+
+    # If payload contains a masked byok value (e.g. starts with '•'), preserve the existing key
+    for k in ("byok_gemini", "byok_openai", "byok_anthropic", "byok_flux"):
+        val = getattr(payload, k, None)
+        if isinstance(val, str) and ("•" in val or val == "••••••••"):
+            setattr(payload, k, existing_extra.get(k))
+
     row = await _repo.update_for_user(current_user.id, payload)
     return _to_response(row)

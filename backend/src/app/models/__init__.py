@@ -40,6 +40,7 @@ from app.models.study_deck import QuizSession, StudyCard, StudyDeck
 from app.models.code_snippet import CodeExecution, CodeSnippet
 from app.models.semantic_memory import CuratorRunReport, SemanticMemory
 from app.models.audit_log import AuditLogEntry
+from app.models.media_job import MediaAsset, MediaGenerationJob
 
 __all__ = [
     "AuditLogEntry",
@@ -60,6 +61,8 @@ __all__ = [
     "FinanceTransaction",
     "GeneratedImage",
     "MagicLinkToken",
+    "MediaAsset",
+    "MediaGenerationJob",
     "Model",
     "Payment",
     "PaymentEvent",

@@ -85,3 +85,8 @@ scratch/
 
 .vercel
 *.mp4
+
+backend/static/media/uploads/*
+!backend/static/media/uploads/.gitkeep
+backend/static/media/generated/*
+!backend/static/media/generated/.gitkeep

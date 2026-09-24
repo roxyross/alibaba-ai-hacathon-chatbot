@@ -139,11 +139,26 @@ async def upload_media(
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Upload user media for image/video references."""
+    import hashlib
+    import os
+    import re
+
     user_id = str(user.id)
     filename = file.filename or "reference_asset.png"
-    media_type = "video" if filename.lower().endswith((".mp4", ".mov", ".webm")) else "image"
+    safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", filename)
+    file_bytes = await file.read()
+    sha256_hash = hashlib.sha256(file_bytes).hexdigest()
 
-    media_url = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=800&q=80"
+    uploads_dir = os.path.join(os.getcwd(), "static", "media", "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
+
+    dest_filename = f"{sha256_hash[:12]}_{safe_name}"
+    dest_path = os.path.join(uploads_dir, dest_filename)
+    with open(dest_path, "wb") as f:
+        f.write(file_bytes)
+
+    media_url = f"/static/media/uploads/{dest_filename}"
+    media_type = "video" if filename.lower().endswith((".mp4", ".mov", ".webm")) else "image"
 
     upl = await _repo.create_upload(
         user_id=user_id,

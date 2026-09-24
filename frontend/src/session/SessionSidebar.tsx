@@ -33,6 +33,7 @@ import {
   Layers,
   ChevronDown,
   CreditCard,
+  Film,
 } from 'lucide-react';
 import { useSessions, ChatSession } from './useSessions';
 import './SessionSidebar.css';
@@ -41,6 +42,7 @@ export type AppView =
   | 'chat'
   | 'pricing'
   | 'image_studio'
+  | 'video_studio'
   | 'knowledge_vault'
   | 'workspace_hub'
   | 'jobs'
@@ -440,6 +442,16 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
 
             <button
               type="button"
+              className={`session-sidebar__rail-btn ${activeView === 'video_studio' ? 'session-sidebar__rail-btn--active' : ''}`}
+              onClick={() => onViewChange('video_studio')}
+              aria-label="Video Studio"
+              data-tooltip="Video Studio"
+            >
+              <Film size={17} strokeWidth={1.8} />
+            </button>
+
+            <button
+              type="button"
               className={`session-sidebar__rail-btn ${activeView === 'knowledge_vault' ? 'session-sidebar__rail-btn--active' : ''}`}
               onClick={() => onViewChange('knowledge_vault')}
               aria-label="Knowledge Vault"
@@ -800,6 +812,14 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             >
               <Sparkles size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
               <span className="session-sidebar__nav-text">Images</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'video_studio' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('video_studio')}
+            >
+              <Film size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">Video Studio</span>
             </button>
             <button
               type="button"

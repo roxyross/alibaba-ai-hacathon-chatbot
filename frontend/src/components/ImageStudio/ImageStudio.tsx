@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import './ImageStudio.css';
+import { CanvasEditor } from './CanvasEditor';
 
 interface MediaItem {
   id: string;
@@ -43,16 +44,22 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
   const [activeTab, setActiveTab] = useState<'generations' | 'favorites' | 'uploads'>('generations');
   const [prompt, setPrompt] = useState('');
   const [selectedStyle, setSelectedStyle] = useState('photorealistic');
-  const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
   const [speed, setSpeed] = useState('Fast');
   const [quality, setQuality] = useState('Quality 2.0');
   const [aspectRatio, setAspectRatio] = useState('1:1');
   const [selectedModel, setSelectedModel] = useState('flux');
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; is_available: boolean; badge?: string }>>([
+    { id: 'flux', name: 'FLUX.1 Schnell', is_available: true, badge: 'Fast' },
+    { id: 'imagen-3.0', name: 'Google Imagen 3', is_available: true, badge: 'Photo' },
+    { id: 'imagen-4.0', name: 'Google Imagen 4', is_available: true, badge: 'Ultra HD' },
+    { id: 'turbo', name: 'Diffusion Turbo', is_available: true, badge: 'Ultra Fast' },
+  ]);
   const [showPlusPopup, setShowPlusPopup] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [selectedModalItem, setSelectedModalItem] = useState<MediaItem | null>(null);
+  const [editingCanvasItem, setEditingCanvasItem] = useState<MediaItem | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [generations, setGenerations] = useState<MediaItem[]>([]);
@@ -128,10 +135,28 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
     }
   }, [accessToken]);
 
+  const fetchModels = useCallback(async () => {
+    try {
+      const headers: Record<string, string> = {};
+      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+      const res = await fetch(`${API_BASE}/media/models`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        const imgModels = (data.models || []).filter((m: any) => m.media_type === 'image');
+        if (imgModels.length > 0) {
+          setAvailableModels(imgModels);
+        }
+      }
+    } catch {
+      // keep default models
+    }
+  }, [accessToken]);
+
   useEffect(() => {
     fetchGenerations();
     fetchUploads();
-  }, [fetchGenerations, fetchUploads]);
+    fetchModels();
+  }, [fetchGenerations, fetchUploads, fetchModels]);
 
   // Speech Recognition integration
   const toggleSpeech = () => {
@@ -220,7 +245,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
         },
         body: JSON.stringify({
           prompt,
-          media_type: mediaType,
+          media_type: 'image',
           style_preset: selectedStyle,
           speed,
           quality,
@@ -237,7 +262,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
           url: g.media_url,
           prompt: g.prompt,
           revised_prompt: g.revised_prompt,
-          type: g.media_type || 'image',
+          type: 'image',
           style_preset: g.style_preset,
           quality: g.quality,
           aspectRatio: g.aspect_ratio,
@@ -304,7 +329,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
       showNotification('Sign in to manage and delete artwork.', 'info');
       return;
     }
-    if (!confirm('Are you sure you want to delete this artwork?')) return;
     const previous = [...generations];
     // Optimistic deletion
     setGenerations((prev) => prev.filter((it) => it.id !== itemId));
@@ -510,28 +534,17 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
 
                 {showPlusPopup && (
                   <div className="image-studio__popup-menu">
-                    <div className="image-studio__popup-title">Creative Controls</div>
-                    <div className="image-studio__popup-row">
-                      <label>Media</label>
-                      <select
-                        value={mediaType}
-                        onChange={(e) => setMediaType(e.target.value as 'image' | 'video')}
-                      >
-                        <option value="image">Still Image</option>
-                        <option value="video">Short Video</option>
-                      </select>
-                    </div>
                     <div className="image-studio__popup-row">
                       <label>Model</label>
                       <select
                         value={selectedModel}
                         onChange={(e) => setSelectedModel(e.target.value)}
                       >
-                        <option value="flux">FLUX.1 Schnell (Fast)</option>
-                        <option value="flux-realism">Flux Realism (Photo)</option>
-                        <option value="flux-anime">Flux Anime / Manga</option>
-                        <option value="flux-3d">Flux 3D Cinematic</option>
-                        <option value="turbo">Diffusion Turbo</option>
+                        {availableModels.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} {m.badge ? `(${m.badge})` : ''} {!m.is_available ? '⚠️ Key Req.' : ''}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
@@ -705,6 +718,17 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
                           <button
                             type="button"
                             className="image-studio__icon-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingCanvasItem(item);
+                            }}
+                            title="Edit in Canvas Studio (Crop, Filters, Inpaint)"
+                          >
+                            🖌️
+                          </button>
+                          <button
+                            type="button"
+                            className="image-studio__icon-btn"
                             onClick={(e) => handleToggleFavorite(item.id, e)}
                             title={item.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                           >
@@ -800,7 +824,18 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
                   {selectedModalItem.seed && <span><strong>Seed:</strong> {selectedModalItem.seed}</span>}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="image-studio__black-upload-btn"
+                  onClick={() => {
+                    setEditingCanvasItem(selectedModalItem);
+                    setSelectedModalItem(null);
+                  }}
+                  style={{ background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', color: '#fff' }}
+                >
+                  🖌️ Open in Canvas Studio
+                </button>
                 <a
                   href={selectedModalItem.url}
                   target="_blank"
@@ -814,6 +849,32 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
             </div>
           </div>
         </div>
+      )}
+
+      {/* Interactive Neural Canvas Studio */}
+      {editingCanvasItem && (
+        <CanvasEditor
+          imageUrl={editingCanvasItem.url}
+          initialPrompt={editingCanvasItem.prompt}
+          accessToken={accessToken}
+          onClose={() => setEditingCanvasItem(null)}
+          onSaveVersion={(newUrl, meta) => {
+            const newItem: MediaItem = {
+              id: `ver-${Date.now()}`,
+              url: newUrl,
+              prompt: meta.prompt,
+              type: 'image',
+              quality: 'Canvas Edited',
+              aspectRatio: 'Preserved',
+              speed: 'Instant',
+              date: 'Just now',
+              is_favorite: false,
+            };
+            setGenerations((prev) => [newItem, ...prev]);
+            setEditingCanvasItem(null);
+          }}
+          showNotification={showNotification}
+        />
       )}
     </div>
   );

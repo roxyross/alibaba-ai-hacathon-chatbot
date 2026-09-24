@@ -40,6 +40,7 @@ from app.api.v1.study import router as study_router
 from app.api.v1.coding import router as coding_router
 from app.api.v1.memory import router as memory_router
 from app.api.v1.audit import router as audit_router
+from app.media.router import router as media_router
 from app.auth.router import router as auth_router
 from app.chat_history.router import router as chat_history_router
 from app.model_provider.router import router as model_provider_router
@@ -47,6 +48,7 @@ from app.providers.router import router as providers_router
 from app.session.router import router as session_router
 from app.settings.router import router as settings_router
 from app.skills.router import router as skills_router
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(
     title="ROXY JARVIS AI Gateway",
@@ -107,6 +109,11 @@ app.include_router(study_router, prefix="/api/v1")
 app.include_router(coding_router, prefix="/api/v1")
 app.include_router(memory_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
+app.include_router(media_router, prefix="/api/v1")
+
+_static_dir = Path(__file__).resolve().parents[2] / "static"
+_static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 @app.on_event("startup")
@@ -126,6 +133,7 @@ async def on_startup() -> None:
         import app.models.email_message  # noqa: F401
         import app.models.finance_account  # noqa: F401
         import app.models.generated_image  # noqa: F401
+        import app.models.media_job  # noqa: F401
         import app.models.model  # noqa: F401
         import app.models.project  # noqa: F401
         import app.models.provider  # noqa: F401

@@ -19,6 +19,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { ToastContainer, type ToastMessage } from './components/common/Toast';
 import { PricingPage } from './components/PricingPage/PricingPage';
 import { ImageStudio } from './components/ImageStudio/ImageStudio';
+import { VideoStudio } from './components/VideoStudio/VideoStudio';
 import { KnowledgeVault } from './components/KnowledgeVault/KnowledgeVault';
 import { WorkspaceHub } from './components/WorkspaceHub/WorkspaceHub';
 import { ScheduledJobsView } from './components/ScheduledJobsView/ScheduledJobsView';
@@ -435,6 +436,7 @@ export function ChatScreen() {
               chat: 'Chat',
               pricing: 'Pricing Plans',
               image_studio: 'Image Studio',
+              video_studio: 'Video Studio',
               knowledge_vault: 'Knowledge Vault',
               workspace_hub: 'Workspace Hub',
               jobs: 'Scheduled Jobs',
@@ -671,6 +673,8 @@ export function ChatScreen() {
           />
         ) : activeView === 'image_studio' ? (
           <ImageStudio accessToken={accessToken} onBack={() => setActiveView('chat')} />
+        ) : activeView === 'video_studio' ? (
+          <VideoStudio accessToken={accessToken} onBack={() => setActiveView('chat')} />
         ) : activeView === 'knowledge_vault' ? (
           <KnowledgeVault accessToken={accessToken} onBack={() => setActiveView('chat')} />
         ) : activeView === 'workspace_hub' ? (
