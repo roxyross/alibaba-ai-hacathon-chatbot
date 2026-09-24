@@ -211,3 +211,48 @@ async def test_user_data_isolation(client: httpx.AsyncClient) -> None:
 
     # Clean up User A's session
     await client.delete(f"/api/v1/sessions/{sess_a_id}", headers=headers_a)
+
+
+async def test_magic_link_recipient_integrity(client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that the email entered by the user is the exact recipient and never overridden."""
+    raw_input_email = "  Judge.Tester@CustomDomain.COM  "
+    expected_clean_email = "judge.tester@customdomain.com"
+    captured_recipients: list[str] = []
+
+    # Spy on send_magic_link to verify exact recipient passed to SMTP/MX dispatch
+    from app.auth import service as auth_service_mod
+    original_send = auth_service_mod.send_magic_link
+
+    async def spy_send(to_email: str, link: str, token: str | None = None) -> None:
+        captured_recipients.append(to_email)
+        # Verify the underlying message construction
+        from email.message import EmailMessage
+        msg = EmailMessage()
+        msg["To"] = to_email
+        assert msg["To"] == expected_clean_email
+
+    monkeypatch.setattr(auth_service_mod, "send_magic_link", spy_send)
+
+    # 1. Request magic link with raw input email
+    req_resp = await client.post(
+        "/api/v1/auth/request-link",
+        json={"email": raw_input_email},
+    )
+    assert req_resp.status_code == 200
+    token = req_resp.json()["dev_token"]
+
+    # 2. Recipient MUST be the cleaned user email, never an admin or hardcoded address
+    assert len(captured_recipients) >= 1
+    assert captured_recipients[0] == expected_clean_email
+    assert captured_recipients[0] not in ("admin@example.com", "test@example.com", "owner@example.com")
+
+    # 3. Verify token and ensure minted user matches the exact recipient
+    verify_resp = await client.post(
+        "/api/v1/auth/verify",
+        json={"token": token},
+    )
+    assert verify_resp.status_code == 200
+    verified_data = verify_resp.json()
+    assert verified_data["user"]["email"] == expected_clean_email
+    claims = _decode_jwt(verified_data["access_token"])
+    assert claims["email"] == expected_clean_email

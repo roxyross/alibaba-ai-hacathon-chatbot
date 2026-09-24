@@ -98,6 +98,116 @@
   color: var(--color-muted, #64748b);
 }
 
+/* Alert & Notice Banners */
+.workspace-hub__alert {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1.25rem;
+  border-radius: 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  transition: all 0.2s ease;
+}
+
+.workspace-hub__alert-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.workspace-hub__auth-banner {
+  background: var(--surface-secondary, #f8fafc);
+  border: 1px solid var(--border-color, #cbd5e1);
+  color: var(--text-secondary, #475569);
+}
+
+:root[data-theme="dark"] .workspace-hub__auth-banner,
+.dark .workspace-hub__auth-banner {
+  background: #162020;
+  border-color: #273636;
+  color: #94a3b8;
+}
+
+.workspace-hub__error-banner {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  justify-content: space-between;
+}
+
+:root[data-theme="dark"] .workspace-hub__error-banner,
+.dark .workspace-hub__error-banner {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.workspace-hub__error-content {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+}
+
+.workspace-hub__error-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-left: auto;
+}
+
+.workspace-hub__retry-btn {
+  background: #991b1b;
+  color: #ffffff;
+  border: none;
+  border-radius: 0.45rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+:root[data-theme="dark"] .workspace-hub__retry-btn,
+.dark .workspace-hub__retry-btn {
+  background: #dc2626;
+}
+
+.workspace-hub__retry-btn:hover {
+  background: #b91c1c;
+  transform: translateY(-1px);
+}
+
+.workspace-hub__dismiss-btn {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 0.9rem;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+
+.workspace-hub__dismiss-btn:hover {
+  opacity: 1;
+}
+
+.workspace-hub__notify-banner {
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  color: #0d9488;
+}
+
+:root[data-theme="dark"] .workspace-hub__notify-banner,
+.dark .workspace-hub__notify-banner {
+  background: rgba(13, 148, 136, 0.12);
+  border-color: rgba(13, 148, 136, 0.35);
+  color: #2dd4bf;
+}
+
 .workspace-hub__filters {
   display: flex;
   gap: 0.5rem;

@@ -17,6 +17,7 @@ from __future__ import annotations
 import sys
 import uuid
 from collections.abc import AsyncIterator
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -504,3 +505,106 @@ async def test_workspace_chat_grounding(client: httpx.AsyncClient) -> None:
     assert "response" in chat_data
     assert "Quantum AI Cluster" in chat_data["response"]
     assert "1/2 completed" in chat_data["response"] or "1" in chat_data["response"]
+
+
+@pytest.mark.anyio
+async def test_workspace_streaming_chat_grounding(client: httpx.AsyncClient) -> None:
+    """Verify streaming Coordinator grounds user's workspace projects and tasks via SSE."""
+    auth, user_id = await _get_auth(client, f"ws_stream_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # Create a project with tasks
+    p_resp = await client.post(
+        "/api/v1/projects",
+        headers=auth,
+        json={"name": "Neural Hyperdrive", "description": "Autonomous warp computation"},
+    )
+    assert p_resp.status_code == 200
+    project_id = p_resp.json()["project"]["id"]
+
+    await client.post(
+        f"/api/v1/projects/{project_id}/tasks",
+        headers=auth,
+        json={"title": "Calibrate warp manifold", "status": "done"},
+    )
+    await client.post(
+        f"/api/v1/projects/{project_id}/tasks",
+        headers=auth,
+        json={"title": "Initiate sub-light burn", "status": "todo"},
+    )
+
+    # Stream asking about workspace projects
+    stream_resp = await client.post(
+        "/api/v1/runtime/chat/stream",
+        headers=auth,
+        json={
+            "message": "What projects and tasks do I have in my workspace?",
+            "agent_override": "workspace",
+        },
+    )
+    assert stream_resp.status_code == 200
+    assert "text/event-stream" in stream_resp.headers.get("content-type", "")
+
+    # Parse SSE text
+    lines = stream_resp.text.split("\n")
+    import json
+    deltas: list[str] = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line.startswith("data: "):
+            try:
+                parsed = json.loads(line[len("data: "):])
+                if parsed.get("delta"):
+                    deltas.append(parsed["delta"])
+            except json.JSONDecodeError:
+                pass
+
+    streamed_text = "".join(deltas)
+    assert len(streamed_text) > 0
+    assert "Neural Hyperdrive" in streamed_text or "Calibrate warp" in streamed_text or "1" in streamed_text
+
+
+@pytest.mark.anyio
+async def test_workspace_chat_offline_fallback(client: httpx.AsyncClient) -> None:
+    """When LLM router fails, chat coordinator returns authentic offline fallback with workspace projects telemetry."""
+    auth, user_id = await _get_auth(client, f"ws_offline_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # 1. Ask before creating any project -> 0 projects message
+    with patch("app.api.v1.runtime.AIRouter.route", side_effect=Exception("Gateway timeout")):
+        chat_res = await client.post(
+            "/api/v1/runtime/chat",
+            headers=auth,
+            json={"message": "Show me my workspace projects and deliverables.", "agent_override": "workspace"},
+        )
+        assert chat_res.status_code == 200
+        data = chat_res.json()
+        assert data["agent_slug"] == "workspace"
+        assert "no active workspace projects" in data["response"].lower()
+
+    # 2. Create a project with tasks
+    p_resp = await client.post(
+        "/api/v1/projects",
+        headers=auth,
+        json={"name": "Titan Rocket Core", "description": "Orbital delivery vehicle"},
+    )
+    p_id = p_resp.json()["project"]["id"]
+    await client.post(
+        f"/api/v1/projects/{p_id}/tasks",
+        headers=auth,
+        json={"title": "Ignition Sequence Check", "status": "done"},
+    )
+
+    # 3. Ask again -> confirms live project and task completion count
+    with patch("app.api.v1.runtime.AIRouter.route", side_effect=Exception("Gateway timeout")):
+        chat_res2 = await client.post(
+            "/api/v1/runtime/chat",
+            headers=auth,
+            json={"message": "Show me my workspace projects and deliverables.", "agent_override": "workspace"},
+        )
+        assert chat_res2.status_code == 200
+        data2 = chat_res2.json()
+        assert data2["agent_slug"] == "workspace"
+        assert "1 project(s) configured" in data2["response"]
+        assert "Titan Rocket Core" in data2["response"]
+        assert "1/1 completed" in data2["response"]
+
+

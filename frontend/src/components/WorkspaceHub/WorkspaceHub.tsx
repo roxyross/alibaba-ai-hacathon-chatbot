@@ -360,7 +360,6 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this project? All associated tasks will be removed.')) return;
     const previousProjects = [...projects];
     setProjects((prev) => prev.filter((p) => p.id !== id));
     if (activeProject && activeProject.id === id) {
@@ -411,36 +410,41 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
         </div>
 
         {!accessToken && (
-          <div className="workspace-hub__alert" role="status" style={{ background: '#f8fafc', border: '1px solid #cbd5e1', color: '#475569', padding: '0.85rem 1.25rem', borderRadius: '0.75rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-            <span>🔒</span>
+          <div className="workspace-hub__alert workspace-hub__auth-banner" role="status">
+            <span className="workspace-hub__alert-icon">🔒</span>
             <span>You are currently in guest mode. Sign in to create persistent workspace projects, assign agent tasks, and link documents.</span>
           </div>
         )}
 
         {errorBanner && (
-          <div className="workspace-hub__alert" role="alert" style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', padding: '0.85rem 1.25rem', borderRadius: '0.75rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-            <span>⚠️</span>
-            <span>{errorBanner}</span>
-            <button
-              type="button"
-              onClick={fetchProjects}
-              style={{ marginLeft: 'auto', background: '#991b1b', color: '#fff', border: 'none', borderRadius: '4px', padding: '3px 10px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}
-            >
-              Retry
-            </button>
-            <button
-              type="button"
-              onClick={() => setErrorBanner(null)}
-              style={{ background: 'transparent', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 'bold' }}
-            >
-              ✕
-            </button>
+          <div className="workspace-hub__alert workspace-hub__error-banner" role="alert">
+            <div className="workspace-hub__error-content">
+              <span className="workspace-hub__alert-icon">⚠️</span>
+              <span>{errorBanner}</span>
+            </div>
+            <div className="workspace-hub__error-actions">
+              <button
+                type="button"
+                className="workspace-hub__retry-btn"
+                onClick={fetchProjects}
+              >
+                ↻ Retry Connection
+              </button>
+              <button
+                type="button"
+                className="workspace-hub__dismiss-btn"
+                onClick={() => setErrorBanner(null)}
+                aria-label="Dismiss error"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         )}
 
         {notification && (
-          <div className="workspace-hub__alert" role="status" style={{ background: '#f0fdfa', border: '1px solid #99f6e4', color: '#0d9488', padding: '0.85rem 1.25rem', borderRadius: '0.75rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-            <span>✨</span>
+          <div className="workspace-hub__alert workspace-hub__notify-banner" role="status">
+            <span className="workspace-hub__alert-icon">✨</span>
             <span>{notification}</span>
           </div>
         )}

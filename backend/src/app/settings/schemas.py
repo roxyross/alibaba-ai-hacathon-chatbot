@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -26,9 +27,9 @@ class SettingsUpdateRequest(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="allow")
 
-    theme: str | None = Field(default=None, max_length=50)
+    theme: str | None = Field(default=None, max_length=20)
     custom_persona: str | None = None
-    stream_speed: str | None = Field(default=None, max_length=50)
+    stream_speed: str | None = Field(default=None, max_length=20)
     sound_effects: bool | None = None
     auto_scroll: bool | None = None
     voice_id: str | None = Field(default=None, max_length=50)

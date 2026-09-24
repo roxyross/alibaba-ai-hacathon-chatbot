@@ -12,9 +12,11 @@ Per Spec §5 and clarifications 2026-09-03.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import time
 import uuid
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -179,7 +181,47 @@ class AIRouter:
                 adapter = _get_adapter(provider_name)
                 accumulated_text: list[str] = []
                 last_chunk = None
-                start_time = asyncio.get_event_loop().time()
+                start_time = time.monotonic()
+                persisted = False
+
+                async def _save_and_persist(
+                    last_c: Any,
+                    text_list: list[str],
+                    prov_name: str = provider_name,
+                    st_time: float = start_time,
+                ) -> None:
+                    nonlocal persisted
+                    if persisted:
+                        return
+                    persisted = True
+                    full_content = "".join(text_list)
+                    if isinstance(last_c, AIResponse):
+                        final_resp = last_c.model_copy(
+                            update={
+                                "content": full_content,
+                                "response": full_content,
+                                "output_tokens": len(full_content.split()),
+                            }
+                        )
+                    else:
+                        prov = getattr(last_c, "provider", prov_name)
+                        mod = getattr(last_c, "model", request.model or "unknown")
+                        final_resp = AIResponse(
+                            user_id=request.user_id,
+                            content=full_content,
+                            response=full_content,
+                            provider=prov,
+                            model=mod,
+                            agent_id=request.agent_id or "unknown",
+                            input_tokens=0,
+                            output_tokens=len(full_content.split()),
+                            cost_usd=0.0,
+                            latency_ms=int((time.monotonic() - st_time) * 1000),
+                            request_id=getattr(request, "request_id", None) or uuid.uuid4(),
+                        )
+                    with contextlib.suppress(Exception):
+                        asyncio.create_task(self._token_logger.log(request, final_resp))
+                    await self._persist_turn(request, final_resp)
 
                 async for chunk in adapter.chatCompletionStream(request):
                     last_chunk = chunk
@@ -188,40 +230,14 @@ class AIRouter:
                         delta = getattr(chunk, "content", "")
                     if delta:
                         accumulated_text.append(str(delta))
+                    if getattr(chunk, "done", False):
+                        await _save_and_persist(chunk, accumulated_text)
+                        yield chunk
+                        return
                     yield chunk
 
-                full_content = "".join(accumulated_text)
-
-                # Construct complete synthetic AIResponse for logging and turn persistence
-                final_response: AIResponse
-                if isinstance(last_chunk, AIResponse):
-                    final_response = last_chunk.model_copy(
-                        update={
-                            "content": full_content,
-                            "response": full_content,
-                            "output_tokens": len(full_content.split()),
-                        }
-                    )
-                else:
-                    prov = getattr(last_chunk, "provider", provider_name)
-                    mod = getattr(last_chunk, "model", request.model or "unknown")
-                    final_response = AIResponse(
-                        user_id=request.user_id,
-                        content=full_content,
-                        response=full_content,
-                        provider=prov,
-                        model=mod,
-                        agent_id=request.agent_id or "unknown",
-                        input_tokens=0,
-                        output_tokens=len(full_content.split()),
-                        cost_usd=0.0,
-                        latency_ms=int((asyncio.get_event_loop().time() - start_time) * 1000),
-                        request_id=getattr(request, "request_id", None) or uuid.uuid4(),
-                    )
-
-                if last_chunk is not None:
-                    asyncio.create_task(self._token_logger.log(request, final_response))
-                    await self._persist_turn(request, final_response)
+                if not persisted and last_chunk is not None:
+                    await _save_and_persist(last_chunk, accumulated_text)
                 return  # stream ended normally
             except ProviderUnavailableError as exc:
                 err_msg = exc.reason or str(exc)
@@ -360,8 +376,14 @@ class AIRouter:
 
             # Auto-title the session from the first user message if untitled or generic title.
             current_title = getattr(session, "title", None)
-            if (not current_title or current_title in ("New chat", "New task")) and user_text:
-                title = user_text.strip().splitlines()[0][:80]
-                await sessions.rename(session.id, session.user_id, title)
+            default_titles = {"New chat", "New task", "New Conversation"}
+            if (not current_title or current_title in default_titles) and user_text:
+                from app.api.v1.greeting import generate_smart_title, is_greeting
+                if is_greeting(user_text):
+                    if current_title != "New Conversation":
+                        await sessions.rename(session.id, session.user_id, "New Conversation")
+                else:
+                    smart_title = generate_smart_title(user_text)
+                    await sessions.rename(session.id, session.user_id, smart_title)
         except Exception as exc:  # noqa: BLE001
             log.error("ai.persist.failed", error=str(exc))

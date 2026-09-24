@@ -18,10 +18,12 @@ Verifies:
 from __future__ import annotations
 
 import base64
+import json
 import sys
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -424,3 +426,82 @@ async def test_chat_voice_grounding(client: httpx.AsyncClient) -> None:
     assert "response" in body
     text = body["response"]
     assert "Investor Briefing" in text or "voice note" in text.lower() or "1 saved" in text.lower()
+
+
+@pytest.mark.anyio
+async def test_chat_streaming_voice_grounding(client: httpx.AsyncClient) -> None:
+    """Verify that streaming coordinator agent chat accurately reflects user's saved voice recordings."""
+    email = f"chat_voice_stream_{uuid.uuid4().hex[:8]}@example.com"
+    headers, _ = await _get_auth(client, email)
+
+    await client.post(
+        "/api/v1/voice/recordings",
+        json={
+            "title": "Quantum Algorithm Brainstorm",
+            "transcript": "Explored Shor algorithm optimizations and error mitigation techniques on NISQ devices.",
+            "summary": "NISQ quantum algorithm discussion.",
+        },
+        headers=headers,
+    )
+
+    stream_resp = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={
+            "message": "What voice notes do I currently have saved?",
+            "provider": "runtime",
+            "model": "coordinator",
+        },
+        headers=headers,
+    )
+    assert stream_resp.status_code == 200
+    assert "text/event-stream" in stream_resp.headers.get("content-type", "")
+
+    full_text = ""
+    for raw_line in stream_resp.text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("data:"):
+            payload_str = line[len("data:"):].strip()
+            if payload_str:
+                chunk = json.loads(payload_str)
+                full_text += chunk.get("delta", "")
+
+    assert (
+        "Quantum Algorithm Brainstorm" in full_text
+        or "voice note" in full_text.lower()
+        or "1 saved" in full_text.lower()
+    )
+
+
+@pytest.mark.anyio
+async def test_chat_voice_offline_fallback(client: httpx.AsyncClient) -> None:
+    """When router fails, runtime chat returns authentic offline fallback with voice notes library."""
+    email = f"chat_voice_off_{uuid.uuid4().hex[:8]}@example.com"
+    headers, _ = await _get_auth(client, email)
+
+    await client.post(
+        "/api/v1/voice/recordings",
+        json={
+            "title": "Autonomous Agent Keynote Reflection",
+            "transcript": "Keynote covered multi-agent coordination, local SLMs, and streaming state machines.",
+            "summary": "Keynote recap on multi-agent SLM systems.",
+        },
+        headers=headers,
+    )
+
+    with patch("app.api.v1.runtime.AIRouter.route", side_effect=Exception("Model stream unreachable")):
+        chat_resp = await client.post(
+            "/api/v1/runtime/chat",
+            json={
+                "message": "What voice notes do I currently have saved?",
+                "provider": "runtime",
+                "model": "coordinator",
+            },
+            headers=headers,
+        )
+        assert chat_resp.status_code == 200
+        body = chat_resp.json()
+        assert body["agent_slug"] == "voice"
+        assert "Autonomous Agent Keynote Reflection" in body["response"]
+        assert "voice recording(s)" in body["response"]
+
+

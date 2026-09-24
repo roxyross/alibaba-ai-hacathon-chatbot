@@ -488,3 +488,45 @@ async def test_chat_memory_offline_fallback(client: httpx.AsyncClient) -> None:
         assert data["agent_slug"] == "memory"
         assert "active long-term memories in your semantic vault" in data["response"]
         assert "Preferred editor: VS Code / Neovim" in data["response"]
+
+
+@pytest.mark.asyncio
+async def test_chat_streaming_memory_grounding(client: httpx.AsyncClient) -> None:
+    """Verify streaming chat runtime grounds semantic memory entries and stats."""
+    headers, _ = await _get_auth(client, f"mem_stream_{uuid.uuid4().hex[:6]}@example.com")
+
+    # 1. Ask via stream before saving any memory -> 0 memories message
+    resp_empty = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "What memories or preferences do you have stored for me?", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_empty.status_code == 200
+    empty_stream = resp_empty.text
+    assert "data:" in empty_stream
+    assert "no saved long-term memories" in empty_stream.lower()
+
+    # 2. Store a memory
+    create_res = await client.post(
+        "/api/v1/memory/entries",
+        headers=headers,
+        json={
+            "content": "Preferred Python framework: FastAPI with Pydantic v2.",
+            "importance": "forever",
+            "tags": ["python", "architecture"],
+        },
+    )
+    assert create_res.status_code == 201
+
+    # 3. Ask via stream again -> confirms 1 memory
+    resp_one = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "What memories or preferences do you have stored for me?", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_one.status_code == 200
+    one_stream = resp_one.text
+    assert "data:" in one_stream
+    assert "active long-term memories in your semantic vault" in one_stream
+    assert "FastAPI with Pydantic v2" in one_stream
+

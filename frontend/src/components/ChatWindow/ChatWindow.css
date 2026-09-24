@@ -23,7 +23,7 @@
 
 .chat-window__hero-content {
   width: 100%;
-  max-width: 50rem;
+  max-width: min(100%, 960px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -89,7 +89,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
   width: 100%;
-  max-width: 48rem;
+  max-width: min(100%, 960px);
   margin-bottom: 1.75rem;
 }
 
@@ -183,13 +183,22 @@
   scroll-behavior: smooth;
 }
 
+.chat-window__messages-inner {
+  width: 100%;
+  max-width: min(100%, 960px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
 /* Context pill and clear conversation toolbar */
 .chat-window__context-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  max-width: 50rem;
+  max-width: min(100%, 960px);
   margin: 0 auto 0.85rem;
   padding: 0 0.25rem;
 }
@@ -299,7 +308,7 @@
 /* ─── Next Action Chips ─── */
 .chat-window__next-actions {
   width: 100%;
-  max-width: 50rem;
+  max-width: min(100%, 960px);
   margin: 0 auto 0.5rem;
   padding: 0 1rem;
   display: flex;
@@ -337,6 +346,14 @@
   background: linear-gradient(to top, var(--color-bg, #f8faf9) 80%, transparent);
   position: relative;
   z-index: 15;
+}
+
+.chat-window__bottom-bar-inner {
+  width: 100%;
+  max-width: min(100%, 960px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ─── Floating Reply Now Pill (Phase 5 UX Polish) ─── */

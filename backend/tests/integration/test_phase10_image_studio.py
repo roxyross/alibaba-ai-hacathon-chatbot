@@ -16,9 +16,11 @@ Verifies:
 from __future__ import annotations
 
 import io
+import json
 import sys
 import uuid
 from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -353,3 +355,137 @@ async def test_chat_image_generation_persistence(client: httpx.AsyncClient) -> N
     gallery_items = gallery_resp.json()["generations"]
     assert len(gallery_items) >= 1
     assert "cybernetic tiger" in gallery_items[0]["prompt"].lower()
+
+
+@pytest.mark.anyio
+async def test_chat_streaming_image_generation_persistence(client: httpx.AsyncClient) -> None:
+    """Verify that asking Roxy in streaming chat to create an image automatically persists to Image Studio."""
+    auth, user_id = await _get_auth(client, f"chat_img_str_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # Ask streaming chat to create an image
+    stream_resp = await client.post(
+        "/api/v1/runtime/chat/stream",
+        headers=auth,
+        json={"message": "create an image of a futuristic floating metropolis at dusk"},
+    )
+    assert stream_resp.status_code == 200
+    assert "text/event-stream" in stream_resp.headers.get("content-type", "")
+
+    # Parse SSE stream chunks
+    full_text = ""
+    for raw_line in stream_resp.text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("data:"):
+            payload_str = line[len("data:"):].strip()
+            if payload_str:
+                chunk = json.loads(payload_str)
+                full_text += chunk.get("delta", "")
+
+    assert "https://image.pollinations.ai" in full_text
+    assert "futuristic floating metropolis" in full_text.lower()
+
+    # Verify image was automatically recorded into User's Image Studio gallery
+    gallery_resp = await client.get("/api/v1/images/generations", headers=auth)
+    assert gallery_resp.status_code == 200
+    gallery_items = gallery_resp.json()["generations"]
+    assert len(gallery_items) >= 1
+    assert any("futuristic floating metropolis" in g["prompt"].lower() for g in gallery_items)
+
+
+@pytest.mark.anyio
+async def test_image_gallery_chat_grounding(client: httpx.AsyncClient) -> None:
+    """Verify that asking Roxy about saved images/gallery grounds against authentic Image Studio generations."""
+    auth, user_id = await _get_auth(client, f"gallery_chat_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # Generate an artwork via Studio API first
+    gen_payload = {
+        "prompt": "bioluminescent crystal caverns with waterfalls",
+        "style_preset": "fantasy",
+        "aspect_ratio": "16:9",
+    }
+    gen_resp = await client.post("/api/v1/images/generate", headers=auth, json=gen_payload)
+    assert gen_resp.status_code == 200
+
+    mock_response = AsyncMock()
+    mock_response.content = "Here is your saved artwork: bioluminescent crystal caverns with waterfalls."
+    mock_response.provider = "mock_provider"
+    mock_response.model = "mock_model"
+
+    with patch("app.api.v1.runtime.AIRouter.route", return_value=mock_response) as mock_route:
+        chat_resp = await client.post(
+            "/api/v1/runtime/chat",
+            headers=auth,
+            json={"message": "What artwork in my studio have I created?"},
+        )
+        assert chat_resp.status_code == 200
+        assert mock_route.called
+        call_request = mock_route.call_args[0][0]
+        system_msgs = [m.content for m in call_request.messages if m.role.value == "system"]
+        gallery_grounded = any("IMAGE STUDIO CONTEXT" in sm for sm in system_msgs)
+        assert gallery_grounded is True
+        assert any("bioluminescent crystal caverns" in sm for sm in system_msgs)
+
+
+@pytest.mark.anyio
+async def test_image_gallery_chat_offline_fallback(client: httpx.AsyncClient) -> None:
+    """When router fails, runtime chat returns authentic offline fallback with saved artwork."""
+    auth, user_id = await _get_auth(client, f"gallery_off_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # Generate an artwork via Studio API first
+    gen_payload = {
+        "prompt": "hyperrealistic crystal palace under auroras",
+        "style_preset": "photorealistic",
+        "aspect_ratio": "16:9",
+    }
+    await client.post("/api/v1/images/generate", headers=auth, json=gen_payload)
+
+    with patch("app.api.v1.runtime.AIRouter.route", side_effect=Exception("Model stream unreachable")):
+        chat_resp = await client.post(
+            "/api/v1/runtime/chat",
+            headers=auth,
+            json={"message": "Show my image gallery"},
+        )
+        assert chat_resp.status_code == 200
+        data = chat_resp.json()
+        assert data["agent_slug"] == "image-studio"
+        assert "hyperrealistic crystal palace" in data["response"].lower()
+        assert "saved image generation" in data["response"].lower()
+
+
+@pytest.mark.anyio
+async def test_image_gallery_chat_stream_fallback(client: httpx.AsyncClient) -> None:
+    """Verify that streaming chat retrieves authentic Image Studio generations in offline fallback mode."""
+    auth, user_id = await _get_auth(client, f"gallery_str_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # Generate an artwork first
+    gen_payload = {
+        "prompt": "cybernetic samurai on a rainy rooftop",
+        "style_preset": "cyberpunk",
+        "aspect_ratio": "1:1",
+    }
+    gen_resp = await client.post("/api/v1/images/generate", headers=auth, json=gen_payload)
+    assert gen_resp.status_code == 200
+
+    # Ask streaming chat about saved images
+    stream_resp = await client.post(
+        "/api/v1/runtime/chat/stream",
+        headers=auth,
+        json={"message": "Show my image gallery"},
+    )
+    assert stream_resp.status_code == 200
+    assert "text/event-stream" in stream_resp.headers.get("content-type", "")
+
+    full_text = ""
+    for raw_line in stream_resp.text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("data:"):
+            payload_str = line[len("data:"):].strip()
+            if payload_str:
+                chunk = json.loads(payload_str)
+                full_text += chunk.get("delta", "")
+
+    assert "cybernetic samurai" in full_text.lower()
+    assert "saved image generation" in full_text.lower()
+
+
+

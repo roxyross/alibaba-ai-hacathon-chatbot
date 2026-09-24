@@ -19,6 +19,7 @@ import json
 import sys
 import uuid
 from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -376,3 +377,91 @@ async def test_multitenant_billing_isolation(client: httpx.AsyncClient) -> None:
     # User A still has their payment method intact
     pms_a = (await client.get("/api/v1/billing/payment-methods", headers=auth_a)).json()
     assert pms_a["primary"]["id"] == pm_id_a
+
+
+# -----------------------------------------------------------------------------
+# 9. Chat Grounding, Offline Fallback & Streaming Parity
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_chat_billing_grounding(client: httpx.AsyncClient) -> None:
+    """Chat coordinator injects authentic billing & subscription context for authenticated users."""
+    auth, user_id = await _get_auth(client, f"billing_chatground_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # Upgrade to Pro plan
+    await client.post("/api/v1/billing/subscribe", headers=auth, json={"plan_id": "pro"})
+
+    mock_response = AsyncMock()
+    mock_response.content = "You are currently on the Pro subscription plan with active AI credits."
+    mock_response.provider = "mock_provider"
+    mock_response.model = "mock_model"
+
+    with patch("app.api.v1.runtime.AIRouter.route", return_value=mock_response) as mock_route:
+        chat_res = await client.post(
+            "/api/v1/runtime/chat",
+            headers=auth,
+            json={"message": "What is my current subscription plan and billing status?"},
+        )
+        assert chat_res.status_code == 200
+        assert mock_route.called
+        call_request = mock_route.call_args[0][0]
+        system_msgs = [m.content for m in call_request.messages if m.role.value == "system"]
+        billing_grounded = any("BILLING & SUBSCRIPTION CONTEXT" in sm for sm in system_msgs)
+        assert billing_grounded is True
+
+
+@pytest.mark.anyio
+async def test_chat_billing_offline_fallback(client: httpx.AsyncClient) -> None:
+    """When LLM router fails, chat coordinator returns authentic offline fallback with subscription & credits telemetry."""
+    auth, user_id = await _get_auth(client, f"billing_chatoffline_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # Subscribe to pro plan
+    await client.post("/api/v1/billing/subscribe", headers=auth, json={"plan_id": "pro"})
+
+    with patch("app.api.v1.runtime.AIRouter.route", side_effect=Exception("Model stream unreachable")):
+        chat_res = await client.post(
+            "/api/v1/runtime/chat",
+            headers=auth,
+            json={"message": "Show me my current billing overview and subscription plan."},
+        )
+        assert chat_res.status_code == 200
+        data = chat_res.json()
+        assert data["agent_slug"] == "billing"
+        assert "billing & subscription overview" in data["response"].lower()
+        assert "Active Plan:" in data["response"]
+        assert "Pro" in data["response"]
+        assert "Remaining AI Credits:" in data["response"]
+
+
+@pytest.mark.anyio
+async def test_chat_streaming_billing_grounding(client: httpx.AsyncClient) -> None:
+    """Verify streaming chat runtime grounds subscription, wallet credits, and invoice status."""
+    auth, user_id = await _get_auth(client, f"billing_stream_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # 1. Ask via stream for default plan -> Free plan
+    resp_free = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "What is my subscription plan and billing status?", "provider": "offline"},
+        headers=auth,
+    )
+    assert resp_free.status_code == 200
+    free_stream = resp_free.text
+    assert "data:" in free_stream
+    assert "Free (BYOK)" in free_stream
+
+    # 2. Upgrade to Pro
+    sub_res = await client.post("/api/v1/billing/subscribe", headers=auth, json={"plan_id": "pro"})
+    assert sub_res.status_code == 200
+
+    # 3. Ask via stream again -> confirms Pro plan
+    resp_pro = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "What is my subscription plan and billing status?", "provider": "offline"},
+        headers=auth,
+    )
+    assert resp_pro.status_code == 200
+    pro_stream = resp_pro.text
+    assert "data:" in pro_stream
+    assert "Pro" in pro_stream
+    assert "Remaining AI Credits:" in pro_stream
+

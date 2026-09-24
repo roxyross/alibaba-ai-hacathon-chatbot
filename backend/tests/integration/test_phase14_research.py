@@ -387,3 +387,48 @@ async def test_chat_research_offline_reports_count(client: httpx.AsyncClient) ->
     res_text = resp_one.json()["response"]
     assert "1 saved research report" in res_text
     assert "Synthetic Biology Roadmap" in res_text
+
+
+@pytest.mark.anyio
+async def test_chat_streaming_research_grounding(client: httpx.AsyncClient) -> None:
+    """Verify streaming chat runtime grounds research queries and saved reports library."""
+    email = f"stream_researcher_{uuid.uuid4().hex[:8]}@example.com"
+    headers, _ = await _get_auth(client, email)
+
+    # 1. Ask via stream before saving any report -> 0 reports message
+    resp_empty = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "Do I have any saved research reports in my library?", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_empty.status_code == 200
+    empty_stream = resp_empty.text
+    assert "data:" in empty_stream
+    assert "no saved research reports" in empty_stream.lower()
+
+    # 2. Save a report
+    create_resp = await client.post(
+        "/api/v1/research",
+        json={
+            "title": "Autonomous AI Agents in Healthcare",
+            "query": "Clinical agentic workflows FDA clearance",
+            "summary": "Agentic workflows demonstrate superior triage accuracy in multi-center trials.",
+            "confidence": "high",
+            "tags": ["healthcare", "agents"],
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+
+    # 3. Ask via stream again -> confirms 1 saved research report
+    resp_one = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "Show me my saved research reports in my library", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_one.status_code == 200
+    one_stream = resp_one.text
+    assert "data:" in one_stream
+    assert "1 saved research report" in one_stream
+    assert "Autonomous AI Agents in Healthcare" in one_stream
+

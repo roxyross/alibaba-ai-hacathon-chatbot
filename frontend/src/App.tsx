@@ -242,12 +242,29 @@ export function ChatScreen() {
   // Mobile sidebar visibility
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Rehydrate active session across page refresh and browser reopen
+  useEffect(() => {
+    if (!activeSession && sessions.length > 0) {
+      const savedSessionId = localStorage.getItem('roxy_active_session_id');
+      if (savedSessionId) {
+        const found = sessions.find((s) => s.id === savedSessionId);
+        if (found) {
+          setActiveSession(found);
+          const sessType = found.session_type === 'task' || found.title?.startsWith('[Task]') || found.model === 'code_generation' ? 'task' : 'chat';
+          setMode(sessType);
+          setModelSelection({ provider: found.provider, model: found.model });
+        }
+      }
+    }
+  }, [sessions, activeSession]);
+
   // When switching between Chat and Task modes via sidebar toggle
   const handleModeChange = useCallback(
     (newMode: 'chat' | 'task') => {
       setMode(newMode);
       chat.clearMessages();
       setActiveSession(null);
+      localStorage.removeItem('roxy_active_session_id');
       setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
       setActiveView('chat');
       void refreshSessions();
@@ -260,6 +277,7 @@ export function ChatScreen() {
     (s: ChatSession) => {
       chat.clearMessages();
       setActiveSession(s);
+      localStorage.setItem('roxy_active_session_id', s.id);
       const sessType = s.session_type === 'task' || s.title?.startsWith('[Task]') || s.model === 'code_generation' ? 'task' : 'chat';
       setMode(sessType);
       setModelSelection({ provider: s.provider, model: s.model });
@@ -273,6 +291,7 @@ export function ChatScreen() {
     setMode('chat');
     chat.clearMessages();
     setActiveSession(null);
+    localStorage.removeItem('roxy_active_session_id');
     setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
     setActiveView('chat');
     void history.reload();
@@ -288,6 +307,7 @@ export function ChatScreen() {
     setMode('task');
     chat.clearMessages();
     setActiveSession(null);
+    localStorage.removeItem('roxy_active_session_id');
     setModelSelection((prev) => prev ?? { provider: 'runtime', model: 'coordinator' });
     setActiveView('chat');
     void history.reload();
@@ -322,9 +342,12 @@ export function ChatScreen() {
       let session = activeSession;
       if (!session && (accessToken || user)) {
         try {
+          const isPureGreeting = Boolean(detected) && text.trim().split(/\s+/).length <= 5;
           const initialTitle = mode === 'task'
             ? `[Task] ${text.trim().slice(0, 32)}`
-            : (text.trim().slice(0, 36) || 'New chat');
+            : isPureGreeting
+              ? 'New Conversation'
+              : (text.trim().slice(0, 36) || 'New chat');
           session = await createSession({
             provider: activeModel.provider,
             model: activeModel.model,
@@ -332,6 +355,7 @@ export function ChatScreen() {
             title: initialTitle,
           } satisfies CreateSessionInput);
           setActiveSession(session);
+          localStorage.setItem('roxy_active_session_id', session.id);
           void refreshSessions();
         } catch {
           // If session creation fails, proceed with ephemeral chat
@@ -344,6 +368,9 @@ export function ChatScreen() {
           void history.reload();
           void refreshSessions();
         }, 500);
+        window.setTimeout(() => {
+          void refreshSessions();
+        }, 2500);
       }
     },
     [activeSession, modelSelection, createSession, chat, history, mode, accessToken, user, openAuth, refreshSessions],

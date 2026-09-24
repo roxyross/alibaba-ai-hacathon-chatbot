@@ -141,6 +141,18 @@ _AUDIT_PATTERNS = [
     re.compile(r"\b(actions\s+today|events\s+today|security\s+review)\b", re.I),
 ]
 
+# Billing, payments and subscription keywords
+_BILLING_PATTERNS = [
+    re.compile(r"\b(billing|subscription|subscribed|subscribing|invoice|invoices|ai\s*credits|credit\s*wallet|top-?up|upgrade\s*plan|pricing\s*plan|payment\s*method|payment\s*methods)\b", re.I),
+    re.compile(r"\b(what\s+is\s+my\s+plan|what\s+plan\s+am\s+i\s+on|how\s+many\s+credits|check\s+my\s+credits|my\s+subscription|cancel\s+subscription)\b", re.I),
+]
+
+# Calendar, meetings and event scheduling keywords
+_CALENDAR_PATTERNS = [
+    re.compile(r"\b(calendar|appointment|appointments|event|events|meeting|meetings|agenda|reschedule|ics|icalendar)\b", re.I),
+    re.compile(r"\b(what\s+is\s+on\s+my\s+calendar|what\s+do\s+i\s+have\s+(today|tomorrow|scheduled)|upcoming\s+meetings|upcoming\s+events|my\s+schedule|am\s+i\s+free)\b", re.I),
+]
+
 
 # Image generation keywords
 _IMAGE_PATTERNS = [
@@ -148,6 +160,11 @@ _IMAGE_PATTERNS = [
     re.compile(r"\b(create|generate|make|draw|show)\s+(a\s+)?picture\s+(of|about|with)?\b", re.I),
     re.compile(r"\b(image\s+of|photo\s+of|painting\s+of|picture\s+of)\b", re.I),
     re.compile(r"^create\s+an?\s+image\s*:\s*", re.I),
+]
+
+# Image studio gallery keywords
+_IMAGE_STUDIO_PATTERNS = [
+    re.compile(r"\b(image\s*gallery|my\s*images|generated\s*images|artwork|saved\s*images|image\s*studio)\b", re.I),
 ]
 
 
@@ -585,6 +602,9 @@ def classify_intent(message: str) -> str:
         "browser": sum(1 for p in _BROWSER_PATTERNS if p.search(msg)),
         "memory": sum(1 for p in _MEMORY_PATTERNS if p.search(msg)),
         "audit": sum(1 for p in _AUDIT_PATTERNS if p.search(msg)),
+        "billing": sum(1 for p in _BILLING_PATTERNS if p.search(msg)),
+        "calendar": sum(1 for p in _CALENDAR_PATTERNS if p.search(msg)),
+        "image-studio": sum(1 for p in _IMAGE_STUDIO_PATTERNS if p.search(msg)),
     }
 
     # Pick the highest-scoring non-zero category
@@ -799,9 +819,16 @@ async def _persist_runtime_interaction(
                 provider=provider,
                 model=model,
             )
-        if (not session.title or session.title in ("New chat", "New task")) and user_message:
-            title = user_message.strip().splitlines()[0][:80]
-            await sessions.rename(session.id, session.user_id, title)
+        current_title = getattr(session, "title", None)
+        default_titles = {"New chat", "New task", "New Conversation"}
+        if (not current_title or current_title in default_titles) and user_message:
+            from app.api.v1.greeting import generate_smart_title, is_greeting
+            if is_greeting(user_message):
+                if current_title != "New Conversation":
+                    await sessions.rename(session.id, session.user_id, "New Conversation")
+            else:
+                smart_title = generate_smart_title(user_message)
+                await sessions.rename(session.id, session.user_id, smart_title)
     except Exception as exc:
         log.warning("runtime.persist.failed", error=str(exc))
 
@@ -966,17 +993,21 @@ async def _call_ai_for_agent(
             log.warning("runtime.finance_grounding_failed", error=str(exc))
 
     # Phase 11: Calendar & Event Scheduling Grounding for authenticated users
-    is_calendar = (agent_slug in ("calendar", "scheduler")) or any(
-        w in user_message.lower()
-        for w in (
-            "calendar",
-            "appointment",
-            "agenda",
-            "events today",
-            "am i free",
-            "on my schedule",
-            "on my calendar",
-            "calendar schedule",
+    is_calendar = (agent_slug in ("calendar", "scheduler")) or (
+        agent_slug != "automation"
+        and any(
+            w in user_message.lower()
+            for w in (
+                "calendar",
+                "meeting",
+                "appointment",
+                "agenda",
+                "events today",
+                "am i free",
+                "on my schedule",
+                "on my calendar",
+                "calendar schedule",
+            )
         )
     )
     if user_id and is_calendar:
@@ -1036,6 +1067,40 @@ async def _call_ai_for_agent(
             history_messages.append(Message(role=MessageRole.SYSTEM, content=email_context))
         except Exception as exc:
             log.warning("runtime.email_grounding_failed", error=str(exc))
+
+    # Phase 10: Image Studio Gallery Grounding for authenticated users
+    is_image_gallery = any(
+        w in user_message.lower()
+        for w in (
+            "my image gallery",
+            "image gallery",
+            "my generated images",
+            "generated artwork",
+            "saved artwork",
+            "my images",
+            "artwork in my studio",
+            "saved images",
+            "image studio",
+        )
+    )
+    if user_id and is_image_gallery:
+        try:
+            from app.images.repository import ImageStudioRepository
+            img_repo = ImageStudioRepository()
+            gens = await img_repo.list_generations(user_id, limit=10)
+            gen_lines = [
+                f"- **\"{g.get('prompt')}\"** (Style: `{g.get('style_preset', 'photorealistic')}`, Aspect: `{g.get('aspect_ratio', '1:1')}`, Favorited: {g.get('is_favorite', False)})"
+                for g in gens[:10]
+            ]
+            img_context = (
+                "[IMAGE STUDIO CONTEXT — USER SAVED GENERATIONS & ARTWORK]:\n"
+                f"Total Saved Generations: {len(gens)}\n"
+                "Recent Artwork:\n" + ("\n".join(gen_lines) if gen_lines else "None")
+                + "\n\nUse this authentic image gallery history to assist the user with reviewing past creations, styles, and prompt details."
+            )
+            history_messages.append(Message(role=MessageRole.SYSTEM, content=img_context))
+        except Exception as exc:
+            log.warning("runtime.image_gallery_grounding_failed", error=str(exc))
 
     # Phase 13: Voice & Audio Transcripts Grounding for authenticated users
     is_voice = (agent_slug in ("voice", "audio")) or any(
@@ -1327,6 +1392,37 @@ async def _call_ai_for_agent(
         except Exception as exc:
             log.warning("runtime.workspace_grounding_failed", error=str(exc))
 
+    # Phase 21: Billing, Subscription & Credit Wallet Grounding for authenticated users
+    is_billing = (agent_slug in ("billing", "subscription", "payments", "invoicing")) or any(
+        p.search(user_message) for p in _BILLING_PATTERNS
+    )
+    if user_id and is_billing:
+        try:
+            from app.billing.repository import BillingRepository
+            billing_repo = BillingRepository()
+            sub = await billing_repo.get_subscription(user_id)
+            wallet = await billing_repo.get_credit_wallet(user_id)
+            invoices = await billing_repo.list_invoices(user_id)
+            plan_info = sub.get("plan", {})
+            plan_name = plan_info.get("name", "Free (BYOK)")
+            plan_status = plan_info.get("status", "active")
+            remaining = wallet.get("remaining_credits", 100.0)
+            used = wallet.get("used_this_month", 0.0)
+            pm = sub.get("payment_method")
+            pm_str = f"{pm.get('brand', 'Card').upper()} ending in {pm.get('last4')}" if pm else "None"
+            billing_context = (
+                "[BILLING & SUBSCRIPTION CONTEXT — USER PLAN, CREDITS & WALLET]:\n"
+                f"Active Subscription Plan: {plan_name} (Status: {plan_status})\n"
+                f"Remaining AI Credits: {remaining:,.0f}\n"
+                f"Credits Used This Month: {used:,.0f}\n"
+                f"Total Invoices on File: {len(invoices)}\n"
+                f"Default Payment Method: {pm_str}\n\n"
+                "Use this live subscription and credit wallet data to accurately answer the user's inquiry regarding their billing, plan, credits, invoices, or subscriptions."
+            )
+            history_messages.append(Message(role=MessageRole.SYSTEM, content=billing_context))
+        except Exception as exc:
+            log.warning("runtime.billing_grounding_failed", error=str(exc))
+
     lang_directive = detect_user_language_instruction(user_message)
     if lang_directive:
         history_messages.append(Message(role=MessageRole.SYSTEM, content=lang_directive))
@@ -1453,6 +1549,33 @@ async def _call_ai_for_agent(
                         session_id, user_id or "", user_message, email_resp, "email", "email-specialist"
                     )
                 return email_resp, "email", "email-specialist"
+            except Exception:
+                pass
+        if is_image_gallery and user_id:
+            try:
+                from app.images.repository import ImageStudioRepository
+                img_repo = ImageStudioRepository()
+                gens = await img_repo.list_generations(user_id, limit=10)
+                if gens:
+                    gen_lines = [
+                        f"- **\"{g.get('prompt')}\"** (Style: `{g.get('style_preset', 'photorealistic')}`, Aspect: `{g.get('aspect_ratio', '1:1')}`, Favorited: {g.get('is_favorite', False)})"
+                        for g in gens[:5]
+                    ]
+                    img_resp = (
+                        f"You currently have {len(gens)} saved image generation(s) in your studio gallery:\n\n"
+                        + "\n".join(gen_lines)
+                        + "\n\nYou can view high-resolution versions, generate variations, or download them in your Image Studio."
+                    )
+                else:
+                    img_resp = (
+                        "You currently have no saved images in your studio gallery. "
+                        "You can generate stunning artwork, concept designs, or photo variations anytime in your Image Studio!"
+                    )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, img_resp, "image-studio", "creative-director"
+                    )
+                return img_resp, "image-studio", "creative-director"
             except Exception:
                 pass
         if is_voice and user_id:
@@ -1716,6 +1839,33 @@ async def _call_ai_for_agent(
                 return ws_resp, "workspace", "workspace-engine"
             except Exception:
                 pass
+        if is_billing and user_id:
+            try:
+                from app.billing.repository import BillingRepository
+                billing_repo = BillingRepository()
+                sub = await billing_repo.get_subscription(user_id)
+                wallet = await billing_repo.get_credit_wallet(user_id)
+                invoices = await billing_repo.list_invoices(user_id)
+                plan_info = sub.get("plan", {})
+                plan_name = plan_info.get("name", "Free (BYOK)")
+                plan_status = plan_info.get("status", "active")
+                remaining = wallet.get("remaining_credits", 100.0)
+                used = wallet.get("used_this_month", 0.0)
+                billing_resp = (
+                    f"Here is your current billing & subscription overview:\n\n"
+                    f"- **Active Plan:** {plan_name} (Status: `{plan_status}`)\n"
+                    f"- **Remaining AI Credits:** {remaining:,.0f}\n"
+                    f"- **Credits Used This Month:** {used:,.0f}\n"
+                    f"- **Invoices on File:** {len(invoices)}\n\n"
+                    f"You can upgrade your plan, purchase top-up credits, or manage payment methods in your Billing & Subscription settings."
+                )
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, billing_resp, "billing", "billing-agent"
+                    )
+                return billing_resp, "billing", "billing-agent"
+            except Exception:
+                pass
         lower = user_message.lower()
         if "python" in lower or "variable" in lower or "write code" in lower or "programming" in lower:
             fallback_code = (
@@ -1802,8 +1952,28 @@ async def runtime_chat(
     current_user: User | None = Depends(get_optional_current_user),
 ) -> RuntimeChatResponse:
     """One-shot Coordinator chat — classify intent, route to agent, return response."""
-    agent_slug = body.agent_override or classify_intent(body.message)
     effective_user_id = str(current_user.id) if current_user else "guest_trial"
+
+    # Fast-path for pure greetings (<50ms) without invoking external LLMs
+    from app.api.v1.greeting import get_warm_greeting, is_greeting
+    if not body.agent_override and is_greeting(body.message):
+        warm_reply, _ = get_warm_greeting(body.message)
+        if body.session_id:
+            await _persist_runtime_interaction(
+                body.session_id,
+                effective_user_id,
+                body.message,
+                warm_reply,
+                "local_fast_greeting",
+                "greeting_assistant",
+            )
+        return RuntimeChatResponse(
+            response=warm_reply,
+            agent_slug="greeting_assistant",
+            critic_review=None,
+        )
+
+    agent_slug = body.agent_override or classify_intent(body.message)
 
     log.info(
         "runtime.chat",
@@ -1816,7 +1986,7 @@ async def runtime_chat(
     )
 
     try:
-        response_text, _, _ = await _call_ai_for_agent(
+        response_text, resolved_agent_slug, _ = await _call_ai_for_agent(
             agent_slug,
             body.message,
             user_id=effective_user_id,
@@ -1825,21 +1995,23 @@ async def runtime_chat(
             model=body.model,
         )
 
+        final_agent_slug = agent_slug if agent_slug != "general" else (resolved_agent_slug or "general")
+
         # Silent critic pre-flight — skip for very short responses or image generator
         critic_review: dict[str, Any] | None = None
-        if len(response_text) > 200 and agent_slug != "image_generator":
+        if len(response_text) > 200 and final_agent_slug != "image_generator":
             critic_review = await _run_critic_preflight(
-                response_text, agent_slug, body.message
+                response_text, final_agent_slug, body.message
             )
             log.info(
                 "runtime.critic_preflight",
-                agent=agent_slug,
+                agent=final_agent_slug,
                 verdict=critic_review.get("verdict") if critic_review else None,
             )
 
         return RuntimeChatResponse(
             response=response_text,
-            agent_slug=agent_slug,
+            agent_slug=final_agent_slug,
             critic_review=critic_review,
         )
 
@@ -1862,6 +2034,59 @@ async def runtime_chat_stream(
 ) -> StreamingResponse:
     """Streaming Coordinator chat — same as /chat but SSE with Critic pre-flight on final chunk."""
     effective_user_id = str(current_user.id) if current_user else "guest_trial"
+
+    # Fast-path for pure greetings (<50ms) in streaming mode
+    from app.api.v1.greeting import get_warm_greeting, is_greeting
+    if not body.agent_override and is_greeting(body.message):
+        warm_reply, _ = get_warm_greeting(body.message)
+
+        async def greeting_stream() -> AsyncGenerator[bytes, None]:
+            if body.session_id:
+                await _persist_runtime_interaction(
+                    body.session_id,
+                    effective_user_id,
+                    body.message,
+                    warm_reply,
+                    "local_fast_greeting",
+                    "greeting_assistant",
+                )
+            words = warm_reply.split(" ")
+            for idx, word in enumerate(words):
+                chunk = word if idx == len(words) - 1 else word + " "
+                data = json.dumps({
+                    "delta": chunk,
+                    "provider": "local_fast_greeting",
+                    "model": "greeting_assistant",
+                    "done": False,
+                    "agent_slug": "greeting_assistant",
+                })
+                yield f"data: {data}\n\n".encode()
+            done_data = json.dumps({
+                "delta": "",
+                "provider": "local_fast_greeting",
+                "model": "greeting_assistant",
+                "done": True,
+                "agent_slug": "greeting_assistant",
+            })
+            yield f"data: {done_data}\n\n".encode()
+            final_attr = json.dumps({
+                "done": True,
+                "provider": "local_fast_greeting",
+                "model": "greeting_assistant",
+                "agent_slug": "greeting_assistant",
+            })
+            yield f"event: attribution\ndata: {final_attr}\n\n".encode()
+
+        return StreamingResponse(
+            greeting_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     is_img, img_prompt = check_image_intent(body.message)
     if is_img or body.agent_override == "image_generator":
         prompt = img_prompt or body.message
@@ -2015,19 +2240,47 @@ async def runtime_chat_stream(
             except Exception as exc:
                 log.warning("runtime.stream_rag_grounding_failed", error=str(exc))
 
+            # Phase 9: Workspace & Project Management Grounding for stream
+            is_workspace = (agent_slug in ("workspace", "project", "projects")) or any(
+                w in body.message.lower() for w in ("project", "workspace", "milestone", "action item", "kanban")
+            )
+            if effective_user_id and is_workspace:
+                try:
+                    from app.projects.repository import ProjectRepository
+                    proj_repo = ProjectRepository()
+                    user_projects = await proj_repo.list_projects(effective_user_id)
+                    if user_projects:
+                        proj_lines = []
+                        for p in user_projects:
+                            tasks = await proj_repo.list_tasks(effective_user_id, p["id"]) or []
+                            t_summary = f"{sum(1 for t in tasks if t['status'] == 'done')}/{len(tasks)} tasks completed"
+                            proj_lines.append(f"- **{p['name']}** (Status: {p['status']}, Progress: {t_summary})")
+                        proj_context = (
+                            "[WORKSPACE HUB CONTEXT — USER PROJECTS & ACTION ITEMS]:\n"
+                            f"Total Configured Projects: {len(user_projects)}\n"
+                            "Active Projects:\n" + "\n".join(proj_lines)
+                            + "\n\nUse this live workspace and project data to accurately answer the user's inquiry regarding their projects, deliverables, and tasks."
+                        )
+                        history_messages.append(Message(role=MessageRole.SYSTEM, content=proj_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_workspace_grounding_failed", error=str(exc))
+
             # Phase 11: Calendar & Event Scheduling Grounding for stream
-            is_calendar = (agent_slug in ("calendar", "scheduler")) or any(
-                w in body.message.lower()
-                for w in (
-                    "calendar",
-                    "meeting",
-                    "schedule",
-                    "appointment",
-                    "agenda",
-                    "events today",
-                    "am i free",
-                    "on my schedule",
-                    "on my calendar",
+            is_calendar = (agent_slug in ("calendar", "scheduler")) or (
+                agent_slug != "automation"
+                and any(
+                    w in body.message.lower()
+                    for w in (
+                        "calendar",
+                        "meeting",
+                        "appointment",
+                        "agenda",
+                        "events today",
+                        "am i free",
+                        "on my schedule",
+                        "on my calendar",
+                        "calendar schedule",
+                    )
                 )
             )
             if effective_user_id and is_calendar:
@@ -2087,6 +2340,40 @@ async def runtime_chat_stream(
                     history_messages.append(Message(role=MessageRole.SYSTEM, content=email_context))
                 except Exception as exc:
                     log.warning("runtime.stream_email_grounding_failed", error=str(exc))
+
+            # Phase 10: Image Studio Gallery Grounding for stream
+            is_image_gallery = any(
+                w in body.message.lower()
+                for w in (
+                    "my image gallery",
+                    "image gallery",
+                    "my generated images",
+                    "generated artwork",
+                    "saved artwork",
+                    "my images",
+                    "artwork in my studio",
+                    "saved images",
+                    "image studio",
+                )
+            )
+            if effective_user_id and is_image_gallery:
+                try:
+                    from app.images.repository import ImageStudioRepository
+                    img_repo = ImageStudioRepository()
+                    gens = await img_repo.list_generations(effective_user_id, limit=10)
+                    gen_lines = [
+                        f"- **\"{g.get('prompt')}\"** (Style: `{g.get('style_preset', 'photorealistic')}`, Aspect: `{g.get('aspect_ratio', '1:1')}`, Favorited: {g.get('is_favorite', False)})"
+                        for g in gens[:10]
+                    ]
+                    img_context = (
+                        "[IMAGE STUDIO CONTEXT — USER SAVED GENERATIONS & ARTWORK]:\n"
+                        f"Total Saved Generations: {len(gens)}\n"
+                        "Recent Artwork:\n" + ("\n".join(gen_lines) if gen_lines else "None")
+                        + "\n\nUse this authentic image gallery history to assist the user with reviewing past creations, styles, and prompt details."
+                    )
+                    history_messages.append(Message(role=MessageRole.SYSTEM, content=img_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_image_gallery_grounding_failed", error=str(exc))
 
             # Phase 13: Voice & Audio Transcripts Grounding for stream
             is_voice = (agent_slug in ("voice", "audio")) or any(
@@ -2326,6 +2613,63 @@ async def runtime_chat_stream(
                 except Exception as exc:
                     log.warning("runtime.stream_audit_grounding_failed", error=str(exc))
 
+            # Phase 7: Automation & Scheduled Jobs Grounding for stream
+            is_automation = not is_calendar and not is_email and (
+                (agent_slug in ("automation", "planner")) or any(
+                    w in body.message.lower() for w in ("scheduled", "schedule", "reminder", "cron", "recurring task", "recurring job", "scheduled job", "scheduled task", "automation", "automate")
+                )
+            )
+            if effective_user_id and is_automation:
+                try:
+                    from app.jobs.repository import JobRepository
+                    job_repo = JobRepository()
+                    user_jobs = await job_repo.list_jobs(effective_user_id)
+                    if user_jobs:
+                        job_lines = [
+                            f"- {j.name} (Schedule: {j.schedule}, Timezone: {j.timezone}, Status: {j.status}, Next Run: {j.next_run})"
+                            for j in user_jobs
+                        ]
+                        job_context = (
+                            "[SCHEDULED AUTOMATION CONTEXT — USER ACTIVE TASKS & JOBS]:\n"
+                            f"Total Configured Tasks: {len(user_jobs)}\n"
+                            "Active Tasks:\n" + "\n".join(job_lines)
+                            + "\n\nUse this live scheduled automation data to accurately answer the user's inquiry regarding their scheduled tasks, reminders, and automation."
+                        )
+                        history_messages.append(Message(role=MessageRole.SYSTEM, content=job_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_automation_grounding_failed", error=str(exc))
+
+            # Phase 21: Billing, Subscription & Credit Wallet Grounding for stream
+            is_billing = (agent_slug in ("billing", "subscription", "payments", "invoicing")) or any(
+                p.search(body.message) for p in _BILLING_PATTERNS
+            )
+            if effective_user_id and is_billing:
+                try:
+                    from app.billing.repository import BillingRepository
+                    billing_repo = BillingRepository()
+                    sub = await billing_repo.get_subscription(effective_user_id)
+                    wallet = await billing_repo.get_credit_wallet(effective_user_id)
+                    invoices = await billing_repo.list_invoices(effective_user_id)
+                    plan_info = sub.get("plan", {})
+                    plan_name = plan_info.get("name", "Free (BYOK)")
+                    plan_status = plan_info.get("status", "active")
+                    remaining = wallet.get("remaining_credits", 100.0)
+                    used = wallet.get("used_this_month", 0.0)
+                    pm = sub.get("payment_method")
+                    pm_str = f"{pm.get('brand', 'Card').upper()} ending in {pm.get('last4')}" if pm else "None"
+                    billing_context = (
+                        "[BILLING & SUBSCRIPTION CONTEXT — USER PLAN, CREDITS & WALLET]:\n"
+                        f"Active Subscription Plan: {plan_name} (Status: {plan_status})\n"
+                        f"Remaining AI Credits: {remaining:,.0f}\n"
+                        f"Credits Used This Month: {used:,.0f}\n"
+                        f"Total Invoices on File: {len(invoices)}\n"
+                        f"Default Payment Method: {pm_str}\n\n"
+                        "Use this live subscription and credit wallet data to accurately answer the user's inquiry regarding their billing, plan, credits, invoices, or subscriptions."
+                    )
+                    history_messages.append(Message(role=MessageRole.SYSTEM, content=billing_context))
+                except Exception as exc:
+                    log.warning("runtime.stream_billing_grounding_failed", error=str(exc))
+
             lang_directive = detect_user_language_instruction(body.message)
             if lang_directive:
                 history_messages.append(Message(role=MessageRole.SYSTEM, content=lang_directive))
@@ -2388,7 +2732,452 @@ async def runtime_chat_stream(
                     chunks_yielded = True
                     provider_name = "maps_service" if is_maps else "research"
                     model_name = "google_maps" if is_maps else "realtime"
+                    full_response.append(live_context)
+                    if body.session_id:
+                        await _persist_runtime_interaction(
+                            body.session_id, effective_user_id, body.message, live_context, provider_name, model_name
+                        )
                     yield f"data: {json.dumps({'delta': live_context, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+
+                if not chunks_yielded and is_workspace and effective_user_id:
+                    try:
+                        from app.projects.repository import ProjectRepository
+                        proj_repo = ProjectRepository()
+                        user_projects = await proj_repo.list_projects(effective_user_id)
+                        if user_projects:
+                            p_lines = []
+                            for p in user_projects:
+                                tasks = await proj_repo.list_tasks(effective_user_id, p["id"]) or []
+                                c_done = sum(1 for t in tasks if t["status"] == "done")
+                                p_lines.append(f"- **{p['name']}** (Status: `{p['status']}`, Tasks: {c_done}/{len(tasks)} completed)")
+                            ws_resp = (
+                                f"You currently have {len(user_projects)} project(s) configured in your Workspace Hub:\n\n"
+                                + "\n".join(p_lines)
+                                + "\n\nYou can manage deliverables, track tasks, and link documents in your Workspace Hub dashboard."
+                            )
+                        else:
+                            ws_resp = (
+                                "You currently have no active workspace projects. "
+                                "You can create a project in your Workspace Hub to organize multi-turn workflows, tasks, and documents!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "workspace"
+                        model_name = "project-coordinator"
+                        full_response.append(ws_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, ws_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': ws_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_workspace_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_calendar and effective_user_id:
+                    try:
+                        from app.calendar.repository import CalendarRepository
+                        cal_repo = CalendarRepository()
+                        user_events = await cal_repo.list_events(effective_user_id)
+                        if user_events:
+                            ev_lines = [
+                                f"- **{e['title']}** (Time: `{e['start_time']}`, Category: {e.get('category', 'meeting')}, Location: {e.get('location') or 'Not specified'})"
+                                for e in user_events
+                            ]
+                            cal_resp = (
+                                f"You currently have {len(user_events)} event(s) on your calendar:\n\n"
+                                + "\n".join(ev_lines)
+                                + "\n\nYou can manage your appointments or export/import ICS files in your Calendar view."
+                            )
+                        else:
+                            cal_resp = (
+                                "You currently have no events scheduled on your calendar. "
+                                "You can schedule a new meeting, reminder, or appointment anytime!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "calendar"
+                        model_name = "calendar-coordinator"
+                        full_response.append(cal_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, cal_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': cal_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_calendar_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_email and effective_user_id:
+                    try:
+                        from app.emails.repository import EmailRepository
+                        email_repo = EmailRepository()
+                        user_emails = await email_repo.list_messages(effective_user_id, limit=10)
+                        drafts = [m for m in user_emails if m.get("status") == "draft"]
+                        sent_msgs = [m for m in user_emails if m.get("status") == "sent"]
+                        if user_emails:
+                            msg_lines = [
+                                f"- [{m.get('status', 'draft').upper()}] **{m.get('subject', 'No Subject')}** (To: `{m.get('to', '')}`)"
+                                for m in user_emails[:5]
+                            ]
+                            email_resp = (
+                                f"You currently have {len(user_emails)} message(s) in your communications hub "
+                                f"({len(drafts)} draft(s), {len(sent_msgs)} sent):\n\n"
+                                + "\n".join(msg_lines)
+                                + "\n\nYou can manage your drafts, polish email copy, or dispatch messages in your Email panel."
+                            )
+                        else:
+                            email_resp = (
+                                "You currently have no email drafts or sent messages in your communications hub. "
+                                "You can compose a new draft, choose a template, or ask me to draft one for you anytime!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "email"
+                        model_name = "email-specialist"
+                        full_response.append(email_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, email_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': email_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_email_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_image_gallery and effective_user_id:
+                    try:
+                        from app.images.repository import ImageStudioRepository
+                        img_repo = ImageStudioRepository()
+                        gens = await img_repo.list_generations(effective_user_id, limit=10)
+                        if gens:
+                            gen_lines = [
+                                f"- **\"{g.get('prompt')}\"** (Style: `{g.get('style_preset', 'photorealistic')}`, Aspect: `{g.get('aspect_ratio', '1:1')}`, Favorited: {g.get('is_favorite', False)})"
+                                for g in gens[:5]
+                            ]
+                            img_resp = (
+                                f"You currently have {len(gens)} saved image generation(s) in your studio gallery:\n\n"
+                                + "\n".join(gen_lines)
+                                + "\n\nYou can view high-resolution versions, generate variations, or download them in your Image Studio."
+                            )
+                        else:
+                            img_resp = (
+                                "You currently have no saved images in your studio gallery. "
+                                "You can generate stunning artwork, concept designs, or photo variations anytime in your Image Studio!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "image-studio"
+                        model_name = "creative-director"
+                        full_response.append(img_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, img_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': img_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_image_gallery_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_voice and effective_user_id:
+                    try:
+                        from app.voice.repository import VoiceRepository
+                        voice_repo = VoiceRepository()
+                        user_recs = await voice_repo.list_recordings(effective_user_id, limit=10)
+                        if user_recs:
+                            v_lines = [
+                                f"- **{r.get('title', 'Voice Note')}** (Summary: {r.get('summary') or r.get('transcript', '')[:80]}…)"
+                                for r in user_recs[:5]
+                            ]
+                            voice_resp = (
+                                f"You currently have {len(user_recs)} saved voice recording(s) in your voice notes library:\n\n"
+                                + "\n".join(v_lines)
+                                + "\n\nYou can listen to recordings, review executive summaries, and search transcripts in your Voice Session view."
+                            )
+                        else:
+                            voice_resp = (
+                                "You currently have no saved voice recordings or notes in your library. "
+                                "You can record spoken notes or start a voice session anytime to save audio transcripts!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "voice"
+                        model_name = "voice-agent"
+                        full_response.append(voice_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, voice_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': voice_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_voice_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_saved_research and effective_user_id:
+                    try:
+                        from app.research.repository import ResearchRepository
+                        research_repo = ResearchRepository()
+                        user_reports = await research_repo.list_reports(effective_user_id, limit=10)
+                        if user_reports:
+                            r_lines = [
+                                f"- **{r.get('title', 'Research Report')}** (Topic: *{r.get('query', '')}*, Confidence: `{r.get('confidence', 'medium')}`)\n  *Summary:* {str(r.get('summary') or '')[:100]}…"
+                                for r in user_reports[:5]
+                            ]
+                            research_resp = (
+                                f"You currently have {len(user_reports)} saved research report(s) in your research library:\n\n"
+                                + "\n\n".join(r_lines)
+                                + "\n\nYou can launch new autonomous deep research investigations, inspect source citations, and review findings in your Research Hub."
+                            )
+                        else:
+                            research_resp = (
+                                "You currently have no saved research reports in your library. "
+                                "You can launch an autonomous deep research investigation anytime in your Research Hub or ask me to research any topic!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "research"
+                        model_name = "research-specialist"
+                        full_response.append(research_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, research_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': research_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_research_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_browser_task and effective_user_id:
+                    try:
+                        from app.browser.repository import BrowserRepository
+                        browser_repo = BrowserRepository()
+                        user_tasks = await browser_repo.list_tasks(effective_user_id, limit=10)
+                        if user_tasks:
+                            t_lines = [
+                                f"- **{t.get('title', 'Browser Task')}** (Status: `{t.get('status', 'completed')}`, Type: `{t.get('action_type', 'navigate')}`)\n  *Target URL:* {t.get('url', '')}"
+                                for t in user_tasks[:5]
+                            ]
+                            browser_resp = (
+                                f"You currently have {len(user_tasks)} browser automation task(s) in your library:\n\n"
+                                + "\n\n".join(t_lines)
+                                + "\n\nYou can launch web flows, inspect live DOM elements, and extract structured data in your Browser Studio."
+                            )
+                        else:
+                            browser_resp = (
+                                "You currently have no saved browser automation tasks in your library. "
+                                "You can launch a new web flow or inspect any webpage anytime in your Browser Studio!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "browser"
+                        model_name = "browser-operator"
+                        full_response.append(browser_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, browser_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': browser_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_browser_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_study and effective_user_id:
+                    try:
+                        from app.study.repository import StudyRepository
+                        study_repo = StudyRepository()
+                        user_decks = await study_repo.list_decks(effective_user_id, limit=10)
+                        study_stats = await study_repo.get_study_stats(effective_user_id)
+                        if user_decks:
+                            d_lines = [
+                                f"- **{d.get('title', 'Study Deck')}** (Cards: {d.get('card_count', 0)}, Mastery: {d.get('mastery_percentage', 0.0)}%, Subject: `{d.get('subject', 'General')}`)"
+                                for d in user_decks[:5]
+                            ]
+                            study_resp = (
+                                f"You currently have {study_stats.get('total_decks', len(user_decks))} study deck(s) with {study_stats.get('total_cards', 0)} flashcards ({study_stats.get('cards_due_for_review', 0)} due for review):\n\n"
+                                + "\n".join(d_lines)
+                                + "\n\nYou can review flashcards with spaced repetition, generate quizzes, and track mastery in your Study Studio."
+                            )
+                        else:
+                            study_resp = (
+                                "You currently have no study decks in your library. "
+                                "You can create a study deck, generate flashcards from lecture notes, or take practice quizzes anytime in your Study Studio!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "study"
+                        model_name = "study-agent"
+                        full_response.append(study_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, study_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': study_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_study_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_coding and effective_user_id:
+                    try:
+                        from app.coding.repository import CodeRepository
+                        coding_repo = CodeRepository()
+                        user_snippets, snip_total = await coding_repo.list_snippets(effective_user_id, limit=10)
+                        coding_stats = await coding_repo.get_user_stats(effective_user_id)
+                        if user_snippets:
+                            s_lines = [
+                                f"- **{s.get('title', 'Snippet')}** (Language: `{s.get('language', 'python')}`, Favorite: {s.get('is_favorite', False)})"
+                                for s in user_snippets[:5]
+                            ]
+                            coding_resp = (
+                                f"You currently have {coding_stats.get('total_snippets', snip_total)} code snippet(s) in your library with {coding_stats.get('total_executions', 0)} sandbox execution(s) ({coding_stats.get('success_rate_percentage', 100.0)}% success rate):\n\n"
+                                + "\n".join(s_lines)
+                                + "\n\nYou can run code in the sandbox playground, generate solutions, or debug snippets in your Coding Studio."
+                            )
+                        else:
+                            coding_resp = (
+                                "You currently have no saved code snippets in your library. "
+                                "You can write and run code in the interactive playground, generate functions, or debug errors anytime in your Coding Studio!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "coding"
+                        model_name = "coding-agent"
+                        full_response.append(coding_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, coding_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': coding_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_coding_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_memory and effective_user_id:
+                    try:
+                        from app.memory.repository import MemoryRepository
+                        mem_repo = MemoryRepository()
+                        user_mems, mem_total = await mem_repo.list_memories(user_id=effective_user_id, include_soft_deleted=False, limit=10)
+                        mem_stats = await mem_repo.get_stats(effective_user_id)
+                        if user_mems:
+                            m_lines = [
+                                f"- [{m.get('importance', 'normal').upper()}] {m.get('content')} (Tags: {', '.join(m.get('tags', []))})"
+                                for m in user_mems[:5]
+                            ]
+                            mem_resp = (
+                                f"You currently have {mem_stats.get('active_memories', mem_total)} active long-term memories in your semantic vault "
+                                f"({mem_stats.get('forever_memories', 0)} forever pinned, {mem_stats.get('curator_runs_count', 0)} curator passes executed):\n\n"
+                                + "\n".join(m_lines)
+                                + "\n\nYou can review, edit, or curate your memories anytime in your Memory Studio."
+                            )
+                        else:
+                            mem_resp = (
+                                "You currently have no saved long-term memories in your semantic vault. "
+                                "You can ask me to remember facts, preferences, or rules anytime, or manage them in your Memory Studio!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "memory"
+                        model_name = "memory-curator"
+                        full_response.append(mem_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, mem_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': mem_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_memory_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_audit and effective_user_id:
+                    try:
+                        from app.audit.repository import AuditRepository
+                        audit_repo = AuditRepository()
+                        today_events = await audit_repo.list_today_events(effective_user_id, limit=10)
+                        audit_stats = await audit_repo.get_stats(effective_user_id)
+                        if today_events:
+                            ev_lines = [
+                                f"- [{e.get('approval_tier', 'T1')}] **{e.get('agent_slug', 'coordinator').upper()}**: {e.get('action')} (Status: `{e.get('status_code', 'ok')}`, Latency: {e.get('latency_ms', 0)}ms)"
+                                for e in today_events[:5]
+                            ]
+                            audit_resp = (
+                                f"Here is your activity and audit summary for today:\n\n"
+                                f"- **Total Events Recorded:** {audit_stats.get('total_events', len(today_events))}\n"
+                                f"- **Events Today:** {audit_stats.get('today_events', len(today_events))}\n"
+                                f"- **Retention Policy:** 1-Year Append-Only Log (§10.12)\n\n"
+                                f"**Recent Actions Today:**\n" + "\n".join(ev_lines)
+                                + "\n\nYou can inspect full details, filter by approval tier, and export your audit archive in the Audit & Security Studio."
+                            )
+                        else:
+                            audit_resp = (
+                                f"Here is your activity and audit summary for today:\n\n"
+                                f"- **Total Events Recorded:** {audit_stats.get('total_events', 0)}\n"
+                                f"- **Events Today:** 0\n"
+                                f"- **Retention Policy:** 1-Year Append-Only Log (§10.12)\n\n"
+                                "No actions have been logged yet today. You can monitor your activity and security reviews in the Audit & Security Studio."
+                            )
+                        chunks_yielded = True
+                        provider_name = "audit"
+                        model_name = "security-auditor"
+                        full_response.append(audit_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, audit_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': audit_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_audit_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_automation and effective_user_id:
+                    try:
+                        from app.jobs.repository import JobRepository
+                        job_repo = JobRepository()
+                        user_jobs = await job_repo.list_jobs(effective_user_id)
+                        if user_jobs:
+                            job_lines = [
+                                f"- **{j.name}** (Schedule: `{j.schedule}`, Status: {j.status}, Next Run: {j.next_run})"
+                                for j in user_jobs
+                            ]
+                            auto_resp = (
+                                f"You currently have {len(user_jobs)} automated job(s) configured:\n\n"
+                                + "\n".join(job_lines)
+                                + "\n\nYou can trigger jobs manually via 'Run Now' or pause/resume them anytime in your Scheduled Jobs dashboard."
+                            )
+                        else:
+                            auto_resp = (
+                                "You currently have no scheduled automated jobs. "
+                                "You can create automated recurring jobs in your Scheduled Jobs dashboard or ask me to schedule tasks for you!"
+                            )
+                        chunks_yielded = True
+                        provider_name = "automation"
+                        model_name = "scheduler-engine"
+                        full_response.append(auto_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, auto_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': auto_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_automation_fallback_failed", error=str(err))
+
+                if not chunks_yielded and is_billing and effective_user_id:
+                    try:
+                        from app.billing.repository import BillingRepository
+                        billing_repo = BillingRepository()
+                        sub = await billing_repo.get_subscription(effective_user_id)
+                        wallet = await billing_repo.get_credit_wallet(effective_user_id)
+                        invoices = await billing_repo.list_invoices(effective_user_id)
+                        plan_info = sub.get("plan", {})
+                        plan_name = plan_info.get("name", "Free (BYOK)")
+                        plan_status = plan_info.get("status", "active")
+                        remaining = wallet.get("remaining_credits", 100.0)
+                        used = wallet.get("used_this_month", 0.0)
+                        billing_resp = (
+                            f"Here is your current billing & subscription overview:\n\n"
+                            f"- **Active Plan:** {plan_name} (Status: `{plan_status}`)\n"
+                            f"- **Remaining AI Credits:** {remaining:,.0f}\n"
+                            f"- **Credits Used This Month:** {used:,.0f}\n"
+                            f"- **Invoices on File:** {len(invoices)}\n\n"
+                            f"You can upgrade your plan, purchase top-up credits, or manage payment methods in your Billing & Subscription settings."
+                        )
+                        chunks_yielded = True
+                        provider_name = "billing"
+                        model_name = "billing-agent"
+                        full_response.append(billing_resp)
+                        if body.session_id:
+                            await _persist_runtime_interaction(
+                                body.session_id, effective_user_id, body.message, billing_resp, provider_name, model_name
+                            )
+                        yield f"data: {json.dumps({'delta': billing_resp, 'done': True, 'agent_slug': agent_slug, 'provider': provider_name, 'model': model_name})}\n\n".encode()
+                    except Exception as err:
+                        log.warning("runtime.stream_billing_fallback_failed", error=str(err))
+
+
+
+
+
+
+
+
+
 
             # Critic pre-flight on full response (only for non-trivial responses)
             if chunks_yielded and len("".join(full_response)) > 200:
@@ -2419,6 +3208,15 @@ async def runtime_chat_stream(
             import json as _json
             log.error("runtime.chat.stream.error", agent=agent_slug, error=str(exc))
             if is_maps and chunks_yielded:
+                if body.session_id and live_context:
+                    await _persist_runtime_interaction(
+                        body.session_id,
+                        effective_user_id,
+                        body.message,
+                        live_context,
+                        "maps_service",
+                        "google_maps",
+                    )
                 final = _json.dumps({
                     "done": True,
                     "provider": "maps_service",
@@ -2431,6 +3229,15 @@ async def runtime_chat_stream(
             if live_context and not chunks_yielded:
                 prov_lbl = "maps_service" if is_maps else ("weather_service" if is_weather else "weather_search")
                 mod_lbl = "google_maps" if is_maps else ("open-meteo" if is_weather else "tavily")
+                if body.session_id:
+                    await _persist_runtime_interaction(
+                        body.session_id,
+                        effective_user_id,
+                        body.message,
+                        live_context,
+                        prov_lbl,
+                        mod_lbl,
+                    )
                 yield f"data: {_json.dumps({'delta': live_context, 'done': True, 'agent_slug': agent_slug, 'provider': prov_lbl, 'model': mod_lbl})}\n\n".encode()
                 yield f"event: attribution\ndata: {_json.dumps({'done': True, 'provider': prov_lbl, 'model': mod_lbl, 'agent_slug': agent_slug})}\n\n".encode()
                 return

@@ -303,41 +303,43 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
           {/* Floating Bottom Single Input */}
           <div className="chat-window__bottom-bar">
-            {isStreaming && (
-              <div className="chat-window__floating-reply-pill">
-                <button
-                  type="button"
-                  className="chat-window__reply-pill-btn"
-                  onClick={handleReplyNow}
-                  title="Jump to live response"
-                  aria-label="Jump to live response"
-                >
-                  <span className="chat-window__reply-pill-dot" />
-                  <span>Reply now</span>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <polyline points="19 12 12 19 5 12" />
-                  </svg>
-                </button>
-              </div>
-            )}
+            <div className="chat-window__bottom-bar-inner">
+              {isStreaming && (
+                <div className="chat-window__floating-reply-pill">
+                  <button
+                    type="button"
+                    className="chat-window__reply-pill-btn"
+                    onClick={handleReplyNow}
+                    title="Jump to live response"
+                    aria-label="Jump to live response"
+                  >
+                    <span className="chat-window__reply-pill-dot" />
+                    <span>Reply now</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <polyline points="19 12 12 19 5 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
 
-            <ChatInput
-              onSend={onSend}
-              disabled={false}
-              isStreaming={isStreaming}
-              disabledNoModel={disabledNoModel}
-              leftSlot={modelPickerSlot}
-              onVoiceClick={onVoiceClick}
-              onAttachmentClick={onAttachmentClick}
-              onStop={onStop}
-              placeholder={
-                mode === 'task'
-                  ? 'Ask to write code, build a script, or debug…'
-                  : 'Ask anything, chat, or paste code…'
-              }
-              onNavigateView={onNavigateView}
-            />
+              <ChatInput
+                onSend={onSend}
+                disabled={false}
+                isStreaming={isStreaming}
+                disabledNoModel={disabledNoModel}
+                leftSlot={modelPickerSlot}
+                onVoiceClick={onVoiceClick}
+                onAttachmentClick={onAttachmentClick}
+                onStop={onStop}
+                placeholder={
+                  mode === 'task'
+                    ? 'Ask to write code, build a script, or debug…'
+                    : 'Ask anything, chat, or paste code…'
+                }
+                onNavigateView={onNavigateView}
+              />
+            </div>
           </div>
         </>
       )}

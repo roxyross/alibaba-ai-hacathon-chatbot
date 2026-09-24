@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 import uuid
 from collections.abc import AsyncIterator
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -308,3 +309,89 @@ async def test_automation_agent_chat_grounding(client: httpx.AsyncClient) -> Non
 
     # User B must NOT see User A's unique job name
     assert unique_task_name not in resp_text_b
+
+
+@pytest.mark.asyncio
+async def test_automation_agent_chat_offline_fallback(client: httpx.AsyncClient) -> None:
+    """When LLM router fails, chat coordinator returns authentic offline fallback with scheduled jobs telemetry."""
+    uid = uuid.uuid4().hex[:8]
+    headers, _ = await _get_auth(client, f"chat_auto_offline_{uid}@example.com")
+
+    # 1. Ask before creating any job -> 0 scheduled jobs message
+    with patch("app.api.v1.runtime.AIRouter.route", side_effect=Exception("Gateway timeout")):
+        chat_res = await client.post(
+            "/api/v1/runtime/chat",
+            headers=headers,
+            json={"message": "Show me my scheduled jobs and recurring tasks.", "agent_override": "automation"},
+        )
+        assert chat_res.status_code == 200
+        data = chat_res.json()
+        assert data["agent_slug"] == "automation"
+        assert "no scheduled automated jobs" in data["response"].lower()
+
+    # 2. Create a job
+    await client.post(
+        "/api/v1/jobs",
+        headers=headers,
+        json={
+            "name": f"Nightly Cloud Snapshot Backup {uid}",
+            "schedule": "0 2 * * *",
+            "timezone": "UTC",
+        },
+    )
+
+    # 3. Ask again -> returns live job count and job name
+    with patch("app.api.v1.runtime.AIRouter.route", side_effect=Exception("Gateway timeout")):
+        chat_res2 = await client.post(
+            "/api/v1/runtime/chat",
+            headers=headers,
+            json={"message": "Show me my scheduled jobs and recurring tasks.", "agent_override": "automation"},
+        )
+        assert chat_res2.status_code == 200
+        data2 = chat_res2.json()
+        assert data2["agent_slug"] == "automation"
+        assert "1 automated job(s) configured" in data2["response"]
+        assert f"Nightly Cloud Snapshot Backup {uid}" in data2["response"]
+
+
+@pytest.mark.asyncio
+async def test_automation_agent_chat_stream_grounding(client: httpx.AsyncClient) -> None:
+    """Verify streaming chat runtime grounds scheduled jobs and automation state."""
+    uid = uuid.uuid4().hex[:8]
+    headers, _ = await _get_auth(client, f"chat_auto_stream_{uid}@example.com")
+
+    # 1. Ask via stream before creating any job -> 0 jobs message
+    resp_empty = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "Show me my scheduled jobs and recurring tasks.", "agent_override": "automation", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_empty.status_code == 200
+    empty_stream = resp_empty.text
+    assert "data:" in empty_stream
+    assert "no scheduled automated jobs" in empty_stream.lower()
+
+    # 2. Create a scheduled job
+    job_name = f"Weekend Security Audit Cron {uid}"
+    create_res = await client.post(
+        "/api/v1/jobs",
+        headers=headers,
+        json={
+            "name": job_name,
+            "schedule": "0 4 * * 6",
+            "timezone": "UTC",
+        },
+    )
+    assert create_res.status_code in (200, 201)
+
+    # 3. Ask via stream again -> confirms active automated job
+    resp_one = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "Show me my scheduled jobs and recurring tasks.", "agent_override": "automation", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_one.status_code == 200
+    one_stream = resp_one.text
+    assert "data:" in one_stream
+    assert "1 automated job(s) configured" in one_stream
+    assert job_name in one_stream

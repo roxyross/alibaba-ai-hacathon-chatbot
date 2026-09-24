@@ -587,3 +587,53 @@ async def test_chat_study_offline_stats(client: httpx.AsyncClient) -> None:
     content = chat_resp.json()["response"]
     # Should mention 2 study decks or Spanish Vocabulary / Linear Algebra
     assert "2 study deck" in content or "Spanish Vocabulary" in content or "Linear Algebra" in content
+
+
+# ---------------------------------------------------------------------------
+# Test 14: Chat Streaming Grounding & Offline Fallback
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_chat_streaming_study_grounding(client: httpx.AsyncClient) -> None:
+    """Verify streaming chat runtime grounds study decks and flashcards stats."""
+    email = f"study_stream_{uuid.uuid4().hex[:8]}@example.com"
+    headers, _ = await _get_auth(client, email)
+
+    # 1. Ask via stream before creating any deck -> 0 decks message
+    resp_empty = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "What study decks do I have in my library?", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_empty.status_code == 200
+    empty_stream = resp_empty.text
+    assert "data:" in empty_stream
+    assert "no study decks" in empty_stream.lower()
+
+    # 2. Create a study deck
+    deck_resp = await client.post(
+        "/api/v1/study/decks",
+        headers=headers,
+        json={"title": "Cellular Respiration", "subject": "Biology"},
+    )
+    assert deck_resp.status_code == 201
+    deck_id = deck_resp.json()["id"]
+
+    await client.post(
+        f"/api/v1/study/decks/{deck_id}/cards",
+        headers=headers,
+        json={"front": "Glycolysis location", "back": "Cytoplasm"},
+    )
+
+    # 3. Ask via stream again -> confirms 1 study deck
+    resp_one = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "Can you check my study decks and flashcards?", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_one.status_code == 200
+    one_stream = resp_one.text
+    assert "data:" in one_stream
+    assert "1 study deck" in one_stream
+    assert "Cellular Respiration" in one_stream
+

@@ -1135,6 +1135,28 @@
   border-color: #14b8a6;
 }
 
+.settings-save-btn--error,
+[data-theme="dark"] .settings-save-btn--error {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.35);
+}
+
+.settings-save-btn--error:hover:not(:disabled),
+[data-theme="dark"] .settings-save-btn--error:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.settings-save-btn--success,
+[data-theme="dark"] .settings-save-btn--success {
+  background: #059669;
+  border-color: #059669;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.35);
+}
+
 /* ─── Mobile Responsiveness ───────────────────────────────────── */
 @media (max-width: 768px) {
   .settings-overlay {

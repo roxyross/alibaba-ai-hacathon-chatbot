@@ -478,3 +478,46 @@ async def test_chat_audit_offline_fallback(client: httpx.AsyncClient) -> None:
         assert "activity and audit summary for today" in data["response"]
         assert "Total Events Recorded:" in data["response"]
         assert "refactor_database_migration" in data["response"]
+
+
+@pytest.mark.asyncio
+async def test_chat_streaming_audit_grounding(client: httpx.AsyncClient) -> None:
+    """Verify streaming chat runtime grounds audit events and security summaries."""
+    headers, _ = await _get_auth(client, f"audit_stream_{uuid.uuid4().hex[:6]}@example.com")
+
+    # 1. Ask via stream before recording any event -> 0 events summary
+    resp_empty = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "Show me my audit log and what actions Jarvis took today.", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_empty.status_code == 200
+    empty_stream = resp_empty.text
+    assert "data:" in empty_stream
+    assert "no actions have been logged" in empty_stream.lower()
+
+    # 2. Record an audit event
+    create_res = await client.post(
+        "/api/v1/audit",
+        headers=headers,
+        json={
+            "agent_slug": "finance",
+            "action": "export_encrypted_financial_vault",
+            "approval_tier": "T2",
+            "status_code": "ok",
+        },
+    )
+    assert create_res.status_code == 201
+
+    # 3. Ask via stream again -> confirms audit summary
+    resp_one = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "Show me my audit log and what actions Jarvis took today.", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_one.status_code == 200
+    one_stream = resp_one.text
+    assert "data:" in one_stream
+    assert "Total Events Recorded:" in one_stream
+    assert "export_encrypted_financial_vault" in one_stream
+

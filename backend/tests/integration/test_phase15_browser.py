@@ -421,3 +421,48 @@ async def test_chat_browser_offline_tasks_count(client: httpx.AsyncClient) -> No
     res_text = resp_one.json()["response"]
     assert "1 browser automation task" in res_text
     assert "Hacker News Scrape" in res_text
+
+
+@pytest.mark.anyio
+async def test_chat_streaming_browser_grounding(client: httpx.AsyncClient) -> None:
+    """Verify streaming chat runtime grounds browser automation tasks and status."""
+    email = f"stream_browser_{uuid.uuid4().hex[:8]}@example.com"
+    headers, _ = await _get_auth(client, email)
+
+    # 1. Ask via stream before saving any task -> 0 tasks message
+    resp_empty = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "What browser tasks do I have in my library?", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_empty.status_code == 200
+    empty_stream = resp_empty.text
+    assert "data:" in empty_stream
+    assert "no saved browser automation tasks" in empty_stream.lower()
+
+    # 2. Save a browser automation task
+    create_resp = await client.post(
+        "/api/v1/browser/tasks",
+        json={
+            "url": "https://en.wikipedia.org/wiki/Quantum_computing",
+            "title": "Wikipedia Quantum Computing Table",
+            "action_type": "extract",
+            "status": "completed",
+            "tags": ["quantum", "wikipedia"],
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+
+    # 3. Ask via stream again -> confirms 1 browser automation task
+    resp_one = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "List my browser tasks in my library", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_one.status_code == 200
+    one_stream = resp_one.text
+    assert "data:" in one_stream
+    assert "1 browser automation task" in one_stream
+    assert "Wikipedia Quantum Computing Table" in one_stream
+

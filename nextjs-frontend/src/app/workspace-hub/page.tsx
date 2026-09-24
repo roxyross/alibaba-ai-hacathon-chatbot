@@ -12,6 +12,23 @@ interface ProjectItem {
   completedCount: number;
 }
 
+interface TaskItem {
+  id: string;
+  project_id: string;
+  title: string;
+  status: "todo" | "in_progress" | "done" | "blocked";
+  priority?: string;
+  assigned_agent?: string;
+}
+
+interface DocItem {
+  id: string;
+  project_id: string;
+  document_id: string;
+  title: string;
+  file_type?: string;
+}
+
 const rawApiBase = process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const API_BASE = rawApiBase.endsWith("/api/v1") ? rawApiBase : `${rawApiBase}/api/v1`;
 
@@ -25,11 +42,27 @@ export default function WorkspaceHubPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
+  // Active Project Detail Modal / Drawer
+  const [activeProject, setActiveProject] = useState<ProjectItem | null>(null);
+  const [projectTasks, setProjectTasks] = useState<TaskItem[]>([]);
+  const [projectDocs, setProjectDocs] = useState<DocItem[]>([]);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+
+  const getAuthToken = () => {
+    if (typeof window === "undefined") return null;
+    return (
+      localStorage.getItem("accessToken") ||
+      localStorage.getItem("roxy_token") ||
+      localStorage.getItem("token")
+    );
+  };
+
   const fetchProjects = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || localStorage.getItem("roxy_token") : null;
+      const token = getAuthToken();
       const headers: Record<string, string> = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
@@ -54,7 +87,6 @@ export default function WorkspaceHubPage() {
         setErrorMessage("Failed to load workspace projects.");
       }
     } catch {
-      // Offline or guest mode zeroed projects
       setProjects([]);
     } finally {
       setIsLoading(false);
@@ -65,11 +97,32 @@ export default function WorkspaceHubPage() {
     fetchProjects();
   }, [fetchProjects]);
 
+  const handleOpenProject = async (p: ProjectItem) => {
+    setActiveProject(p);
+    setIsDetailLoading(true);
+    try {
+      const token = getAuthToken();
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`${API_BASE}/projects/${p.id}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setProjectTasks(data.project?.tasks || []);
+        setProjectDocs(data.project?.documents || []);
+      }
+    } catch {
+      setProjectTasks([]);
+      setProjectDocs([]);
+    } finally {
+      setIsDetailLoading(false);
+    }
+  };
+
   const handleCreate = async () => {
     if (!newProjectName.trim()) return;
     setErrorMessage(null);
 
-    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || localStorage.getItem("roxy_token") : null;
+    const token = getAuthToken();
     if (!token) {
       setErrorMessage("Please sign in to create and persist workspace projects.");
       return;
@@ -118,6 +171,128 @@ export default function WorkspaceHubPage() {
     }
   };
 
+  const handleDeleteProject = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const previous = [...projects];
+    setProjects((prev) => prev.filter((p) => p.id !== id));
+    if (activeProject?.id === id) {
+      setActiveProject(null);
+    }
+
+    try {
+      const token = getAuthToken();
+      if (token) {
+        const res = await fetch(`${API_BASE}/projects/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          setProjects(previous);
+          setErrorMessage("Failed to delete project on server.");
+        }
+      }
+    } catch {
+      setProjects(previous);
+      setErrorMessage("Network error while deleting project.");
+    }
+  };
+
+  const handleToggleTask = async (task: TaskItem) => {
+    if (!activeProject) return;
+    const nextStatus = task.status === "done" ? "todo" : "done";
+    const previous = [...projectTasks];
+
+    setProjectTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t))
+    );
+
+    try {
+      const token = getAuthToken();
+      if (token) {
+        const res = await fetch(`${API_BASE}/projects/${activeProject.id}/tasks/${task.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ status: nextStatus }),
+        });
+        if (!res.ok) {
+          setProjectTasks(previous);
+          setErrorMessage("Failed to update task status.");
+        } else {
+          fetchProjects();
+        }
+      }
+    } catch {
+      setProjectTasks(previous);
+      setErrorMessage("Network error while updating task.");
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeProject || !newTaskTitle.trim()) return;
+
+    const token = getAuthToken();
+    if (!token) {
+      setErrorMessage("Please sign in to add and persist tasks.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/projects/${activeProject.id}/tasks`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: newTaskTitle.trim(),
+          status: "todo",
+          priority: "medium",
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setProjectTasks((prev) => [...prev, data.task]);
+        setNewTaskTitle("");
+        fetchProjects();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setErrorMessage(err.detail || "Could not create task.");
+      }
+    } catch {
+      setErrorMessage("Network error while creating task.");
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (!activeProject) return;
+    const previous = [...projectTasks];
+    setProjectTasks((prev) => prev.filter((t) => t.id !== taskId));
+
+    try {
+      const token = getAuthToken();
+      if (token) {
+        const res = await fetch(`${API_BASE}/projects/${activeProject.id}/tasks/${taskId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          setProjectTasks(previous);
+          setErrorMessage("Failed to delete task.");
+        } else {
+          fetchProjects();
+        }
+      }
+    } catch {
+      setProjectTasks(previous);
+      setErrorMessage("Network error while deleting task.");
+    }
+  };
+
   const getStatusBadge = (status: ProjectItem["status"]) => {
     switch (status) {
       case "active":
@@ -158,6 +333,13 @@ export default function WorkspaceHubPage() {
         </button>
       </div>
 
+      {!getAuthToken() && (
+        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-center gap-2">
+          <span>🔒</span>
+          <span>You are currently in guest mode. Sign in to create persistent workspace projects, assign agent tasks, and link documents.</span>
+        </div>
+      )}
+
       {notification && (
         <div className="p-3.5 bg-teal-50 border border-teal-200 rounded-xl text-xs font-semibold text-[#0d9488]">
           ✨ {notification}
@@ -167,7 +349,15 @@ export default function WorkspaceHubPage() {
       {errorMessage && (
         <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs font-semibold text-rose-600 flex items-center justify-between">
           <span>⚠️ {errorMessage}</span>
-          <button onClick={() => setErrorMessage(null)} className="font-bold text-sm">✕</button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchProjects}
+              className="text-xs px-2 py-0.5 bg-rose-600 text-white rounded hover:bg-rose-700"
+            >
+              ↻ Retry
+            </button>
+            <button onClick={() => setErrorMessage(null)} className="font-bold text-sm">✕</button>
+          </div>
         </div>
       )}
 
@@ -208,18 +398,29 @@ export default function WorkspaceHubPage() {
           {projects.map((p) => (
             <div
               key={p.id}
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+              onClick={() => handleOpenProject(p)}
+              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between cursor-pointer group"
             >
               <div>
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
                     Workspace
                   </span>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${getStatusBadge(p.status)}`}>
-                    {p.status.replace("_", " ")}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${getStatusBadge(p.status)}`}>
+                      {p.status.replace("_", " ")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteProject(p.id, e)}
+                      className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 p-0.5 rounded text-xs transition-opacity"
+                      title="Delete Project"
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </div>
-                <h3 className="text-sm font-bold text-[#1e292b] mb-1.5 leading-snug">
+                <h3 className="text-sm font-bold text-[#1e292b] mb-1.5 leading-snug group-hover:text-[#0d9488] transition-colors">
                   {p.name}
                 </h3>
                 <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
@@ -231,12 +432,141 @@ export default function WorkspaceHubPage() {
                 <span>
                   {p.completedCount}/{p.tasksCount} tasks · Updated {p.lastUpdated}
                 </span>
-                <span className="text-[#0d9488] font-semibold">
-                  Active
+                <span className="text-[#0d9488] font-semibold flex items-center gap-1">
+                  <span>View Details</span>
+                  <span>→</span>
                 </span>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Project Details Modal */}
+      {activeProject && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-2xl w-full p-6 shadow-2xl space-y-6 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${getStatusBadge(activeProject.status)}`}>
+                    {activeProject.status.replace("_", " ")}
+                  </span>
+                  <span className="text-xs text-slate-400">ID: {activeProject.id.slice(0, 12)}…</span>
+                </div>
+                <h2 className="text-lg font-bold text-[#1e292b]">{activeProject.name}</h2>
+                <p className="text-xs text-slate-600 mt-0.5">{activeProject.description}</p>
+              </div>
+              <button
+                onClick={() => setActiveProject(null)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Tasks Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Tasks & Deliverables ({projectTasks.filter((t) => t.status === "done").length}/{projectTasks.length})
+                </h3>
+              </div>
+
+              {/* Add Task Input */}
+              <form onSubmit={handleCreateTask} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Add a new deliverable or action item..."
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#0d9488]"
+                />
+                <button
+                  type="submit"
+                  disabled={!newTaskTitle.trim()}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#0d9488] hover:bg-[#0f766e] text-white disabled:opacity-50"
+                >
+                  + Add
+                </button>
+              </form>
+
+              {/* Tasks List */}
+              {isDetailLoading ? (
+                <div className="text-xs text-slate-400 py-4 text-center">Loading tasks...</div>
+              ) : projectTasks.length === 0 ? (
+                <div className="p-4 rounded-xl bg-slate-50 text-center text-xs text-slate-400 border border-dashed border-slate-200">
+                  No deliverables created yet for this project.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {projectTasks.map((t) => (
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100 hover:border-slate-200 text-xs"
+                    >
+                      <label className="flex items-center gap-2 cursor-pointer flex-1">
+                        <input
+                          type="checkbox"
+                          checked={t.status === "done"}
+                          onChange={() => handleToggleTask(t)}
+                          className="rounded text-[#0d9488] focus:ring-[#0d9488]"
+                        />
+                        <span className={t.status === "done" ? "line-through text-slate-400" : "text-slate-800 font-medium"}>
+                          {t.title}
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTask(t.id)}
+                        className="text-slate-400 hover:text-rose-600 text-xs px-1"
+                        title="Delete task"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Linked Documents Section */}
+            {projectDocs.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Linked Knowledge Vault Documents ({projectDocs.length})
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {projectDocs.map((d) => (
+                    <div
+                      key={d.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200 text-xs text-[#0d9488]"
+                    >
+                      <span>📄</span>
+                      <span>{d.title}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => handleDeleteProject(activeProject.id)}
+                className="text-xs text-rose-600 hover:text-rose-700 font-semibold"
+              >
+                Delete Project
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveProject(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

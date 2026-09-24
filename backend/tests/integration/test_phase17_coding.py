@@ -471,3 +471,46 @@ async def test_chat_coding_offline_fallback(client: httpx.AsyncClient) -> None:
     assert chat_res.status_code == 200
     resp_text = chat_res.json()["response"]
     assert "1 code snippet(s)" in resp_text or "Coding Studio" in resp_text
+
+
+@pytest.mark.anyio
+async def test_chat_streaming_coding_grounding(client: httpx.AsyncClient) -> None:
+    """Verify streaming chat runtime grounds code snippets and execution metrics."""
+    headers, _ = await _get_auth(client, f"coding_stream_{uuid.uuid4().hex[:6]}@example.com")
+
+    # 1. Ask via stream before creating any snippet -> 0 snippets message
+    resp_empty = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "Show me my code snippet library and debug my code", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_empty.status_code == 200
+    empty_stream = resp_empty.text
+    assert "data:" in empty_stream
+    assert "no saved code snippets" in empty_stream.lower()
+
+    # 2. Create a snippet
+    create_res = await client.post(
+        "/api/v1/coding/snippets",
+        headers=headers,
+        json={
+            "title": "Dijkstra Shortest Path",
+            "language": "python",
+            "code": "import heapq\ndef dijkstra(graph, start): pass",
+            "tags": ["graph", "algorithms"],
+        },
+    )
+    assert create_res.status_code == 201
+
+    # 3. Ask via stream again -> confirms 1 code snippet
+    resp_one = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={"message": "Show me my code snippet library and debug my code", "provider": "offline"},
+        headers=headers,
+    )
+    assert resp_one.status_code == 200
+    one_stream = resp_one.text
+    assert "data:" in one_stream
+    assert "1 code snippet(s)" in one_stream
+    assert "Dijkstra Shortest Path" in one_stream
+

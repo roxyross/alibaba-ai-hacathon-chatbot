@@ -4,8 +4,6 @@ import './AgentActivityTimeline.css';
 interface AgentActivityTimelineProps {
   isStreaming: boolean;
   prompt?: string;
-  onStop?: () => void;
-  onReplyNow?: () => void;
   agentSlug?: string;
 }
 

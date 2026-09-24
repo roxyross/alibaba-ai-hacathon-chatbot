@@ -166,7 +166,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   });
   const [originalSettings, setOriginalSettings] = useState<UserSettings>(settings);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   // Masking toggles for BYOK keys
@@ -217,6 +217,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       void loadSettingsFromApi();
+      setSaveStatus('idle');
       setFeedbackMsg(null);
       setConfirmClearChats(false);
       setConfirmDeleteAccount(false);
@@ -225,7 +226,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Save updated settings to backend API
   const handleSave = async () => {
-    setIsSaving(true);
+    setSaveStatus('saving');
     setFeedbackMsg(null);
 
     // Save immediate client-side variables
@@ -257,13 +258,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setOriginalSettings(settings);
       }
 
+      setSaveStatus('success');
       setFeedbackMsg({ type: 'success', text: 'Settings successfully saved and synchronized' });
-      setTimeout(() => setFeedbackMsg(null), 3500);
+      setTimeout(() => {
+        setSaveStatus((prev) => (prev === 'success' ? 'idle' : prev));
+        setFeedbackMsg(null);
+      }, 3500);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error saving settings';
+      setSaveStatus('error');
       setFeedbackMsg({ type: 'error', text: msg });
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -273,6 +277,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       ...DEFAULT_SETTINGS,
       theme: currentTheme,
     });
+    setSaveStatus('idle');
     setFeedbackMsg({ type: 'info', text: 'Reset fields to defaults. Click "Save Changes" to persist.' });
   };
 
@@ -318,6 +323,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const updateSetting = <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
+    setSaveStatus((prev) => (prev === 'success' || prev === 'error' ? 'idle' : prev));
   };
 
   if (!isOpen) return null;
@@ -1329,12 +1335,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Modal Bottom Action Bar */}
         <div className="settings-footer">
           <div className="settings-footer-left">
-            {feedbackMsg && (
+            {saveStatus === 'error' && feedbackMsg && (
+              <span className="settings-feedback-tag settings-feedback-tag--error">
+                {feedbackMsg.text}
+              </span>
+            )}
+            {saveStatus === 'success' && feedbackMsg && (
+              <span className="settings-feedback-tag settings-feedback-tag--success">
+                {feedbackMsg.text}
+              </span>
+            )}
+            {saveStatus === 'idle' && feedbackMsg && (
               <span className={`settings-feedback-tag settings-feedback-tag--${feedbackMsg.type}`}>
                 {feedbackMsg.text}
               </span>
             )}
-            {!feedbackMsg && isDirty && (
+            {saveStatus === 'idle' && !feedbackMsg && isDirty && (
               <span className="settings-unsaved-badge">● Unsaved modifications</span>
             )}
           </div>
@@ -1350,11 +1366,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
             <button
               type="button"
-              className="settings-save-btn"
+              className={`settings-save-btn settings-save-btn--${saveStatus}`}
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={saveStatus === 'saving' || (saveStatus === 'idle' && !isDirty)}
             >
-              {isSaving ? 'Saving...' : isDirty ? 'Save Changes' : 'Saved ✓'}
+              {saveStatus === 'saving'
+                ? 'Saving...'
+                : saveStatus === 'success'
+                  ? 'Saved ✓'
+                  : saveStatus === 'error'
+                    ? 'Save Failed — Retry'
+                    : 'Save Changes'}
             </button>
           </div>
         </div>

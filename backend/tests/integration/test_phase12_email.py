@@ -15,10 +15,12 @@ Verifies:
 
 from __future__ import annotations
 
+import json
 import sys
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -391,3 +393,84 @@ async def test_chat_email_grounding(client: httpx.AsyncClient) -> None:
     assert "response" in body
     text = body["response"]
     assert "Contract Renewal Discussion" in text or "draft" in text.lower() or "1 message" in text.lower()
+
+
+@pytest.mark.anyio
+async def test_chat_streaming_email_grounding(client: httpx.AsyncClient) -> None:
+    """Verify that streaming coordinator agent chat accurately reflects user's email drafts and sent messages."""
+    email = f"chat_email_stream_{uuid.uuid4().hex[:8]}@example.com"
+    headers, _ = await _get_auth(client, email)
+
+    await client.post(
+        "/api/v1/emails",
+        json={
+            "to": "investor@venturecapital.com",
+            "subject": "Series A Pitch Deck & Metrics",
+            "body": "Hi, please find our updated investor deck attached.",
+            "status": "draft",
+        },
+        headers=headers,
+    )
+
+    stream_resp = await client.post(
+        "/api/v1/runtime/chat/stream",
+        json={
+            "message": "What email drafts do I currently have saved?",
+            "provider": "runtime",
+            "model": "coordinator",
+        },
+        headers=headers,
+    )
+    assert stream_resp.status_code == 200
+    assert "text/event-stream" in stream_resp.headers.get("content-type", "")
+
+    full_text = ""
+    for raw_line in stream_resp.text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("data:"):
+            payload_str = line[len("data:"):].strip()
+            if payload_str:
+                chunk = json.loads(payload_str)
+                full_text += chunk.get("delta", "")
+
+    assert (
+        "Series A Pitch Deck & Metrics" in full_text
+        or "draft" in full_text.lower()
+        or "1 message" in full_text.lower()
+    )
+
+
+@pytest.mark.anyio
+async def test_chat_email_offline_fallback(client: httpx.AsyncClient) -> None:
+    """When router fails, runtime chat returns authentic offline fallback with email outbox and drafts."""
+    email = f"chat_email_off_{uuid.uuid4().hex[:8]}@example.com"
+    headers, _ = await _get_auth(client, email)
+
+    await client.post(
+        "/api/v1/emails",
+        json={
+            "to": "cto@enterprise.org",
+            "subject": "AI Security Architecture Briefing",
+            "body": "Here is the autonomous agent security overview.",
+            "status": "draft",
+        },
+        headers=headers,
+    )
+
+    with patch("app.api.v1.runtime.AIRouter.route", side_effect=Exception("Model stream unreachable")):
+        chat_resp = await client.post(
+            "/api/v1/runtime/chat",
+            json={
+                "message": "What email drafts do I currently have saved?",
+                "provider": "runtime",
+                "model": "coordinator",
+            },
+            headers=headers,
+        )
+        assert chat_resp.status_code == 200
+        body = chat_resp.json()
+        assert body["agent_slug"] == "email"
+        assert "AI Security Architecture Briefing" in body["response"]
+        assert "communications hub" in body["response"]
+
+

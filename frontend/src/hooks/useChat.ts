@@ -292,7 +292,26 @@ export function useChat(options: UseChatOptions = {}) {
 
   const abort = useCallback(() => {
     abortRef.current?.abort();
-    setState((prev) => ({ ...prev, isStreaming: false }));
+    setState((prev) => {
+      if (!prev.isStreaming) return prev;
+      const msgs = [...prev.messages];
+      const last = msgs[msgs.length - 1];
+      const stopNotice = '*(Generation stopped by user)*';
+
+      if (last?.role === 'assistant') {
+        const trimmed = last.content.trimEnd();
+        const updatedContent = trimmed ? `${trimmed}\n\n${stopNotice}` : stopNotice;
+        msgs[msgs.length - 1] = { ...last, content: updatedContent };
+      } else {
+        msgs.push({ role: 'assistant', content: stopNotice });
+      }
+
+      return {
+        ...prev,
+        isStreaming: false,
+        messages: msgs,
+      };
+    });
   }, []);
 
   const clearMessages = useCallback(() => {

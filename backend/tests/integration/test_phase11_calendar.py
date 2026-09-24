@@ -15,10 +15,12 @@ Verifies:
 from __future__ import annotations
 
 import io
+import json
 import sys
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -391,3 +393,113 @@ async def test_calendar_chat_grounding(client: httpx.AsyncClient) -> None:
     assert chat_res.status_code == 200
     res_text = chat_res.json()["response"]
     assert "Quantum Robotics Demonstration" in res_text
+
+
+@pytest.mark.anyio
+async def test_calendar_streaming_chat_grounding(client: httpx.AsyncClient) -> None:
+    """Verify calendar schedule is grounded into streaming multi-agent chat."""
+    auth, user_id = await _get_auth(client, f"cal_chat_str_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # Create scheduled event
+    await client.post(
+        "/api/v1/calendar/events",
+        headers=auth,
+        json={
+            "title": "Autonomous Agent Keynote Presentation",
+            "start_time": (datetime.now(UTC) + timedelta(hours=2)).isoformat(),
+            "location": "Main Stage",
+            "category": "hackathon",
+        },
+    )
+
+    # Query streaming chat asking about schedule
+    stream_res = await client.post(
+        "/api/v1/runtime/chat/stream",
+        headers=auth,
+        json={
+            "message": "What is on my calendar schedule today?",
+            "agent_override": "calendar",
+        },
+    )
+    assert stream_res.status_code == 200
+    assert "text/event-stream" in stream_res.headers.get("content-type", "")
+
+    full_text = ""
+    for raw_line in stream_res.text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("data:"):
+            payload_str = line[len("data:"):].strip()
+            if payload_str:
+                chunk = json.loads(payload_str)
+                full_text += chunk.get("delta", "")
+
+    assert "Autonomous Agent Keynote Presentation" in full_text
+
+
+@pytest.mark.anyio
+async def test_calendar_chat_grounding_without_override(client: httpx.AsyncClient) -> None:
+    """Verify calendar schedule inquiry automatically routes and grounds without explicit agent override."""
+    auth, user_id = await _get_auth(client, f"cal_auto_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # Create scheduled event
+    await client.post(
+        "/api/v1/calendar/events",
+        headers=auth,
+        json={
+            "title": "Global Hackathon Demo Day",
+            "start_time": (datetime.now(UTC) + timedelta(hours=5)).isoformat(),
+            "location": "Innovation Auditorium",
+            "category": "hackathon",
+        },
+    )
+
+    mock_response = AsyncMock()
+    mock_response.content = "You have the Global Hackathon Demo Day scheduled in the Innovation Auditorium."
+    mock_response.provider = "mock_provider"
+    mock_response.model = "mock_model"
+
+    with patch("app.api.v1.runtime.AIRouter.route", return_value=mock_response) as mock_route:
+        chat_res = await client.post(
+            "/api/v1/runtime/chat",
+            headers=auth,
+            json={"message": "What is on my calendar schedule today?"},
+        )
+        assert chat_res.status_code == 200
+        assert mock_route.called
+        call_request = mock_route.call_args[0][0]
+        system_msgs = [m.content for m in call_request.messages if m.role.value == "system"]
+        cal_grounded = any("CALENDAR CONTEXT" in sm for sm in system_msgs)
+        assert cal_grounded is True
+        assert any("Global Hackathon Demo Day" in sm for sm in system_msgs)
+
+
+@pytest.mark.anyio
+async def test_calendar_chat_offline_fallback(client: httpx.AsyncClient) -> None:
+    """When router fails, runtime chat returns authentic offline fallback with calendar events."""
+    auth, user_id = await _get_auth(client, f"cal_off_{uuid.uuid4().hex[:6]}@roxy.ai")
+
+    # Create scheduled event
+    await client.post(
+        "/api/v1/calendar/events",
+        headers=auth,
+        json={
+            "title": "Deep Learning Architecture Review",
+            "start_time": (datetime.now(UTC) + timedelta(hours=4)).isoformat(),
+            "location": "Conference Room B",
+            "category": "meeting",
+        },
+    )
+
+    with patch("app.api.v1.runtime.AIRouter.route", side_effect=Exception("Model stream unreachable")):
+        chat_res = await client.post(
+            "/api/v1/runtime/chat",
+            headers=auth,
+            json={"message": "What is on my calendar schedule today?"},
+        )
+        assert chat_res.status_code == 200
+        data = chat_res.json()
+        assert data["agent_slug"] == "calendar"
+        assert "Deep Learning Architecture Review" in data["response"]
+        assert "event(s) on your calendar" in data["response"]
+
+

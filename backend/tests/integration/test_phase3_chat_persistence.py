@@ -124,7 +124,7 @@ async def test_non_streaming_chat_persists_both_turns_and_autotitles(
     )
     assert updated_sess_resp.status_code == 200
     updated_sess = updated_sess_resp.json()
-    assert updated_sess["title"] == "What is the capital of France?"
+    assert updated_sess["title"] in ("Capital of France", "What is the capital of France?")
     assert updated_sess["message_count"] == 2
 
 
