@@ -56,6 +56,10 @@ class MediaGenerateRequest(BaseModel):
     style_preset: str = Field(default="photorealistic")
     first_frame_url: str | None = None
     last_frame_url: str | None = None
+    reference_images: list[str] = Field(default_factory=list)
+    mask_image: str | None = None
+
+    model_config = {"extra": "allow"}
 
 
 class MediaJobResponse(BaseModel):

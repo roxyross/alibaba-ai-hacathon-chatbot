@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import logging
 import os
@@ -87,14 +88,18 @@ class MediaService:
                     cost = model_cap.credit_cost if model_cap else 1
 
                     if wallet:
-                        if wallet.balance < cost:
-                            raise ValueError(f"Insufficient credits. This job requires {cost} credits, balance is {wallet.balance}.")
-                        wallet.balance -= cost
+                        if wallet.remaining_credits < cost:
+                            raise ValueError(
+                                f"Insufficient credits. This job requires {cost} credits, remaining balance is {wallet.remaining_credits}."
+                            )
+                        wallet.remaining_credits -= float(cost)
+                        wallet.used_this_month = (wallet.used_this_month or 0.0) + float(cost)
                         log_entry = UsageLog(
                             user_id=user_id,
-                            units=cost,
-                            unit_type="credits",
-                            description=f"Media synthesis ({req.media_type}): {req.model}",
+                            feature=f"media_{req.media_type}",
+                            model=req.model,
+                            tokens_input=0,
+                            tokens_output=int(cost),
                         )
                         session.add(log_entry)
 
@@ -112,6 +117,8 @@ class MediaService:
                     )
                     session.add(job)
                     await session.commit()
+            except ValueError:
+                raise
             except Exception as exc:
                 logger.warning(f"DB job record creation failed, using memory fallback: {exc}")
 
@@ -151,6 +158,32 @@ class MediaService:
             created_at=now_str,
         )
 
+    async def _resolve_media_bytes(self, url: str | None) -> bytes | None:
+        """Resolve raw file bytes from data URL, local static path, or remote URL."""
+        if not url:
+            return None
+        try:
+            if url.startswith("data:"):
+                payload = url.split(",", 1)[1] if "," in url else url
+                return base64.b64decode(payload)
+            if url.startswith("/static/"):
+                rel_path = url.lstrip("/")
+                disk_path = os.path.join(os.getcwd(), rel_path)
+                if os.path.exists(disk_path):
+                    with open(disk_path, "rb") as f:
+                        return f.read()
+            if url.startswith("http://") or url.startswith("https://"):
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    r = await client.get(url)
+                    if r.status_code == 200:
+                        return r.content
+            if os.path.exists(url):
+                with open(url, "rb") as f:
+                    return f.read()
+        except Exception as e:
+            logger.warning(f"Failed to resolve media bytes from '{url[:60]}': {e}")
+        return None
+
     async def _process_generation_job(
         self,
         job_id: str,
@@ -175,30 +208,32 @@ class MediaService:
                 width, height = 896, 1152
 
             if req.media_type == "image":
+                images: list[bytes] = []
                 if req.provider == "google":
                     google_key = (
                         user_byok.get("byok_gemini")
                         or os.getenv("GEMINI_API_KEY")
                         or os.getenv("GOOGLE_API_KEY")
                     )
-                    if not google_key:
-                        raise ValueError("Google GenAI key missing. Please provide GEMINI_API_KEY or BYOK in Settings.")
+                    if google_key:
+                        try:
+                            images = await self.google_engine.generate_image(
+                                prompt=req.prompt,
+                                model=req.model,
+                                aspect_ratio=req.aspect_ratio,
+                                number_of_images=1,
+                                negative_prompt=req.negative_prompt,
+                                seed=req.seed,
+                                override_key=google_key,
+                            )
+                        except Exception as g_err:
+                            logger.warning(f"Google engine image synthesis failed ({g_err}), falling back to FLUX")
 
-                    images = await self.google_engine.generate_image(
-                        prompt=req.prompt,
-                        model=req.model,
-                        aspect_ratio=req.aspect_ratio,
-                        number_of_images=1,
-                        override_key=google_key,
-                    )
-                    if not images:
-                        raise RuntimeError("Google Imagen returned no image content.")
-
+                if images:
                     filename = f"gen_{job_id}.png"
                     filepath = os.path.join(GENERATED_DIR, filename)
                     with open(filepath, "wb") as f:
                         f.write(images[0])
-
                     media_url = f"/static/media/generated/{filename}"
                 else:
                     # Pollinations / FLUX fallback synthesis
@@ -210,7 +245,7 @@ class MediaService:
                         f"?width={width}&height={height}&model={poll_model}&seed={seed}&nologo=true"
                     )
                     try:
-                        async with httpx.AsyncClient(timeout=10.0) as client:
+                        async with httpx.AsyncClient(timeout=15.0) as client:
                             resp = await client.get(poll_url)
                             if resp.status_code == 200 and resp.content:
                                 filename = f"gen_{job_id}.jpg"
@@ -235,20 +270,35 @@ class MediaService:
                     )
 
                 duration_sec = float(req.duration)
+                first_frame_bytes = await self._resolve_media_bytes(req.first_frame_url)
+                last_frame_bytes = await self._resolve_media_bytes(req.last_frame_url)
+
                 operation = await self.google_engine.generate_video_operation(
                     prompt=req.prompt,
                     model=req.model,
-                    duration_seconds=req.duration,
+                    duration_seconds=int(req.duration),
+                    first_frame_bytes=first_frame_bytes,
+                    last_frame_bytes=last_frame_bytes,
+                    aspect_ratio=req.aspect_ratio or "16:9",
+                    resolution=req.resolution or "720p",
+                    fps=req.fps or 24,
+                    audio=req.audio,
+                    negative_prompt=req.negative_prompt,
+                    seed=req.seed,
                     override_key=google_key,
                 )
 
                 attempts = 0
-                while not getattr(operation, "done", False) and attempts < 30:
+                while not getattr(operation, "done", False) and attempts < 60:
                     await asyncio.sleep(5)
                     operation = await self.google_engine.poll_video_operation(
                         operation=operation, override_key=google_key
                     )
                     attempts += 1
+
+                if hasattr(operation, "error") and operation.error:
+                    err_msg = getattr(operation.error, "message", None) or str(operation.error)
+                    raise RuntimeError(f"Veo video generation failed: {err_msg}")
 
                 if hasattr(operation, "response") and operation.response:
                     gen_vids = getattr(operation.response, "generated_videos", [])
