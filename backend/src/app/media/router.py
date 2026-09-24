@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_optional_current_user
 from app.auth.models import User
 from app.media.schemas import (
     MediaAssetListResponse,
@@ -25,7 +25,7 @@ _settings_repo = SettingsRepository()
 
 @router.get("/models", response_model=MediaModelListResponse)
 async def list_media_models(
-    user: Annotated[User | None, Depends(get_current_user)] = None,
+    user: Annotated[User | None, Depends(get_optional_current_user)] = None,
 ) -> MediaModelListResponse:
     """Return available image & video models with truthfully evaluated capabilities and availability."""
     user_byok: dict[str, str] = {}
@@ -83,7 +83,7 @@ async def get_generation_job(
 @router.get("/jobs", response_model=MediaJobListResponse)
 async def list_generation_jobs(
     limit: int = Query(default=50, ge=1, le=100),
-    current_user: Annotated[User, Depends(get_current_user)] = None,
+    current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
 ) -> MediaJobListResponse:
     """List recent generation jobs for the authenticated user."""
     if not current_user:
@@ -94,7 +94,7 @@ async def list_generation_jobs(
 @router.post("/upload")
 async def upload_media_file(
     file: UploadFile = File(...),
-    current_user: Annotated[User, Depends(get_current_user)] = None,
+    current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
 ) -> dict[str, Any]:
     """Store actual uploaded user media asset with SHA-256 deduplication and persist to library."""
     if not current_user:
@@ -120,7 +120,7 @@ async def list_media_assets(
     media_type: str | None = Query(default=None),
     favorite: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=200),
-    current_user: Annotated[User, Depends(get_current_user)] = None,
+    current_user: Annotated[User | None, Depends(get_optional_current_user)] = None,
 ) -> MediaAssetListResponse:
     """List assets from the centralized Media Asset Library."""
     if not current_user:

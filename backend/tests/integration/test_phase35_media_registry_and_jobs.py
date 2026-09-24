@@ -43,6 +43,12 @@ async def _get_auth_headers(client: httpx.AsyncClient, email: str) -> dict[str, 
 
 
 async def test_media_models_registry_truthful_capabilities(client: httpx.AsyncClient) -> None:
+    # 1. Verify unauthenticated public access works
+    unauth_resp = await client.get("/api/v1/media/models")
+    assert unauth_resp.status_code == 200
+    assert "models" in unauth_resp.json()
+
+    # 2. Verify authenticated access works
     headers = await _get_auth_headers(client, "media_tester@roxy.ai")
 
     resp = await client.get("/api/v1/media/models", headers=headers)
