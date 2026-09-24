@@ -16,4 +16,6 @@ icalendar>=5.0.0
 slowapi>=0.1.9
 apscheduler>=3.10.4
 python-multipart>=0.0.9
+google-genai>=1.0.0
+
 
