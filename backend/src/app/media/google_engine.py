@@ -7,12 +7,17 @@ import logging
 import os
 from typing import Any
 
+import importlib
+
+genai: Any = None
+types: Any = None
+
 try:
-    from google import genai
-    from google.genai import types
-except (ImportError, ModuleNotFoundError):
-    genai = None  # type: ignore[assignment]
-    types = None  # type: ignore[assignment]
+    genai = importlib.import_module("google.genai")
+    types = getattr(genai, "types", None)
+except Exception:
+    genai = None
+    types = None
 
 logger = logging.getLogger(__name__)
 
