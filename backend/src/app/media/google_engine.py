@@ -7,6 +7,13 @@ import logging
 import os
 from typing import Any
 
+try:
+    from google import genai
+    from google.genai import types
+except (ImportError, ModuleNotFoundError):
+    genai = None  # type: ignore[assignment]
+    types = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,7 +33,10 @@ class GoogleGenAIMediaEngine:
             raise ValueError(
                 "Google GenAI API key is missing. Please configure GEMINI_API_KEY or BYOK in Settings."
             )
-        from google import genai
+        if genai is None:
+            raise ImportError(
+                "The 'google-genai' package is not installed. Please run: pip install google-genai>=1.0.0"
+            )
         return genai.Client(api_key=key)
 
     async def generate_image(
@@ -40,7 +50,8 @@ class GoogleGenAIMediaEngine:
         override_key: str | None = None,
     ) -> list[bytes]:
         """Generate high-resolution images via client.models.generate_images with generate_content fallback."""
-        from google.genai import types
+        if types is None:
+            raise ImportError("The 'google-genai' package is not installed.")
 
         client = self._get_client(override_key)
 
@@ -129,7 +140,8 @@ class GoogleGenAIMediaEngine:
         override_key: str | None = None,
     ) -> Any:
         """Start long-running video generation operation via client.models.generate_videos."""
-        from google.genai import types
+        if types is None:
+            raise ImportError("The 'google-genai' package is not installed.")
 
         client = self._get_client(override_key)
 

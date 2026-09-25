@@ -325,8 +325,8 @@ class MediaService:
                 _MEM_JOBS[job_id]["media_url"] = media_url
                 _MEM_JOBS[job_id]["completed_at"] = now_iso
 
-            # Update asset in memory store
-            asset_dict = {
+            tags_list: list[str] = []
+            asset_dict: dict[str, Any] = {
                 "id": f"asset_{job_id}",
                 "user_id": user_id,
                 "title": req.prompt[:60],
@@ -342,7 +342,7 @@ class MediaService:
                 "duration_seconds": duration_sec,
                 "file_size_bytes": None,
                 "is_favorite": False,
-                "tags": [],
+                "tags": tags_list,
                 "created_at": now_iso,
             }
             _MEM_ASSETS.setdefault(user_id, []).insert(0, asset_dict)
@@ -654,8 +654,8 @@ class MediaService:
         # Update in-memory
         for a in _MEM_ASSETS.get(user_id, []):
             if a["id"] == asset_id:
-                a["is_favorite"] = not a["is_favorite"]
-                return a["is_favorite"]
+                a["is_favorite"] = not bool(a.get("is_favorite", False))
+                return bool(a["is_favorite"])
 
         factory = get_session_factory()
         if factory is not None:
@@ -670,10 +670,10 @@ class MediaService:
                         )
                     ).scalars().first()
                     if asset:
-                        asset.is_favorite = not asset.is_favorite
+                        asset.is_favorite = not bool(asset.is_favorite)
                         session.add(asset)
                         await session.commit()
-                        return asset.is_favorite
+                        return bool(asset.is_favorite)
             except Exception:
                 pass
 
