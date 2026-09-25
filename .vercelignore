@@ -1,7 +1,7 @@
 .venv
 backend/.venv
 node_modules
-frontend
+frontend/node_modules
 nextjs-frontend
 static
 .git
