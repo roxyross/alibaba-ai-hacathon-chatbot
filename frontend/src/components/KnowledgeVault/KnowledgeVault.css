@@ -691,3 +691,39 @@
   border-color: rgba(45, 212, 191, 0.3);
   color: #2dd4bf;
 }
+
+/* ─── Responsive Media Queries ─── */
+@media (max-width: 860px) {
+  .knowledge-vault__content {
+    flex-direction: column;
+  }
+
+  .knowledge-vault__chat-panel {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+    max-height: 420px;
+  }
+
+  .knowledge-vault__library {
+    padding: 1rem 0.75rem;
+  }
+
+  .knowledge-vault__topbar {
+    padding: 0.6rem 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .knowledge-vault__library {
+    padding: 0.75rem 0.5rem calc(0.75rem + env(safe-area-inset-bottom, 0px)) 0.5rem;
+  }
+
+  .knowledge-vault__docs-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-vault__upload-btn {
+    min-height: 40px;
+  }
+}

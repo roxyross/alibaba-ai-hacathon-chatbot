@@ -1213,3 +1213,55 @@
     text-align: center;
   }
 }
+
+@media (max-width: 480px) {
+  .settings-overlay {
+    padding: 0.25rem;
+  }
+
+  .settings-card {
+    height: 98vh;
+    height: 98dvh;
+    max-height: 98dvh;
+    border-radius: 0.65rem;
+  }
+
+  .settings-header {
+    padding: 0.65rem 0.85rem;
+  }
+
+  .settings-header-title h2 {
+    font-size: 1.1rem;
+  }
+
+  .settings-content-viewport {
+    padding: 0.85rem 0.65rem;
+  }
+
+  .settings-card-box {
+    padding: 0.85rem 0.75rem;
+    border-radius: 0.65rem;
+  }
+
+  .settings-footer {
+    padding: 0.65rem 0.75rem;
+  }
+
+  .settings-save-btn,
+  .settings-reset-btn {
+    min-height: 42px;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .settings-header-title h2 {
+    font-size: 1rem;
+  }
+
+  .settings-mobile-tab-btn {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.55rem;
+  }
+}
+

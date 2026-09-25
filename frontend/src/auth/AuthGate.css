@@ -285,3 +285,62 @@
   line-height: 1.45;
   font-weight: 500;
 }
+
+/* ============================================================
+   Auth Gate Mobile Responsiveness
+   ============================================================ */
+@media (max-width: 480px) {
+  .auth-gate {
+    padding: 0.75rem 0.5rem;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .auth-gate__panel {
+    padding: 1.25rem 1rem;
+    border-radius: 0.85rem;
+  }
+
+  .auth-gate__brand {
+    font-size: 1.45rem;
+  }
+
+  .auth-gate__btn {
+    padding: 0.7rem;
+    min-height: 44px;
+    font-size: 0.9rem;
+  }
+
+  .auth-gate__oauth-btn {
+    min-height: 44px;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  .auth-modal-overlay {
+    padding: 0.5rem;
+  }
+
+  .auth-modal__close {
+    top: 0.75rem;
+    right: 0.75rem;
+    width: 28px;
+    height: 28px;
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .auth-gate__panel {
+    padding: 1rem 0.75rem;
+  }
+
+  .auth-gate__brand {
+    font-size: 1.3rem;
+  }
+
+  .auth-gate__tagline {
+    font-size: 0.82rem;
+  }
+}
+

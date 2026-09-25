@@ -1154,3 +1154,102 @@
   background: rgba(255, 255, 255, 0.08);
   color: #ffffff;
 }
+
+/* ─── Code Block & Pre Mobile Responsiveness ─────────────────── */
+.chat-message__code-block {
+  margin: 0.75rem 0;
+  border-radius: 0.5rem;
+  background: #0d1518;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  max-width: 100%;
+  min-width: 0;
+}
+
+[data-theme="light"] .chat-message__code-block {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.chat-message__code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+[data-theme="light"] .chat-message__code-header {
+  background: #f1f5f9;
+  border-bottom-color: #e2e8f0;
+  color: #64748b;
+}
+
+.chat-message__code-lang {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.chat-message__code-copy {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+  border-radius: 0.3rem;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+[data-theme="light"] .chat-message__code-copy {
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+.chat-message__code-copy:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.chat-message__code-pre {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  max-width: 100%;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: #e2e8f0;
+  -webkit-overflow-scrolling: touch;
+}
+
+[data-theme="light"] .chat-message__code-pre {
+  color: #1e293b;
+}
+
+.chat-message__inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 0.15em 0.35em;
+  border-radius: 0.25rem;
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--color-accent, #0d9488);
+  word-break: break-word;
+}
+
+[data-theme="dark"] .chat-message__inline-code {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.chat-message__formatted {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+

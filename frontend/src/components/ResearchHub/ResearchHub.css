@@ -1146,3 +1146,86 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ============================================================
+   Research Hub Mobile & Tablet Responsiveness
+   ============================================================ */
+@media (max-width: 768px) {
+  .research-hub {
+    padding: 0.75rem 0.75rem 2rem;
+  }
+
+  .research-hub__header {
+    margin-bottom: 1rem;
+    gap: 0.75rem;
+  }
+
+  .research-hub__title {
+    font-size: 1.35rem;
+  }
+
+  .research-hub__grid,
+  .research-hub__sources-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .research-hub__tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+    gap: 0.35rem;
+  }
+
+  .research-hub__tab {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .research-hub__search-form {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .research-hub__input-wrap {
+    width: 100%;
+  }
+
+  .research-hub__search-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .research-hub__card {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .research-hub {
+    padding: 0.5rem 0.5rem 1.5rem;
+  }
+
+  .research-hub__title {
+    font-size: 1.15rem;
+  }
+
+  .research-hub__subtitle {
+    font-size: 0.8rem;
+  }
+
+  .research-hub__badge {
+    font-size: 0.7rem;
+  }
+
+  .research-hub__toast {
+    top: 0.75rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    font-size: 0.8rem;
+    padding: 0.5rem 0.75rem;
+  }
+}
+

@@ -862,4 +862,24 @@
   }
 }
 
+@media (max-width: 360px) {
+  .chat-input {
+    padding: 0 0.25rem;
+  }
+
+  .chat-input__capsule {
+    padding: 0.25rem 0.4rem;
+  }
+
+  .chat-input__textarea {
+    font-size: 0.92rem;
+  }
+
+  .chat-input__action-btn,
+  .chat-input__send-btn {
+    min-width: 32px;
+    min-height: 32px;
+  }
+}
+
 

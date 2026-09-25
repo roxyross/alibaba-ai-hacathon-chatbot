@@ -427,3 +427,31 @@
   border-radius: 0.25rem;
   color: var(--color-accent, #89b4fa);
 }
+
+/* ─── Responsive Media Queries ─── */
+@media (max-width: 768px) {
+  .sjp-panel {
+    padding: 1rem 0.75rem calc(1rem + env(safe-area-inset-bottom, 0px)) 0.75rem;
+  }
+
+  .sjp-create-form__row {
+    grid-template-columns: 1fr;
+  }
+
+  .sjp-create-form {
+    padding: 1rem;
+  }
+
+  .sjp-create-form__submit {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  .sjp-presets {
+    flex-wrap: wrap;
+  }
+
+  .sjp-preset-btn {
+    min-height: 32px;
+  }
+}

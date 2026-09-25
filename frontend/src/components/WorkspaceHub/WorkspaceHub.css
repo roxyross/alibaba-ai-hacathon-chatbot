@@ -486,3 +486,69 @@
   color: #ffffff;
   cursor: pointer;
 }
+
+/* ============================================================
+   Workspace Hub Mobile & Tablet Responsiveness
+   ============================================================ */
+@media (max-width: 768px) {
+  .workspace-hub__header {
+    padding: 0.6rem 0.75rem;
+  }
+
+  .workspace-hub__body {
+    padding: 1rem 0.75rem 2rem;
+    gap: 1rem;
+  }
+
+  .workspace-hub__title {
+    font-size: 1.45rem;
+  }
+
+  .workspace-hub__subtitle {
+    font-size: 0.85rem;
+  }
+
+  .workspace-hub__grid,
+  .projects-grid,
+  .integrations-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .workspace-modal {
+    padding: 1.25rem;
+    max-width: 95vw;
+  }
+}
+
+@media (max-width: 480px) {
+  .workspace-hub__header {
+    padding: 0.4rem 0.5rem;
+  }
+
+  .workspace-hub__title {
+    font-size: 1.25rem;
+  }
+
+  .workspace-hub__badge {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+  }
+
+  .workspace-hub__new-btn {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.78rem;
+  }
+
+  .modal-actions {
+    flex-direction: column-reverse;
+    gap: 0.4rem;
+  }
+
+  .modal-cancel-btn,
+  .modal-submit-btn {
+    width: 100%;
+    text-align: center;
+  }
+}
+

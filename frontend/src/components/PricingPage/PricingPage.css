@@ -275,3 +275,26 @@
     text-align: center;
   }
 }
+
+@media (max-width: 480px) {
+  .pricing-page {
+    padding: 1.25rem 0.75rem calc(1.5rem + env(safe-area-inset-bottom, 0px)) 0.75rem;
+  }
+
+  .pricing-page__title {
+    font-size: 1.75rem;
+  }
+
+  .pricing-card {
+    padding: 1.25rem 1rem;
+    gap: 1rem;
+  }
+
+  .pricing-card__features {
+    grid-template-columns: 1fr;
+  }
+
+  .pricing-card__btn {
+    min-height: 44px;
+  }
+}

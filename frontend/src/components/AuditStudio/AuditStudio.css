@@ -125,6 +125,10 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   margin-bottom: 1.5rem;
   padding-bottom: 0.5rem;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
 
 .audit-studio__tab-btn {
@@ -627,5 +631,34 @@
 .audit-studio__retry-btn:hover {
   background: rgba(239, 68, 68, 0.35);
   border-color: rgba(239, 68, 68, 0.6);
+}
+
+/* ─── Responsive Media Queries ─── */
+@media (max-width: 768px) {
+  .audit-studio {
+    padding: 1rem 0.75rem calc(1rem + env(safe-area-inset-bottom, 0px)) 0.75rem;
+  }
+
+  .audit-studio__header {
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .audit-studio__title {
+    font-size: 1.35rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .audit-studio__stat-chip {
+    flex: 1 1 calc(50% - 0.5rem);
+    min-width: 0;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .audit-policy-banner {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
 }
 

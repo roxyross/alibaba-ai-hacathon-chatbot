@@ -370,7 +370,9 @@
   background: var(--color-surface, #ffffff);
   border: 1px solid var(--color-border, #e2e8e6);
   border-radius: 0.75rem;
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  min-width: 0;
 }
 
 .fin-tx-header {
@@ -992,5 +994,59 @@
 [data-theme="dark"] .finance-auth-banner {
   background: rgba(45, 212, 191, 0.08);
   border-color: rgba(45, 212, 191, 0.3);
+}
+
+/* ─── Responsive Media Queries ─── */
+@media (max-width: 768px) {
+  .fin-view__header {
+    padding: 0.75rem 1rem;
+  }
+
+  .fin-view__body {
+    padding: 1rem 0.75rem calc(1rem + env(safe-area-inset-bottom, 0px)) 0.75rem;
+  }
+
+  .fin-account-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .fin-account-row__balances {
+    text-align: left;
+  }
+
+  .fin-tx-header,
+  .fin-tx-row {
+    min-width: 580px;
+  }
+
+  .fin-statement-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .fin-statement-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .fin-view__plus-menu {
+    width: calc(100vw - 2rem);
+    left: 0;
+  }
+
+  .fin-view__title {
+    font-size: 1.15rem;
+  }
+
+  .fin-view__send-btn,
+  .fin-view__mic-btn {
+    min-width: 38px;
+    min-height: 38px;
+  }
 }
 

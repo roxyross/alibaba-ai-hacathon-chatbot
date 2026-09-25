@@ -120,3 +120,10 @@
 .voice-input-control__lang:focus {
   border-color: #6366f1;
 }
+
+@media (max-width: 640px) {
+  .voice-input-control__btn {
+    min-width: 38px;
+    min-height: 38px;
+  }
+}

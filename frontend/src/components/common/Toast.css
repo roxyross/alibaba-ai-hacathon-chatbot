@@ -85,3 +85,18 @@
   background: rgba(0, 0, 0, 0.06);
   color: var(--color-text, #1e292b);
 }
+
+@media (max-width: 480px) {
+  .toast-container {
+    top: 0.75rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
+    max-width: none;
+  }
+
+  .toast {
+    padding: 0.55rem 0.8rem;
+    font-size: 0.82rem;
+  }
+}

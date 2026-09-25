@@ -834,3 +834,117 @@
   background: rgba(255, 255, 255, 0.7);
   border-radius: 1px;
 }
+
+/* ============================================================
+   Video Studio Mobile & Tablet Responsiveness
+   ============================================================ */
+@media (max-width: 960px) {
+  .video-studio {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-y: auto;
+  }
+
+  .video-studio__workspace {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .video-studio__sidepanel {
+    width: 100%;
+    max-width: 100%;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    overflow-y: visible;
+  }
+
+  .video-canvas-area {
+    min-height: 280px;
+    padding: 1rem 0.75rem;
+  }
+
+  .video-preview-wrapper {
+    max-width: 100%;
+  }
+
+  .video-player-element {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .timeline-tracks-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 600px) {
+  .video-studio__header {
+    height: auto;
+    min-height: 52px;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .video-studio__brand {
+    gap: 0.4rem;
+  }
+
+  .video-studio__brand-pill {
+    font-size: 0.78rem;
+    padding: 0.2rem 0.5rem;
+  }
+
+  .video-studio__export-btn {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.78rem;
+  }
+
+  .video-gen-form {
+    padding: 0.85rem 0.75rem;
+    gap: 0.75rem;
+  }
+
+  .aspect-ratio-grid,
+  .resolution-options,
+  .duration-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .aspect-btn,
+  .option-pill {
+    flex: 1 1 calc(50% - 0.4rem);
+    min-width: 100px;
+    text-align: center;
+  }
+
+  .video-canvas-controls {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+  }
+
+  .timeline-toolbar {
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .video-studio__header {
+    padding: 0.35rem 0.5rem;
+  }
+
+  .video-studio__back-btn {
+    padding: 0.3rem 0.55rem;
+    font-size: 0.75rem;
+  }
+
+  .aspect-btn,
+  .option-pill {
+    flex: 1 1 100%;
+  }
+}
+

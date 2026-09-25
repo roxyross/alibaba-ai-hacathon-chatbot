@@ -122,3 +122,27 @@
 .sac__btn--confirm:hover:not(:disabled) {
   background: var(--color-accent-hover);
 }
+
+@media (max-width: 480px) {
+  .sac__dialog {
+    width: calc(100vw - 1.5rem);
+    padding: 1.25rem 1rem;
+    border-radius: 0.75rem;
+  }
+
+  .sac__title {
+    font-size: 1rem;
+  }
+
+  .sac__actions {
+    flex-direction: column-reverse;
+    gap: 0.4rem;
+  }
+
+  .sac__btn {
+    width: 100%;
+    text-align: center;
+    padding: 0.6rem 1rem;
+  }
+}
+

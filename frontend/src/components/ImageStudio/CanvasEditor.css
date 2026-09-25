@@ -419,3 +419,88 @@
 .inpaint-btn:hover:not(:disabled) {
   opacity: 0.95;
 }
+
+/* ============================================================
+   Canvas Editor Mobile & Tablet Responsiveness
+   ============================================================ */
+@media (max-width: 860px) {
+  .canvas-editor-overlay {
+    padding: 0.5rem;
+  }
+
+  .canvas-editor-container {
+    height: 96vh;
+    height: 96dvh;
+    border-radius: 12px;
+  }
+
+  .canvas-editor-header {
+    height: auto;
+    min-height: 52px;
+    padding: 0.5rem 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .canvas-editor-body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .canvas-editor-sidebar {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.4rem 0.5rem;
+  }
+
+  .canvas-tool-btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .canvas-editor-panel {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-left: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    max-height: 250px;
+    overflow-y: auto;
+  }
+
+  .canvas-stage-area {
+    min-height: 250px;
+    padding: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .canvas-editor-overlay {
+    padding: 0.25rem;
+  }
+
+  .canvas-editor-container {
+    height: 98vh;
+    height: 98dvh;
+    border-radius: 8px;
+  }
+
+  .canvas-editor-title h3 {
+    font-size: 0.95rem;
+  }
+
+  .canvas-editor-btn {
+    padding: 0.35rem 0.65rem;
+    font-size: 0.75rem;
+  }
+
+  .filter-presets-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.4rem;
+  }
+}
+

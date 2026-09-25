@@ -355,3 +355,49 @@
   line-height: 1.45;
 }
 
+/* ============================================================
+   Payment Method View Mobile & Tablet Responsiveness
+   ============================================================ */
+@media (max-width: 768px) {
+  .pm-view__header {
+    padding: 0.6rem 0.75rem;
+    gap: 0.6rem;
+  }
+
+  .pm-view__title {
+    font-size: 1.15rem;
+  }
+
+  .pm-view__body {
+    padding: 1rem 0.75rem 2rem;
+    gap: 1rem;
+  }
+
+  .pm-primary-card {
+    padding: 1.25rem 1rem;
+    border-radius: 0.85rem;
+  }
+
+  .pm-card-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .pm-view__header {
+    padding: 0.4rem 0.5rem;
+  }
+
+  .pm-primary-card__number {
+    font-size: 1rem !important;
+    letter-spacing: 0.1em;
+  }
+
+  .pm-security-note {
+    padding: 0.75rem;
+    font-size: 0.78rem;
+  }
+}
+
+
