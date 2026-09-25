@@ -1,7 +1,9 @@
 .venv
 backend/.venv
 node_modules
-frontend/node_modules
+frontend
+nextjs-frontend
+static
 .git
 history
 huggingface-space-roxy-hub
@@ -15,3 +17,4 @@ __pycache__
 .ruff_cache
 tests
 backend/tests
+
