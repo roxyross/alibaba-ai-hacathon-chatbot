@@ -11,7 +11,7 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_optional_current_user
 from app.auth.models import User
 from app.research.repository import ResearchRepository
 from app.research.schemas import (
@@ -165,15 +165,16 @@ async def live_search_endpoint(
 @router.post("/deep-research", response_model=DeepResearchResponse)
 async def deep_research_endpoint(
     payload: DeepResearchRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ) -> DeepResearchResponse:
     """Execute autonomous deep research pipeline and optionally persist the report."""
-    user_id = str(current_user.id)
+    user_id = str(current_user.id) if current_user else None
+    save_report = payload.save_report if current_user else False
     service = ResearchService()
     res = await service.synthesize_research(
         topic=payload.query,
         depth=payload.depth,
-        save_report=payload.save_report,
+        save_report=save_report,
         user_id=user_id,
         title=payload.title,
         tags=payload.tags,

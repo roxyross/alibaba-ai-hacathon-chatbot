@@ -215,7 +215,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
       if (res.ok) {
         const data = await res.json();
-        const job = data.job;
+        const job = data.job || data;
         showNotification('Inpainting job scheduled. Polling synthesis...', 'info');
 
         // Poll job status

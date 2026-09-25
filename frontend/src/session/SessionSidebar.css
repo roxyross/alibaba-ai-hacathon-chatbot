@@ -430,10 +430,48 @@
 }
 
 /* ==========================================================================
+   Recent Chats Section (Dedicated Independent Scroll Container)
+   ========================================================================== */
+.session-sidebar__chats-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-top: 1px solid var(--sidebar-border);
+}
+
+.session-sidebar__chats-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem 0.4rem;
+  flex-shrink: 0;
+}
+
+.session-sidebar__chats-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sidebar-muted);
+}
+
+.session-sidebar__chats-count {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 9999px;
+  background: var(--sidebar-input-bg);
+  color: var(--sidebar-muted);
+}
+
+/* ==========================================================================
    Date Grouping & Conversation List
    ========================================================================== */
 .session-sidebar__scroll-area {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0 0.5rem 0.75rem;

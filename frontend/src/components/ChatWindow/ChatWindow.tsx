@@ -50,12 +50,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   // Reply now: reliably locate the active streaming response, scroll into view, and focus
   const handleReplyNow = useCallback(() => {
     const activeEl =
+      document.querySelector('.chat-message--streaming .chat-message__cursor') ||
+      document.querySelector('.chat-message--streaming .chat-message__bubble') ||
       document.querySelector('.chat-message--streaming') ||
       document.querySelector('.agent-timeline') ||
       bottomRef.current;
 
     if (activeEl) {
-      activeEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      activeEl.scrollIntoView({ behavior: 'smooth', block: 'end', inline: 'nearest' });
       if (activeEl instanceof HTMLElement) {
         activeEl.tabIndex = -1;
         activeEl.focus({ preventScroll: true });

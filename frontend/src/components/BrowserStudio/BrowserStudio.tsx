@@ -23,6 +23,7 @@ import {
   Camera,
   Check,
 } from 'lucide-react';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './BrowserStudio.css';
 
 const rawApiBase =
@@ -137,6 +138,7 @@ export const BrowserStudio: React.FC<BrowserStudioProps> = ({
   const [screenshotData, setScreenshotData] = useState<ScreenshotResponse | null>(null);
   const [inspectorSubTab, setInspectorSubTab] = useState<'preview' | 'headings' | 'tables' | 'links' | 'forms' | 'raw'>('preview');
   const [inspectError, setInspectError] = useState<string | null>(null);
+  const [interimUrl, setInterimUrl] = useState('');
 
   // Flow runner tab state
   const [flowUrl, setFlowUrl] = useState('');
@@ -383,10 +385,36 @@ export const BrowserStudio: React.FC<BrowserStudioProps> = ({
                 <input
                   type="url"
                   className="browser-studio__url-input"
-                  placeholder="Enter any target website URL (e.g., https://example.com)..."
+                  placeholder={
+                    interimUrl
+                      ? `Listening: "${interimUrl}"`
+                      : "Enter any target website URL (e.g., https://example.com)..."
+                  }
                   value={targetUrl}
                   onChange={(e) => setTargetUrl(e.target.value)}
                   required
+                />
+                <VoiceInputControl
+                  toolId="browser"
+                  size="sm"
+                  onTranscript={(transcript) => {
+                    let cleaned = transcript.trim();
+                    if (!/^https?:\/\//i.test(cleaned) && cleaned.includes('.')) {
+                      cleaned = `https://${cleaned}`;
+                    }
+                    setTargetUrl(cleaned);
+                    setInterimUrl('');
+                  }}
+                  onInterim={(interim) => {
+                    setInterimUrl(interim);
+                  }}
+                  readAloudText={
+                    inspectData
+                      ? `${inspectData.title || 'Page details'}. ${inspectData.content_preview ? inspectData.content_preview.slice(0, 200) : ''}`
+                      : undefined
+                  }
+                  showReadAloud={Boolean(inspectData)}
+                  disabled={isInspecting}
                 />
                 <button
                   type="submit"
@@ -406,6 +434,11 @@ export const BrowserStudio: React.FC<BrowserStudioProps> = ({
                   )}
                 </button>
               </form>
+              {interimUrl && (
+                <div style={{ padding: '6px 14px', fontSize: '12px', color: '#38bdf8', fontStyle: 'italic' }}>
+                  🎙️ {interimUrl}
+                </div>
+              )}
 
               <div className="browser-studio__chips-row">
                 <span className="browser-studio__chips-label">Popular Targets:</span>

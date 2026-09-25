@@ -38,9 +38,14 @@ async def request_link(payload: RequestLinkRequest) -> RequestLinkResponse:
     """Send a magic link to the given email. Always returns dev_token/code for instant access so users are never locked out."""
     email_clean = str(payload.email).lower().strip()
     token = await _service.request_link(email_clean)
+    is_prod = (
+        os.environ.get("APP_ENV", "").lower() == "production"
+        or bool(os.environ.get("VERCEL"))
+        or bool(os.environ.get("VERCEL_ENV"))
+    )
     return RequestLinkResponse(
         ok=True,
-        dev_token=token,
+        dev_token=None if is_prod else token,
     )
 
 

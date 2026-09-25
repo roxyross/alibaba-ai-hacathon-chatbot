@@ -175,29 +175,14 @@ class ResearchService:
                     seen_urls.add(url)
                     all_sources.append(r)
 
-        # Fallback if live search returns 0 results (offline/firewall)
+        # Fallback if live search returns 0 results (offline/firewall/no matches)
+        # Note: We strictly do NOT fabricate fake sources or mock domains (Phase 15 & 24)
         if not all_sources:
-            domain_mock = "trusted-research-source.org"
-            all_sources = [
-                {
-                    "title": f"Overview of {clean_topic}",
-                    "url": f"https://{domain_mock}/overview",
-                    "snippet": f"Comprehensive analysis and core architectural findings on {clean_topic}.",
-                    "domain": domain_mock,
-                    "published_date": "2026-09-01",
-                },
-                {
-                    "title": f"{clean_topic} Technical Review and Benchmarks",
-                    "url": f"https://{domain_mock}/benchmarks",
-                    "snippet": f"Empirical evaluation and industry adoption metrics regarding {clean_topic}.",
-                    "domain": domain_mock,
-                    "published_date": "2026-09-15",
-                },
-            ]
+            log.info("research.no_sources_found", topic=clean_topic)
 
         # 2. Deep source reading if requested
         primary_excerpts: list[str] = []
-        if depth in ("deep", "academic"):
+        if depth in ("deep", "academic") and all_sources:
             for s in all_sources[:2]:
                 fetch_res = await self.fetch_url(s["url"], max_chars=1200)
                 if fetch_res.get("status") == "success" and len(fetch_res.get("content", "")) > 100:
@@ -205,35 +190,50 @@ class ResearchService:
 
         # 3. Construct structured findings with citation indices
         findings: list[dict[str, Any]] = []
-        if len(all_sources) >= 1:
+        if not all_sources:
             findings.append({
-                "theme": "Core Overview & Definitional Baseline",
-                "claim": f"{clean_topic} represents an evolving domain focused on reliability, performance, and scalability across modern implementations.",
-                "source_indices": [1],
-                "confidence": "high",
+                "theme": "Information Retrieval Status",
+                "claim": f"No live external web sources could be retrieved for '{clean_topic}'. Research was completed without external citations.",
+                "source_indices": [],
+                "confidence": "low",
             })
-        if len(all_sources) >= 2:
-            findings.append({
-                "theme": "Comparative Performance & Key Differentiators",
-                "claim": f"Recent evaluations highlight that {clean_topic} demonstrates significant throughput advantages while maintaining strict operational constraints.",
-                "source_indices": [1, 2],
-                "confidence": "high" if len(all_sources) >= 3 else "medium",
-            })
-        if len(all_sources) >= 3:
-            findings.append({
-                "theme": "Emerging Developments & Industry Best Practices",
-                "claim": "Adoption patterns indicate widespread integration with automated tooling, proactive telemetry, and multi-tenant security guarantees.",
-                "source_indices": [2, 3],
-                "confidence": "medium",
-            })
+        else:
+            if len(all_sources) >= 1:
+                findings.append({
+                    "theme": "Core Overview & Definitional Baseline",
+                    "claim": f"{clean_topic} represents an evolving domain focused on reliability, performance, and scalability across modern implementations.",
+                    "source_indices": [1],
+                    "confidence": "high",
+                })
+            if len(all_sources) >= 2:
+                findings.append({
+                    "theme": "Comparative Performance & Key Differentiators",
+                    "claim": f"Recent evaluations highlight that {clean_topic} demonstrates significant throughput advantages while maintaining strict operational constraints.",
+                    "source_indices": [1, 2],
+                    "confidence": "high" if len(all_sources) >= 3 else "medium",
+                })
+            if len(all_sources) >= 3:
+                findings.append({
+                    "theme": "Emerging Developments & Industry Best Practices",
+                    "claim": "Adoption patterns indicate widespread integration with automated tooling, proactive telemetry, and multi-tenant security guarantees.",
+                    "source_indices": [2, 3],
+                    "confidence": "medium",
+                })
 
         # 4. Formulate Executive Summary with inline citations
-        summary_paras = [
-            f"Autonomous multi-source research into **{clean_topic}** synthesizes evidence across {len(all_sources)} authoritative sources [1]. "
-            "Findings confirm that modern implementations prioritize modular architecture, clear boundaries, and verified interoperability.",
-            "Cross-source verification indicates strong consensus regarding core technical advantages [1, 2], with ongoing innovation focused on developer experience, privacy posture, and edge execution [2, 3].",
-        ]
-        summary = "\n\n".join(summary_paras)
+        if all_sources:
+            summary_paras = [
+                f"Autonomous multi-source research into **{clean_topic}** synthesizes evidence across {len(all_sources)} authoritative sources [1]. "
+                "Findings confirm that modern implementations prioritize modular architecture, clear boundaries, and verified interoperability.",
+                "Cross-source verification indicates strong consensus regarding core technical advantages [1, 2], with ongoing innovation focused on developer experience, privacy posture, and edge execution [2, 3].",
+            ]
+            summary = "\n\n".join(summary_paras)
+        else:
+            summary = (
+                f"Autonomous research query for **{clean_topic}** completed. "
+                "However, no authoritative live web sources were returned by the search provider at this time. "
+                "Please verify your network connectivity, search provider credentials (e.g. TAVILY_API_KEY / SERPAPI_API_KEY), or refine the search query."
+            )
 
         # 5. Formulate Citations List
         citations: list[str] = [
@@ -242,7 +242,7 @@ class ResearchService:
         ]
 
         # 6. Assess Overall Confidence
-        confidence = "high" if len(all_sources) >= 3 else "medium"
+        confidence = "high" if len(all_sources) >= 3 else ("medium" if all_sources else "low")
 
         # 7. Generate Follow-up Next Actions
         next_actions = [

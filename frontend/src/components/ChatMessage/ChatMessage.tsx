@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import type { Attribution } from '../../hooks/useChat';
+import { voiceManager } from '../../utils/VoiceManager';
 import './ChatMessage.css';
 
 export type { Attribution };
@@ -379,10 +380,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const [draftContent, setDraftContent] = useState(content);
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [showMoreActions, setShowMoreActions] = useState(false);
   const [showReferences, setShowReferences] = useState(false);
   const [showReasoning, setShowReasoning] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const referencesRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
 
   const { reasoning, mainContent, isThinkingActive } = React.useMemo(() => {
     return parseContentWithReasoning(displayContent);
@@ -418,9 +422,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
 
   useEffect(() => {
     return () => {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
+      voiceManager.tts.stopSpeaking();
     };
   }, []);
 
@@ -445,6 +447,27 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     };
   }, [showReferences]);
 
+  // Click outside and Escape key handler for More Actions menu
+  useEffect(() => {
+    if (!showMoreActions) return;
+    const handleDocClick = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreActions(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowMoreActions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleDocClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleDocClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showMoreActions]);
+
   // Escape key handler for Fullscreen Expanded Reader Modal
   useEffect(() => {
     if (!isExpanded) return;
@@ -458,18 +481,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   }, [isExpanded]);
 
   const handleReadAloud = () => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      alert('Text-to-speech is not supported in this browser.');
-      return;
-    }
-
     if (isSpeaking) {
-      window.speechSynthesis.cancel();
+      voiceManager.tts.stopSpeaking();
       setIsSpeaking(false);
       return;
     }
-
-    window.speechSynthesis.cancel();
 
     const textToSpeak = (mainContent || displayContent)
       .replace(/```[\s\S]*?```/g, 'Code block omitted.')
@@ -480,15 +496,40 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
 
     if (!textToSpeak) return;
 
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
+    voiceManager.tts.speak(textToSpeak, {
+      toolId: 'chat',
+      onStart: () => setIsSpeaking(true),
+      onEnd: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    });
+  };
 
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+  const handleShare = async () => {
+    const textToShare = mainContent || displayContent;
+    if (!textToShare) return;
 
-    window.speechSynthesis.speak(utterance);
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Roxy AI Response',
+          text: textToShare,
+        });
+        setShareStatus('Shared');
+        setTimeout(() => setShareStatus(null), 2000);
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(`${textToShare}\n\n— Generated via Roxy AI`);
+      setShareStatus('Copied for sharing');
+      setTimeout(() => setShareStatus(null), 2000);
+    } catch {
+      setShareStatus('Sharing unavailable');
+      setTimeout(() => setShareStatus(null), 2000);
+    }
   };
 
   const handleCopy = async () => {
@@ -765,7 +806,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               className={`chat-message__tool-btn ${isSpeaking ? 'chat-message__tool-btn--active' : ''}`}
               onClick={handleReadAloud}
               title={isSpeaking ? 'Stop speaking' : 'Read aloud'}
-              aria-label="Read aloud"
+              aria-label={isSpeaking ? 'Stop speaking' : 'Read aloud'}
             >
               {isSpeaking ? (
                 <>
@@ -785,6 +826,23 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               )}
             </button>
 
+            <button
+              type="button"
+              className="chat-message__tool-btn"
+              onClick={handleShare}
+              title={shareStatus || 'Share response'}
+              aria-label="Share response"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+              <span>{shareStatus ? shareStatus : 'Share'}</span>
+            </button>
+
             {onRegenerate && (
               <button
                 type="button"
@@ -801,48 +859,119 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               </button>
             )}
 
+            <div className="chat-message__more-wrapper" ref={moreMenuRef}>
+              <button
+                type="button"
+                className={`chat-message__tool-btn ${showMoreActions ? 'chat-message__tool-btn--active' : ''}`}
+                onClick={() => setShowMoreActions((prev) => !prev)}
+                title="More actions"
+                aria-label="More actions"
+                aria-expanded={showMoreActions}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="19" cy="12" r="2" />
+                  <circle cx="5" cy="12" r="2" />
+                </svg>
+                <span>More</span>
+              </button>
+
+              {showMoreActions && (
+                <div className="chat-message__more-panel" role="menu">
+                  <button
+                    type="button"
+                    className="chat-message__more-item"
+                    onClick={() => {
+                      handleDownload();
+                      setShowMoreActions(false);
+                    }}
+                    role="menuitem"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>Export</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-message__more-item"
+                    onClick={() => {
+                      setIsExpanded(true);
+                      setShowMoreActions(false);
+                    }}
+                    role="menuitem"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="15 3 21 3 21 9" />
+                      <polyline points="9 21 3 21 3 15" />
+                      <line x1="21" y1="3" x2="14" y2="10" />
+                      <line x1="3" y1="21" x2="10" y2="14" />
+                    </svg>
+                    <span>Expand</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-message__more-item"
+                    onClick={() => {
+                      setIsEditing(true);
+                      setShowMoreActions(false);
+                    }}
+                    role="menuitem"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Message Action Toolbar */}
+      {role === 'user' && !isEditing && (
+        <div className="chat-message__action-row chat-message__action-row--user">
+          <div className="chat-message__tools">
             <button
               type="button"
               className="chat-message__tool-btn"
-              onClick={handleDownload}
-              title="Download as Markdown"
-              aria-label="Download response"
+              onClick={() => setIsEditing(true)}
+              title="Edit message"
+              aria-label="Edit message"
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              <span>Export</span>
-            </button>
-
-            <button
-              type="button"
-              className="chat-message__tool-btn"
-              onClick={() => setIsExpanded(true)}
-              title="Expand response (fullscreen reader)"
-              aria-label="Expand response"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 3 21 3 21 9" />
-                <polyline points="9 21 3 21 3 15" />
-                <line x1="21" y1="3" x2="14" y2="10" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
-              <span>Expand</span>
-            </button>
-
-            <button
-              type="button"
-              className={`chat-message__tool-btn ${isEditing ? 'chat-message__tool-btn--active' : ''}`}
-              onClick={() => setIsEditing(!isEditing)}
-              title="Edit response text"
-              aria-label="Edit response"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
               </svg>
               <span>Edit</span>
+            </button>
+
+            <button
+              type="button"
+              className="chat-message__tool-btn"
+              onClick={handleCopy}
+              title={copied ? 'Copied!' : 'Copy message'}
+              aria-label="Copy message"
+            >
+              {copied ? (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span style={{ color: '#0d9488' }}>Copied</span>
+                </>
+              ) : (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                  <span>Copy</span>
+                </>
+              )}
             </button>
           </div>
         </div>

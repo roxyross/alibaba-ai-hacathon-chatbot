@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { VoiceInputControl, speakVoiceText } from '../common/VoiceInputControl';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './CalendarView.css';
 
 interface CalendarEventItem {
@@ -63,6 +63,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   // AI Prompt Scheduling state
   const [aiPrompt, setAiPrompt] = useState('');
   const [isParsingAI, setIsParsingAI] = useState(false);
+  const [voicePendingEvent, setVoicePendingEvent] = useState<{
+    title: string;
+    date: string;
+    time: string;
+    location?: string;
+    category?: string;
+    description?: string;
+  } | null>(null);
+  const [isExecutingVoice, setIsExecutingVoice] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -184,7 +193,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       if (res.ok) {
         await fetchEvents();
         showNotification(`Event "${payload.title}" scheduled successfully.`, 'success');
-        void speakVoiceText(`Event added: ${payload.title} on ${newEventDate}`);
       } else {
         const err = await res.json().catch(() => ({}));
         showNotification(err.detail || 'Failed to create calendar event.', 'error');
@@ -217,7 +225,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         showNotification('Failed to delete calendar event.', 'error');
       } else {
         showNotification('Event removed from calendar.', 'info');
-        void speakVoiceText('Event removed from calendar');
       }
     } catch {
       setEvents(previous);
@@ -266,6 +273,108 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       showNotification('Network error during AI scheduling parse.', 'error');
     } finally {
       setIsParsingAI(false);
+    }
+  };
+
+  // Direct Voice Prompt Lifecycle with Confirmation
+  const handleVoiceSchedulePrompt = async (spokenPrompt: string) => {
+    if (!spokenPrompt.trim()) return;
+    setAiPrompt(spokenPrompt);
+    if (!accessToken) {
+      showNotification('Sign in to use voice calendar scheduling.', 'info');
+      return;
+    }
+    setIsParsingAI(true);
+    try {
+      const res = await fetch(`${API_BASE}/calendar/parse-ai`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ prompt: spokenPrompt }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const d = data.draft_event;
+        if (d) {
+          let dt = selectedDate;
+          let tm = '15:00';
+          if (d.start_time) {
+            const parts = d.start_time.split('T');
+            dt = parts[0] || selectedDate;
+            if (parts[1]) tm = parts[1].slice(0, 5);
+          }
+          setVoicePendingEvent({
+            title: d.title || spokenPrompt,
+            date: dt,
+            time: tm,
+            location: d.location || '',
+            category: d.category || 'meeting',
+            description: d.description || `Voice prompt: "${spokenPrompt}"`,
+          });
+        }
+      } else {
+        setVoicePendingEvent({
+          title: spokenPrompt,
+          date: selectedDate,
+          time: '15:00',
+          category: 'meeting',
+          description: `Voice prompt: "${spokenPrompt}"`,
+        });
+      }
+    } catch {
+      setVoicePendingEvent({
+        title: spokenPrompt,
+        date: selectedDate,
+        time: '15:00',
+        category: 'meeting',
+        description: `Voice prompt: "${spokenPrompt}"`,
+      });
+    } finally {
+      setIsParsingAI(false);
+    }
+  };
+
+  const handleConfirmVoiceEvent = async () => {
+    if (!voicePendingEvent || !accessToken || isExecutingVoice) return;
+    setIsExecutingVoice(true);
+    try {
+      const startIso = `${voicePendingEvent.date}T${voicePendingEvent.time}:00`;
+      const endHour = Math.min(23, parseInt(voicePendingEvent.time.split(':')[0] || '15', 10) + 1);
+      const endIso = `${voicePendingEvent.date}T${String(endHour).padStart(2, '0')}:${voicePendingEvent.time.split(':')[1] || '00'}:00`;
+
+      const payload = {
+        title: voicePendingEvent.title,
+        start_time: startIso,
+        end_time: endIso,
+        category: voicePendingEvent.category || 'meeting',
+        location: voicePendingEvent.location || undefined,
+        description: voicePendingEvent.description || undefined,
+      };
+
+      const res = await fetch(`${API_BASE}/calendar/events`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        await fetchEvents();
+        showNotification(`Event "${voicePendingEvent.title}" scheduled successfully.`, 'success');
+        setVoicePendingEvent(null);
+        setAiPrompt('');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showNotification(err.detail || 'Failed to create calendar event.', 'error');
+      }
+    } catch {
+      showNotification('Network error creating calendar event.', 'error');
+    } finally {
+      setIsExecutingVoice(false);
     }
   };
 
@@ -407,9 +516,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 : `No events scheduled for ${selectedDate}.`
             }
             onTranscript={(spokenPrompt) => {
-              setAiPrompt(spokenPrompt);
+              void handleVoiceSchedulePrompt(spokenPrompt);
             }}
             label="Voice Calendar Assistant"
+            toolId="calendar"
           />
           <button
             type="button"
@@ -430,6 +540,74 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </button>
         </div>
       </header>
+
+      {/* Voice Event Confirmation Card */}
+      {voicePendingEvent && (
+        <div
+          className="calendar-view__voice-confirm"
+          style={{
+            margin: '0.75rem 1.25rem',
+            padding: '0.85rem 1.25rem',
+            background: 'rgba(15, 23, 42, 0.95)',
+            border: '1px solid rgba(56, 189, 248, 0.4)',
+            borderRadius: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
+          }}
+          role="alertdialog"
+          aria-label="Confirm calendar event creation"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span style={{ fontSize: '1.4rem' }}>🎙️</span>
+            <div>
+              <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '0.95rem' }}>
+                Create meeting "{voicePendingEvent.title}" on {voicePendingEvent.date} at {voicePendingEvent.time}?
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                Category: {voicePendingEvent.category} {voicePendingEvent.location ? `· Location: ${voicePendingEvent.location}` : ''}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={handleConfirmVoiceEvent}
+              disabled={isExecutingVoice}
+              style={{
+                background: 'linear-gradient(135deg, #0d9488, #14b8a6)',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '0.45rem 1rem',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+              }}
+            >
+              {isExecutingVoice ? 'Scheduling...' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setVoicePendingEvent(null)}
+              disabled={isExecutingVoice}
+              style={{
+                background: 'transparent',
+                color: '#94a3b8',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '6px',
+                padding: '0.45rem 0.85rem',
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Notification Toast */}
       {notification && (

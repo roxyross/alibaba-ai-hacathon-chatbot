@@ -302,16 +302,44 @@ class MediaService:
 
                 if hasattr(operation, "response") and operation.response:
                     gen_vids = getattr(operation.response, "generated_videos", [])
-                    if gen_vids and hasattr(gen_vids[0], "video"):
-                        vid_bytes = getattr(gen_vids[0].video, "video_bytes", None)
-                        if vid_bytes:
-                            filename = f"gen_{job_id}.mp4"
-                            filepath = os.path.join(GENERATED_DIR, filename)
-                            with open(filepath, "wb") as f:
-                                f.write(vid_bytes)
-                            media_url = f"/static/media/generated/{filename}"
-                        elif getattr(gen_vids[0].video, "uri", None):
-                            media_url = gen_vids[0].video.uri
+                    if gen_vids:
+                        target_vid = gen_vids[0]
+                        filename = f"gen_{job_id}.mp4"
+                        filepath = os.path.join(GENERATED_DIR, filename)
+
+                        # 1. Download directly using client.files.download API
+                        downloaded = False
+                        try:
+                            client = self.google_engine._get_client(override_key=google_key)
+                            client.files.download(file=target_vid, destination=filepath)
+                            if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+                                media_url = f"/static/media/generated/{filename}"
+                                downloaded = True
+                        except Exception as dl_err:
+                            logger.info(f"client.files.download for video target failed: {dl_err}")
+
+                        # 2. If not downloaded, check direct bytes
+                        if not downloaded and hasattr(target_vid, "video"):
+                            vid_bytes = getattr(target_vid.video, "video_bytes", None)
+                            if vid_bytes:
+                                with open(filepath, "wb") as f:
+                                    f.write(vid_bytes)
+                                media_url = f"/static/media/generated/{filename}"
+                                downloaded = True
+                            elif getattr(target_vid.video, "uri", None):
+                                uri = target_vid.video.uri
+                                try:
+                                    async with httpx.AsyncClient(timeout=45.0) as http_client:
+                                        fetch_url = f"{uri}?key={google_key}" if "?" not in uri else f"{uri}&key={google_key}"
+                                        r = await http_client.get(fetch_url)
+                                        if r.status_code == 200 and r.content:
+                                            with open(filepath, "wb") as f:
+                                                f.write(r.content)
+                                            media_url = f"/static/media/generated/{filename}"
+                                        else:
+                                            media_url = uri
+                                except Exception:
+                                    media_url = uri
 
                 if not media_url:
                     raise RuntimeError("Veo video generation operation completed without returning video content.")

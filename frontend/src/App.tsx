@@ -299,6 +299,20 @@ export function ChatScreen() {
     void refreshSessions();
   }, [chat, history, refreshSessions]);
 
+  // Immediate persistent deletion of session with active-session cleanup
+  const handleDeleteSession = useCallback(
+    async (id: string) => {
+      if (activeSession?.id === id) {
+        setActiveSession(null);
+        chat.clearMessages();
+        localStorage.removeItem('roxy_active_session_id');
+      }
+      await removeSession(id);
+      void refreshSessions();
+    },
+    [activeSession, chat, removeSession, refreshSessions],
+  );
+
   // "New task" — clear active session, set mode to 'task' (for coding), and switch back to chat view.
   const handleNewTask = useCallback(() => {
     if (!accessToken && !user) {
@@ -425,7 +439,7 @@ export function ChatScreen() {
         loading={sessionsLoading}
         error={sessionsError}
         onRename={renameSession}
-        onRemove={removeSession}
+        onRemove={handleDeleteSession}
         onModeChange={handleModeChange}
         onSelect={(s) => { handleSelectSession(s); setSidebarOpen(false); }}
         onNewChat={() => { handleNewChat(); setSidebarOpen(false); }}

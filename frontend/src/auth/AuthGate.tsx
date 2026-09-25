@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
-import { getOAuthStartUrl } from './api';
+import { getOAuthStartUrl, API_BASE } from './api';
 import './AuthGate.css';
 
 /** Inline Google "G" logo. Inline so we don't pull an external image. */
@@ -104,7 +104,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     const token = url.searchParams.get('token');
     const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
     const oauthToken = hashParams.get('access_token');
-    const oauthError = hashParams.get('error');
+    const oauthError = hashParams.get('error') || url.searchParams.get('error');
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
 
     if (oauthError) {
       // Surface the OAuth error inline and redirect cleanly to /
@@ -112,6 +114,15 @@ export const AuthGate: React.FC<AuthGateProps> = ({
       setOauthErrorMessage(`OAuth failed: ${oauthError.replace(/_/g, ' ')}`);
       window.history.replaceState({}, '', '/');
       setPhase('request');
+      return;
+    }
+
+    if (code) {
+      setPhase('verifying');
+      setOauthErrorMessage(null);
+      const provider = url.searchParams.get('provider') || (url.pathname.includes('github') ? 'github' : 'google');
+      const exchangeUrl = `${API_BASE}/auth/oauth/${provider}/callback?code=${encodeURIComponent(code)}${state ? `&state=${encodeURIComponent(state)}` : ''}`;
+      window.location.href = exchangeUrl;
       return;
     }
 

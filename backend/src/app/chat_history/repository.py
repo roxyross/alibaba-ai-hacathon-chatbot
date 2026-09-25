@@ -160,3 +160,42 @@ class ChatMessageRepository:
                     delete(ChatMessage).where(ChatMessage.session_id == session_id)
                 )
                 await session.commit()
+
+    async def search_messages(
+        self,
+        user_id: str,
+        query: str,
+        limit: int = 5,
+    ) -> list[ChatMessage | _MemMessage]:
+        """Search past messages across all sessions owned by user."""
+        factory = get_session_factory()
+        if factory is None:
+            matches: list[ChatMessage | _MemMessage] = []
+            q_lower = query.lower()
+            from app.session.repository import ChatSessionRepository
+            session_repo = ChatSessionRepository()
+            for session_id, msg_list in self._mem.items():
+                if user_id:
+                    sess = await session_repo.get(session_id, user_id)
+                    if sess is None:
+                        continue
+                for m in msg_list:
+                    if q_lower in m.content.lower():
+                        matches.append(m)
+                        if len(matches) >= limit:
+                            return matches
+            return matches
+        async with factory() as session:
+            from app.session.models import ChatSession
+            db_query = (
+                select(ChatMessage)
+                .join(ChatSession, ChatMessage.session_id == ChatSession.id)
+                .where(
+                    ChatSession.user_id == user_id,
+                    ChatMessage.content.ilike(f"%{query}%"),
+                )
+                .order_by(ChatMessage.created_at.desc())
+                .limit(limit)
+            )
+            rows = (await session.execute(db_query)).scalars().all()
+            return list(rows)

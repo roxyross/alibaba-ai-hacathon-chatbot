@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './VideoStudio.css';
 
 interface VideoClip {
@@ -66,6 +67,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ accessToken, onBack })
   const [resolution, setResolution] = useState('1080p');
   const [startingFrame, setStartingFrame] = useState<string | null>(null);
   const [isSubmittingGen, setIsSubmittingGen] = useState(false);
+  const [interimPrompt, setInterimPrompt] = useState('');
   const [activeJob, setActiveJob] = useState<MediaJob | null>(null);
 
   // Available Video Models Registry
@@ -223,11 +225,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ accessToken, onBack })
 
       if (res.ok) {
         const data = await res.json();
-        const job = data.job;
+        const job = data.job || data;
         setActiveJob({
           id: job.id,
-          model: job.model,
-          prompt: job.prompt,
+          model: job.model || selectedModel,
+          prompt: job.prompt || prompt,
           status: 'processing',
           elapsedSeconds: 0,
         });
@@ -473,7 +475,26 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ accessToken, onBack })
 
           {activeSideTab === 'generate' ? (
             <div className="video-gen-form">
-              <label className="form-label">Video Prompt</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label className="form-label" style={{ marginBottom: 0 }}>Video Prompt</label>
+                <VoiceInputControl
+                  toolId="video-studio"
+                  size="sm"
+                  onTranscript={(transcript) => {
+                    setPrompt((prev) => (prev ? `${prev} ${transcript}` : transcript));
+                    setInterimPrompt('');
+                  }}
+                  onInterim={(interim) => {
+                    setInterimPrompt(interim);
+                  }}
+                  disabled={isSubmittingGen}
+                />
+              </div>
+              {interimPrompt && (
+                <div style={{ fontSize: '0.78rem', color: '#0d9488', fontStyle: 'italic', marginBottom: '4px' }}>
+                  Listening: "{interimPrompt}"
+                </div>
+              )}
               <textarea
                 className="form-textarea"
                 rows={3}

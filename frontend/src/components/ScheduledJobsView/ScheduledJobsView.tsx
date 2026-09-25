@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './ScheduledJobsView.css';
 
 const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
@@ -40,7 +41,6 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
   const [promptText, setPromptText] = useState('');
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [selectedModel, setSelectedModel] = useState('Google Gemini 2.0 Flash');
-  const [isListening, setIsListening] = useState(false);
   const [selectedTimezone, setSelectedTimezone] = useState('Asia/Karachi (PKT, UTC+5)');
   const fileUploadRef = useRef<HTMLInputElement>(null);
 
@@ -99,44 +99,6 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
   useEffect(() => {
     void fetchJobs();
   }, [accessToken]);
-
-  // Voice input support
-  const toggleSpeech = () => {
-    const SpeechRecognition =
-      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: any }).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      alert('Speech recognition is not supported in this browser.');
-      return;
-    }
-
-    if (isListening) {
-      setIsListening(false);
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => setIsListening(true);
-      recognition.onend = () => setIsListening(false);
-      recognition.onerror = () => setIsListening(false);
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript) {
-          setPromptText(transcript);
-        }
-      };
-
-      recognition.start();
-    } catch {
-      setIsListening(false);
-    }
-  };
 
   const handleSend = async () => {
     if (!promptText.trim()) return;
@@ -597,16 +559,14 @@ export const ScheduledJobsView: React.FC<ScheduledJobsViewProps> = ({
               }}
             />
 
-            {/* Right: microphone icon + circular send button */}
-            <button
-              type="button"
-              className={`sched-view__mic-btn ${isListening ? 'listening' : ''}`}
-              onClick={toggleSpeech}
-              title="Voice input"
-              aria-label="Voice input"
-            >
-              🎤
-            </button>
+            {/* Right: centralized voice control + circular send button */}
+            <VoiceInputControl
+              toolId="scheduled-jobs"
+              size="sm"
+              showReadAloud={false}
+              onTranscript={(t) => setPromptText(t)}
+              label="Speak task to schedule"
+            />
 
             <button
               type="button"

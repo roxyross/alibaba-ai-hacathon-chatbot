@@ -315,10 +315,15 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             )
         except smtplib.SMTPException as exc:
             log.error("email_send.smtp_error", error=str(exc))
+            err_msg = str(exc)
+            if "550" in err_msg and any(w in err_msg.lower() for w in ("limit", "exceeded", "daily", "quota", "user")):
+                detail_err = "Email could not be sent because the email provider's daily sending limit was exceeded."
+            else:
+                detail_err = f"SMTP delivery error: {exc}"
             return EmailSendResponse(
                 success=False,
                 delivery_status="failed",
-                error=f"SMTP delivery error: {exc}",
+                error=detail_err,
             )
         except Exception as exc:
             log.error("email_send.smtp_unexpected", error=str(exc))
@@ -379,13 +384,15 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             except Exception as mx_err:
                 log.info("email_send.direct_mx_fallback", to=recipient, mx=mx_host, error=str(mx_err))
 
-        # Always guarantee graceful completion: queued and dispatched via Roxy Mail Router
-        log.info("email_send.queued_dispatch", to=recipient, subject=input_data.subject, message_id=msg_id)
+        # If direct MX delivery failed or recipient mail server was unreachable
+        log.warning("email_send.direct_mx_unreachable", to=recipient, mx=mx_host)
         return EmailSendResponse(
-            success=True,
-            delivery_status="sent",
-            message_id=msg_id,
-            sent_at=datetime.now(UTC).isoformat(),
+            success=False,
+            delivery_status="failed",
+            error=(
+                f"Direct mail delivery to {domain or recipient} was unreachable or rejected. "
+                "Please configure SMTP credentials (e.g. Gmail App Password in Settings) for guaranteed delivery."
+            ),
         )
 
 

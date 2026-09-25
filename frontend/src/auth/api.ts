@@ -6,11 +6,11 @@
 // We normalize the value here so call sites can keep doing
 // `${API_BASE}/auth/...` without having to remember the prefix.
 
-const RAW_API_BASE =
+export const RAW_API_BASE =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
   '/api/v1';
 
-const API_BASE = /\/api\/v1\/?$/.test(RAW_API_BASE)
+export const API_BASE = /\/api\/v1\/?$/.test(RAW_API_BASE)
   ? RAW_API_BASE.replace(/\/$/, '')
   : `${RAW_API_BASE.replace(/\/$/, '')}/api/v1`;
 

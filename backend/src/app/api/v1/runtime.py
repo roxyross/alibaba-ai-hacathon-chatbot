@@ -196,7 +196,14 @@ def generate_image_response(prompt: str) -> str:
 
 _SEARCH_PREFIXES = [
     re.compile(r"^(?:search\s+(?:the\s+)?web\s+for|web\s+search\s+for|google\s+search\s+for|look\s+up|search\s+for)\s*:\s*", re.I),
-    re.compile(r"^(?:search\s+(?:the\s+)?web\s+for|web\s+search\s+for|google\s+search\s+for)\s+", re.I),
+]
+
+# Phase 8: Smart Entity & Case Reference patterns (e.g., "Mir Raza ka case", "Mir Raza's case", "case of Mir Raza")
+_ENTITY_CASE_PATTERNS = [
+    re.compile(r"([A-Za-z\u0600-\u06FF\s]{2,40}?)\s+(?:ka\s+case|ke\s+case|ki\s+file|ka\s+record|ka\s+matter|ka\s+issue)\b", re.I),
+    re.compile(r"\b(?:case\s+of|matter\s+of|file\s+of|record\s+of)\s+([A-Za-z\u0600-\u06FF\s]{2,40})", re.I),
+    re.compile(r"\b([A-Za-z\u0600-\u06FF\s]{2,40})'s\s+case\b", re.I),
+    re.compile(r"\b(?:check|find|look\s+up|search|open|about)\s+([A-Za-z\u0600-\u06FF\s]{2,40})\s+(?:case|file|matter|record|profile)\b", re.I),
 ]
 
 _WEATHER_KEYWORDS = re.compile(
@@ -958,6 +965,83 @@ async def _call_ai_for_agent(
                 )
     except Exception as exc:
         log.warning("runtime.rag_grounding_failed", error=str(exc))
+
+    # Phase 8: Smart Entity & Context Resolution Layer
+    # Resolves named references like "Mir Raza ka case", "Mir Raza's file"
+    # Inspects current conversation context, past sessions, Knowledge Vault, and memories
+    entity_found: str | None = None
+    for pattern in _ENTITY_CASE_PATTERNS:
+        m = pattern.search(user_message)
+        if m:
+            cand = m.group(1).strip()
+            if len(cand) >= 2 and cand.lower() not in ("what", "this", "that", "the", "my", "your"):
+                entity_found = cand
+                break
+
+    if entity_found and user_id:
+        try:
+            resolved_records: list[str] = []
+
+            # 1. Search Knowledge Vault for documents mentioning entity
+            try:
+                from app.skills.document_rag_query import DocumentRAGSkill
+                from app.skills.schemas import DocumentRagQueryRequest
+                entity_rag = await DocumentRAGSkill().execute(
+                    DocumentRagQueryRequest(
+                        query=entity_found,
+                        user_id=user_id,
+                        top_k=2,
+                        min_score=0.15,
+                    )
+                )
+                for chunk in entity_rag.chunks:
+                    resolved_records.append(f"- [Knowledge Vault Document: {chunk.document_name}]: {chunk.content[:250]}...")
+            except Exception:
+                pass
+
+            # 2. Search Semantic Memory for entity
+            try:
+                from app.memory.repository import MemoryRepository
+                memories, _ = await MemoryRepository().list_memories(user_id=user_id, limit=50)
+                for mem in memories:
+                    content_str = str(mem.get("content", ""))
+                    if entity_found.lower() in content_str.lower():
+                        resolved_records.append(f"- [Saved Memory]: {content_str}")
+            except Exception:
+                pass
+
+            # 3. Search past session messages for entity
+            try:
+                from app.chat_history.repository import ChatMessageRepository
+                past_msgs = await ChatMessageRepository().search_messages(user_id=user_id, query=entity_found, limit=3)
+                for pm in past_msgs:
+                    resolved_records.append(f"- [Prior Conversation]: {pm.content[:200]}...")
+            except Exception:
+                pass
+
+            if resolved_records:
+                entity_directive = (
+                    f"[RESOLVED USER ENTITY CONTEXT — '{entity_found}']:\n"
+                    f"The user query references '{entity_found}'. Background context was found in their records:\n"
+                    + "\n".join(resolved_records[:4])
+                    + "\n\nCRITICAL CONTEXT RESOLUTION INSTRUCTION:\n"
+                    f"Do NOT ask 'Who is {entity_found}?' or say '{entity_found} who?'. "
+                    "Their profile/context is already known and documented in the records above. "
+                    "Respond directly to the user's specific request using this context. "
+                    "If multiple distinct cases exist, concisely ask which one they mean (e.g., 'Do you mean the case mentioned earlier about ___?')."
+                )
+                history_messages.append(Message(role=MessageRole.SYSTEM, content=entity_directive))
+            else:
+                polite_unresolved_directive = (
+                    f"[ENTITY REFERENCE NOTICE — '{entity_found}']:\n"
+                    f"The user referenced a specific entity/person/case: '{entity_found}'. "
+                    f"You searched their records, Knowledge Vault, and memories, but found no existing file for '{entity_found}'.\n"
+                    "CRITICAL INSTRUCTION: Do NOT bluntly ask 'Who is {entity_found}?' or '{entity_found} who?'. "
+                    f"Instead, politely acknowledge their reference by saying: 'I checked your conversation history and Knowledge Vault for {entity_found}, but don't see an existing file on record. Could you share a few details or upload the case documents so I can assist you accurately?'"
+                )
+                history_messages.append(Message(role=MessageRole.SYSTEM, content=polite_unresolved_directive))
+        except Exception as exc:
+            log.warning("runtime.entity_resolution_failed", entity=entity_found, error=str(exc))
 
     # Phase 6: Financial Ledger Grounding for authenticated users
     is_finance = (agent_slug == "finance") or any(

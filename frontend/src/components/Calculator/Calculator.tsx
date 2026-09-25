@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { VoiceInputControl, speakVoiceText } from '../common/VoiceInputControl';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './Calculator.css';
 
 export function parseSpokenMath(spoken: string): string {
@@ -291,9 +291,6 @@ export const Calculator: React.FC<CalculatorProps> = ({
         source: 'client',
       };
       setHistory((prev) => [newItem, ...prev.filter((h) => h.expression !== parsed)]);
-
-      // Speak answer aloud
-      void speakVoiceText(`${parsed} equals ${resStr}`);
       return;
     } catch {
       // Proceed to backend Python evaluation
@@ -338,9 +335,6 @@ export const Calculator: React.FC<CalculatorProps> = ({
         source: 'backend',
       };
       setHistory((prev) => [newItem, ...prev.filter((h) => h.expression !== parsed)]);
-
-      // Speak answer aloud
-      void speakVoiceText(`${parsed} equals ${resVal}`);
     } catch (err) {
       setErrorMessage(`Evaluation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -441,6 +435,7 @@ export const Calculator: React.FC<CalculatorProps> = ({
               void evaluateAndSpeak(text);
             }}
             label="Speak math expression"
+            toolId="calculator"
           />
           {history.length > 0 && (
             <button

@@ -17,7 +17,9 @@ import {
   Tag,
   FileText,
   Link2,
+  XCircle,
 } from 'lucide-react';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './ResearchHub.css';
 
 const rawApiBase =
@@ -156,20 +158,49 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
     setTimeout(() => setToastNotice(null), 3000);
   };
 
+  const [interimQuery, setInterimQuery] = useState('');
+  const abortControllerRef = React.useRef<AbortController | null>(null);
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
+  // Cancel active research
+  const handleCancelResearch = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsResearching(false);
+    setResearchStage('');
+    setErrorMsg('Research cancelled by user.');
+  };
+
   // Launch Deep Research Pipeline
   const handleLaunchResearch = async (searchQuery?: string) => {
     const targetQuery = searchQuery || query;
     if (!targetQuery.trim() || isResearching) return;
 
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const abortCtrl = new AbortController();
+    abortControllerRef.current = abortCtrl;
+
     setIsResearching(true);
     setErrorMsg(null);
     setActiveReport(null);
 
-    // Simulate animated pipeline stages while network request runs
-    setResearchStage('Decomposing query into sub-queries...');
-    const t1 = setTimeout(() => setResearchStage('Executing multi-engine live web search...'), 1800);
-    const t2 = setTimeout(() => setResearchStage('Extracting primary source excerpts...'), 4200);
-    const t3 = setTimeout(() => setResearchStage('Synthesizing cross-source claims & citations...'), 7500);
+    // Concise progress states per Phase 15:
+    // "Searching sources..." -> "Analyzing sources..." -> "Preparing answer..."
+    setResearchStage('Searching sources...');
+    const t1 = setTimeout(() => setResearchStage('Analyzing sources...'), 2000);
+    const t2 = setTimeout(() => setResearchStage('Preparing answer...'), 5000);
 
     try {
       const tagsList = customTags
@@ -182,6 +213,7 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
         accessToken,
         {
           method: 'POST',
+          signal: abortCtrl.signal,
           body: JSON.stringify({
             query: targetQuery,
             depth,
@@ -197,14 +229,18 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
         void loadReports();
       }
     } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        setErrorMsg('Research cancelled.');
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMsg(`Research failed: ${msg}`);
     } finally {
       clearTimeout(t1);
       clearTimeout(t2);
-      clearTimeout(t3);
       setIsResearching(false);
       setResearchStage('');
+      abortControllerRef.current = null;
     }
   };
 
@@ -423,6 +459,13 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
           <span>{errorMsg}</span>
           <button
             type="button"
+            className="research-hub__retry-btn"
+            onClick={() => void handleLaunchResearch()}
+          >
+            ↻ Retry Investigation
+          </button>
+          <button
+            type="button"
             className="research-hub__error-dismiss"
             onClick={() => setErrorMsg(null)}
           >
@@ -476,7 +519,11 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
                 <input
                   type="text"
                   className="research-hub__query-input"
-                  placeholder="Enter any topic or question (e.g. Next-gen solid-state battery benchmarks 2026)..."
+                  placeholder={
+                    interimQuery
+                      ? `Listening: "${interimQuery}"`
+                      : "Enter any topic or question (e.g. Next-gen solid-state battery benchmarks 2026)..."
+                  }
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -493,7 +540,26 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
                     &times;
                   </button>
                 )}
+                <VoiceInputControl
+                  toolId="research"
+                  size="sm"
+                  onTranscript={(finalText) => {
+                    setQuery(finalText);
+                    setInterimQuery('');
+                  }}
+                  onInterim={(interim) => {
+                    setInterimQuery(interim);
+                  }}
+                  readAloudText={activeReport ? `${activeReport.title}. ${activeReport.summary}` : undefined}
+                  showReadAloud={Boolean(activeReport)}
+                  disabled={isResearching}
+                />
               </div>
+              {interimQuery && (
+                <div style={{ padding: '6px 12px', fontSize: '12px', color: '#38bdf8', fontStyle: 'italic' }}>
+                  🎙️ {interimQuery}
+                </div>
+              )}
             </div>
 
             {/* Depth selector + Options */}
@@ -570,24 +636,37 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                className={`research-hub__launch-btn ${isResearching ? 'research-hub__launch-btn--loading' : ''}`}
-                onClick={() => void handleLaunchResearch()}
-                disabled={!query.trim() || isResearching}
-              >
-                {isResearching ? (
-                  <>
-                    <RefreshCw size={16} className="research-hub__spin-icon" />
-                    <span>Synthesizing...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={16} />
-                    <span>Run Deep Research</span>
-                  </>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {isResearching && (
+                  <button
+                    type="button"
+                    className="research-hub__preset-chip"
+                    style={{ borderColor: '#ef4444', color: '#f87171' }}
+                    onClick={handleCancelResearch}
+                  >
+                    <XCircle size={14} style={{ marginRight: '4px' }} />
+                    Cancel
+                  </button>
                 )}
-              </button>
+                <button
+                  type="button"
+                  className={`research-hub__launch-btn ${isResearching ? 'research-hub__launch-btn--loading' : ''}`}
+                  onClick={() => void handleLaunchResearch()}
+                  disabled={!query.trim() || isResearching}
+                >
+                  {isResearching ? (
+                    <>
+                      <RefreshCw size={16} className="research-hub__spin-icon" />
+                      <span>{researchStage || 'Synthesizing...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} />
+                      <span>Run Deep Research</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Pipeline Stage Visualizer */}

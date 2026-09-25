@@ -2,7 +2,7 @@
 // Features: Compose, Outbox, Drafts, AI Smart Composer, Tone Polisher, Template Library
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { VoiceInputControl, speakVoiceText } from '../common/VoiceInputControl';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 import './EmailSendPanel.css';
 
 const rawApiBase =
@@ -173,7 +173,6 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
       setSubject(data.subject || subject);
       setBody(data.body || body);
       setInfoMessage(`✓ Draft generated in ${aiTone} tone.`);
-      void speakVoiceText(`Draft generated in ${aiTone} tone.`);
     } catch (err) {
       setError((err as Error).message || 'Failed to compose draft with AI.');
     } finally {
@@ -204,7 +203,6 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
       setSubject(data.subject);
       setBody(data.body);
       setInfoMessage(`✓ Email copy polished in ${aiTone} tone.`);
-      void speakVoiceText('Email copy polished.');
     } catch (err) {
       setError((err as Error).message || 'Failed to polish email.');
     } finally {
@@ -352,11 +350,9 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           sentAt: result.sent_at || new Date().toISOString(),
           to: to.trim(),
         });
-        void speakVoiceText(`Email dispatched successfully to ${to.trim()}`);
         void loadEmails();
       } else if (result.error) {
         setError(result.error);
-        void speakVoiceText(`Email send failed: ${result.error}`);
       }
     } catch (err: unknown) {
       const errorObj = err as { data?: { detail?: string }; message?: string };
@@ -368,11 +364,9 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           `Send email to "${to.trim()}": "${subject.trim()}"`
         );
         setError('Confirmation required — please confirm in the security gate.');
-        void speakVoiceText('Confirmation required before sending this email.');
       } else {
         const msg = (err as Error).message ?? 'Failed to send email';
         setError(msg);
-        void speakVoiceText(`Email failed: ${msg}`);
       }
     } finally {
       setSubmitting(false);

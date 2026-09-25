@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import './ImageStudio.css';
 import { CanvasEditor } from './CanvasEditor';
+import { VoiceInputControl } from '../common/VoiceInputControl';
 
 interface MediaItem {
   id: string;
@@ -57,7 +58,7 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
   const [showPlusPopup, setShowPlusPopup] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
-  const [isListening, setIsListening] = useState(false);
+  const [interimPrompt, setInterimPrompt] = useState('');
   const [selectedModalItem, setSelectedModalItem] = useState<MediaItem | null>(null);
   const [editingCanvasItem, setEditingCanvasItem] = useState<MediaItem | null>(null);
 
@@ -157,44 +158,6 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
     fetchUploads();
     fetchModels();
   }, [fetchGenerations, fetchUploads, fetchModels]);
-
-  // Speech Recognition integration
-  const toggleSpeech = () => {
-    const SpeechRecognition =
-      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: any }).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      showNotification('Speech recognition is not supported in this browser.', 'error');
-      return;
-    }
-
-    if (isListening) {
-      setIsListening(false);
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => setIsListening(true);
-      recognition.onend = () => setIsListening(false);
-      recognition.onerror = () => setIsListening(false);
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript) {
-          setPrompt((prev) => (prev ? `${prev} ${transcript}` : transcript));
-        }
-      };
-
-      recognition.start();
-    } catch {
-      setIsListening(false);
-    }
-  };
 
   const handleEnhancePrompt = async () => {
     if (!prompt.trim() || isEnhancing) return;
@@ -588,7 +551,11 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
               <input
                 type="text"
                 className="image-studio__text-input"
-                placeholder="Describe what you want to imagine with neural precision..."
+                placeholder={
+                  interimPrompt
+                    ? `Listening: "${interimPrompt}"`
+                    : "Describe what you want to imagine with neural precision..."
+                }
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => {
@@ -622,16 +589,19 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
                   <option value="3:2">3:2</option>
                 </select>
 
-                {/* Microphone Icon */}
-                <button
-                  type="button"
-                  className={`image-studio__mic-btn ${isListening ? 'listening' : ''}`}
-                  onClick={toggleSpeech}
-                  title="Voice prompt"
-                  aria-label="Voice prompt"
-                >
-                  🎤
-                </button>
+                {/* Centralized Voice Input Control */}
+                <VoiceInputControl
+                  toolId="image-studio"
+                  size="sm"
+                  onTranscript={(transcript) => {
+                    setPrompt((prev) => (prev ? `${prev} ${transcript}` : transcript));
+                    setInterimPrompt('');
+                  }}
+                  onInterim={(interim) => {
+                    setInterimPrompt(interim);
+                  }}
+                  disabled={isGenerating}
+                />
 
                 {/* Circular Send Button */}
                 <button
@@ -653,6 +623,11 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({ accessToken, onBack })
                 </button>
               </div>
             </div>
+            {interimPrompt && (
+              <div style={{ padding: '6px 14px', fontSize: '12px', color: '#38bdf8', fontStyle: 'italic' }}>
+                🎙️ {interimPrompt}
+              </div>
+            )}
 
             {/* Style Presets Strip */}
             <div className="image-studio__styles-strip">
