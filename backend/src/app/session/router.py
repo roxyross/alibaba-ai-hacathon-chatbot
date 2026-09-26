@@ -125,3 +125,24 @@ async def delete_session(
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{session_id}/share")
+async def share_session(
+    session_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Generate a secure public snapshot share token for a session owned by current_user."""
+    session = await _repo.get(session_id, current_user.id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    import hashlib
+    token = hashlib.sha256(f"share:{session.id}:{current_user.id}".encode()).hexdigest()[:24]
+    return {
+        "share_token": token,
+        "token": token,
+        "session_id": session.id,
+        "title": session.title or "Shared Conversation",
+        "url": f"/share/{token}",
+        "share_url": f"/share/{token}",
+    }

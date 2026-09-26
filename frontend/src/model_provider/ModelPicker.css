@@ -21,6 +21,9 @@
 }
 
 .model-picker__select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
   background: transparent;
   border: none;
   color: var(--color-text, #1e292b);
@@ -33,6 +36,10 @@
   max-width: 13.5rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.model-picker__select::-ms-expand {
+  display: none;
 }
 
 .model-picker__select option,

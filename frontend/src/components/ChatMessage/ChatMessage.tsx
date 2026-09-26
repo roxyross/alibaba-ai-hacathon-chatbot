@@ -20,13 +20,18 @@ export interface CriticReviewData {
   summary: string;
 }
 
-interface ChatMessageProps {
+export interface ChatMessageProps {
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
   attribution?: Attribution;
   criticReview?: CriticReviewData | Record<string, unknown> | null;
   isStreaming?: boolean;
+  isPinned?: boolean;
   onRegenerate?: () => void;
+  onEditInComposer?: (text: string) => void;
+  onPin?: (idOrContent: string, pinned: boolean) => void;
+  onDelete?: (idOrContent: string) => void;
 }
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
@@ -477,11 +482,17 @@ function FormattedContent({
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({
+  id,
   role,
   content,
   attribution,
+  criticReview: _criticReview,
   isStreaming = false,
+  isPinned = false,
   onRegenerate,
+  onEditInComposer,
+  onPin,
+  onDelete,
 }) => {
   const [displayContent, setDisplayContent] = useState(content);
   const [isEditing, setIsEditing] = useState(false);
@@ -493,8 +504,60 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const [showReferences, setShowReferences] = useState(false);
   const [showReasoning, setShowReasoning] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [isPinnedState, setIsPinnedState] = useState(Boolean(isPinned));
   const referencesRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setIsPinnedState(Boolean(isPinned));
+  }, [isPinned]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [userMenuOpen]);
+
+  const handleEditAction = () => {
+    setUserMenuOpen(false);
+    if (onEditInComposer) {
+      onEditInComposer(displayContent);
+    } else {
+      window.dispatchEvent(
+        new CustomEvent('roxy:edit-prompt', { detail: { text: displayContent } }),
+      );
+    }
+  };
+
+  const handlePinAction = () => {
+    const next = !isPinnedState;
+    setIsPinnedState(next);
+    setUserMenuOpen(false);
+    onPin?.(id || displayContent, next);
+  };
+
+  const handleShareAction = () => {
+    setUserMenuOpen(false);
+    const shareText = `Prompt on ROXY AI:\n"${displayContent}"`;
+    navigator.clipboard.writeText(shareText).then(() => {
+      setShareStatus('Copied for sharing!');
+      setTimeout(() => setShareStatus(null), 2500);
+    });
+  };
+
+  const handleDeleteAction = () => {
+    setUserMenuOpen(false);
+    if (window.confirm('Delete this user message?')) {
+      onDelete?.(id || displayContent);
+    }
+  };
 
   const { reasoning, mainContent, isThinkingActive } = React.useMemo(() => {
     return parseContentWithReasoning(displayContent);
@@ -684,6 +747,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       className={`chat-message chat-message--${role} ${isStreaming && role === 'assistant' ? 'chat-message--streaming' : ''}`}
       aria-role={role === 'user' ? 'presentation' : 'article'}
     >
+      {role === 'user' && isPinnedState && (
+        <div className="chat-message__user-pin-badge" title="Pinned message">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+          </svg>
+          <span>Pinned</span>
+        </div>
+      )}
       <div className="chat-message__bubble">
         {isEditing ? (
           <div className="chat-message__edit-box">
@@ -1042,14 +1113,19 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
 
       {/* User Message Action Toolbar */}
       {role === 'user' && !isEditing && (
-        <div className="chat-message__action-row chat-message__action-row--user">
+        <div className={`chat-message__action-row chat-message__action-row--user ${userMenuOpen ? 'chat-message__action-row--user--open' : ''}`}>
+          {shareStatus && (
+            <span className="chat-message__share-status" style={{ fontSize: '0.72rem', color: '#0d9488', marginRight: '0.5rem', fontWeight: 500 }}>
+              {shareStatus}
+            </span>
+          )}
           <div className="chat-message__tools">
             <button
               type="button"
               className="chat-message__tool-btn"
-              onClick={() => setIsEditing(true)}
-              title="Edit message"
-              aria-label="Edit message"
+              onClick={handleEditAction}
+              title="Edit prompt in composer"
+              aria-label="Edit prompt"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
@@ -1061,8 +1137,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               type="button"
               className="chat-message__tool-btn"
               onClick={handleCopy}
-              title={copied ? 'Copied!' : 'Copy message'}
-              aria-label="Copy message"
+              title={copied ? 'Copied!' : 'Copy prompt'}
+              aria-label="Copy prompt"
             >
               {copied ? (
                 <>
@@ -1081,6 +1157,96 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                 </>
               )}
             </button>
+
+            {/* Three-dot More menu for User Message */}
+            <div className="chat-message__more-wrapper" ref={userMenuRef}>
+              <button
+                type="button"
+                className={`chat-message__tool-btn ${userMenuOpen ? 'chat-message__tool-btn--active' : ''}`}
+                onClick={() => setUserMenuOpen((prev) => !prev)}
+                title="More actions"
+                aria-label="More message actions"
+                aria-expanded={userMenuOpen}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="1" />
+                  <circle cx="19" cy="12" r="1" />
+                  <circle cx="5" cy="12" r="1" />
+                </svg>
+              </button>
+
+              {userMenuOpen && (
+                <div className="chat-message__more-panel" role="menu" aria-label="User message actions">
+                  <button
+                    type="button"
+                    className="chat-message__more-item"
+                    role="menuitem"
+                    onClick={handleEditAction}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="chat-message__more-item"
+                    role="menuitem"
+                    onClick={handleCopy}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                    <span>Copy</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="chat-message__more-item"
+                    role="menuitem"
+                    onClick={handlePinAction}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="12" y1="17" x2="12" y2="22" />
+                      <path d="M5 17h14v-2l-2-3V6a2 2 0 0 0-2-2h-6a2 2 0 0 0-2 2v6l-2 3v2z" />
+                    </svg>
+                    <span>{isPinnedState ? 'Unpin' : 'Pin'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="chat-message__more-item"
+                    role="menuitem"
+                    onClick={handleShareAction}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="18" cy="5" r="3" />
+                      <circle cx="6" cy="12" r="3" />
+                      <circle cx="18" cy="19" r="3" />
+                      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                    </svg>
+                    <span>Share</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="chat-message__more-item chat-message__more-item--delete"
+                    role="menuitem"
+                    style={{ color: '#ef4444' }}
+                    onClick={handleDeleteAction}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

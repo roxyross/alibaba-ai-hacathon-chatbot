@@ -25,6 +25,8 @@ interface ChatWindowProps extends ChatState {
   onNavigateView?: (view: 'finance' | 'jobs' | 'email' | 'calculator' | 'calendar') => void;
   onStop?: () => void;
   onClearConversation?: () => void;
+  onPinMessage?: (idOrContent: string, pinned: boolean) => void;
+  onDeleteMessage?: (idOrContent: string) => void;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -47,6 +49,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onNavigateView,
   onStop,
   onClearConversation,
+  onPinMessage,
+  onDeleteMessage,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -366,12 +370,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
                   return (
                     <ChatMessage
-                      key={i}
+                      key={(msg as any).id || i}
+                      id={(msg as any).id}
                       role={msg.role}
                       content={msg.content}
+                      isPinned={(msg as any).pinned || (msg as any).isPinned}
                       attribution={msg.role === 'assistant' && showAttribution ? attribution ?? undefined : undefined}
                       criticReview={msg.role === 'assistant' ? criticReview ?? null : null}
                       isStreaming={isLastAssistant && isStreaming}
+                      onPin={onPinMessage}
+                      onDelete={onDeleteMessage}
                       onRegenerate={
                         isLastAssistant && !isStreaming
                           ? () => {

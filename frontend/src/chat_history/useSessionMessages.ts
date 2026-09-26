@@ -42,5 +42,24 @@ export function useSessionMessages(sessionId: string | null) {
     void reload();
   }, [reload]);
 
-  return { messages, loading, error, reload, setMessages };
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      // Optimistic removal from local state
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      if (!sessionId) return;
+      try {
+        await authedFetch<void>(`/sessions/${sessionId}/messages/${messageId}`, {
+          method: 'DELETE',
+        });
+      } catch (err) {
+        console.error('Failed to delete message on backend:', err);
+        // Rollback on failure
+        void reload();
+        throw err;
+      }
+    },
+    [authedFetch, sessionId, reload],
+  );
+
+  return { messages, loading, error, reload, setMessages, deleteMessage };
 }

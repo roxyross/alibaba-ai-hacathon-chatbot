@@ -161,6 +161,24 @@ class ChatMessageRepository:
                 )
                 await session.commit()
 
+    async def delete_message(self, message_id: str, session_id: str) -> bool:
+        """Delete a single message from a session."""
+        if session_id in self._mem:
+            self._mem[session_id] = [m for m in self._mem[session_id] if m.id != message_id]
+        factory = get_session_factory()
+        if factory is not None:
+            async with factory() as session:
+                from sqlalchemy import delete
+                result = await session.execute(
+                    delete(ChatMessage).where(
+                        ChatMessage.id == message_id,
+                        ChatMessage.session_id == session_id,
+                    )
+                )
+                await session.commit()
+                return bool(result.rowcount and result.rowcount > 0)
+        return True
+
     async def search_messages(
         self,
         user_id: str,

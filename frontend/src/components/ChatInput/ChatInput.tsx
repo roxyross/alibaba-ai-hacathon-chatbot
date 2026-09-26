@@ -138,6 +138,27 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showToolsMenu]);
 
+  // Listen for prompt edit requests from ChatMessage action menu
+  useEffect(() => {
+    const handleEditPrompt = (e: Event) => {
+      const customEvent = e as CustomEvent<{ text: string }>;
+      if (customEvent.detail?.text) {
+        setValue(customEvent.detail.text);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus();
+            textareaRef.current.setSelectionRange(
+              textareaRef.current.value.length,
+              textareaRef.current.value.length,
+            );
+          }
+        }, 50);
+      }
+    };
+    window.addEventListener('roxy:edit-prompt', handleEditPrompt);
+    return () => window.removeEventListener('roxy:edit-prompt', handleEditPrompt);
+  }, []);
+
 
 
   const stopAudioAnalyser = () => {

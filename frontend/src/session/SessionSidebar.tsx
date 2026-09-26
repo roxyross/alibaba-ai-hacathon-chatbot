@@ -32,6 +32,9 @@ import {
   ShieldCheck,
   Layers,
   ChevronDown,
+  ChevronRight,
+  Archive,
+  Share2,
   CreditCard,
   Film,
 } from 'lucide-react';
@@ -92,6 +95,9 @@ interface SessionSidebarProps {
   error?: string | null;
   onRename?: (id: string, title: string) => Promise<ChatSession>;
   onRemove?: (id: string) => Promise<void>;
+  onTogglePin?: (id: string, pinned: boolean) => Promise<ChatSession>;
+  onToggleArchive?: (id: string, archived: boolean) => Promise<ChatSession>;
+  onShare?: (session: ChatSession) => void;
   isCollapsed?: boolean;
   onCloseSidebar?: () => void;
   onOpenSidebar?: () => void;
@@ -151,6 +157,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   error: propError,
   onRename: propRename,
   onRemove: propRemove,
+  onTogglePin: propTogglePin,
+  onToggleArchive: propToggleArchive,
+  onShare: propShare,
   isCollapsed = false,
   onCloseSidebar,
   onOpenSidebar,
@@ -164,6 +173,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const error = propError !== undefined ? propError : localHook.error;
   const rename = propRename || localHook.rename;
   const remove = propRemove || localHook.remove;
+  const togglePinBackend = propTogglePin || localHook.togglePin;
+  const toggleArchiveBackend = propToggleArchive || localHook.toggleArchive;
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -294,25 +305,103 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     }
   };
 
-  const togglePin = (session: ChatSession) => {
+  const [copyShareToast, setCopyShareToast] = useState<string | null>(null);
+
+  const [pinnedCollapsed, setPinnedCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('roxy_sidebar_pinned_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const [recentCollapsed, setRecentCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('roxy_sidebar_recent_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const togglePinnedCollapsed = () => {
+    setPinnedCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('roxy_sidebar_pinned_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const toggleRecentCollapsed = () => {
+    setRecentCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('roxy_sidebar_recent_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const handleTogglePin = async (session: ChatSession) => {
+    const isCurrentlyPinned = Boolean(session.pinned || isSessionPinned(session.id));
+    const nextPinned = !isCurrentlyPinned;
+    setActiveMenuId(null);
+
+    // Immediate local persistence
     try {
       const saved = localStorage.getItem('roxy_pinned_items');
       let items: Array<{ id: string; title: string; type: string }> = saved ? JSON.parse(saved) : [];
-      if (items.some((p) => p.id === session.id)) {
+      if (!nextPinned) {
         items = items.filter((p) => p.id !== session.id);
       } else {
-        items.unshift({
-          id: session.id,
-          title: session.title || 'Untitled conversation',
-          type: session.session_type === 'task' ? 'Task' : 'Conversation',
-        });
+        if (!items.some((p) => p.id === session.id)) {
+          items.unshift({
+            id: session.id,
+            title: session.title || 'Untitled conversation',
+            type: session.session_type === 'task' ? 'Task' : 'Conversation',
+          });
+        }
       }
       localStorage.setItem('roxy_pinned_items', JSON.stringify(items));
       window.dispatchEvent(new Event('storage'));
       window.dispatchEvent(new Event('roxy-pins-updated'));
-      setActiveMenuId(null);
     } catch (err) {
-      console.error('Failed to toggle pin:', err);
+      console.error('Failed to toggle local pin:', err);
+    }
+
+    // Persist in backend
+    try {
+      await togglePinBackend(session.id, nextPinned);
+    } catch (err) {
+      console.warn('Backend pin update fallback to local storage:', err);
+    }
+  };
+
+  const handleToggleArchive = async (session: ChatSession) => {
+    setActiveMenuId(null);
+    try {
+      await toggleArchiveBackend(session.id, true);
+    } catch (err) {
+      console.error('Failed to archive session:', err);
+    }
+  };
+
+  const handleShare = async (session: ChatSession) => {
+    setActiveMenuId(null);
+    if (propShare) {
+      propShare(session);
+      return;
+    }
+    try {
+      const shareUrl = `${window.location.origin}?session=${session.id}`;
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(shareUrl);
+        setCopyShareToast(session.id);
+        setTimeout(() => setCopyShareToast(null), 2000);
+      }
+    } catch (err) {
+      console.error('Share failed:', err);
     }
   };
 
@@ -329,9 +418,210 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     });
   }, [sessions, searchQuery]);
 
-  const groupedSessions = useMemo(() => {
-    return groupSessionsByDate(filteredSessions);
+  // Partition into pinned and recent sessions
+  const { pinnedSessions, recentSessions } = useMemo(() => {
+    const pinned: ChatSession[] = [];
+    const recent: ChatSession[] = [];
+    for (const s of filteredSessions) {
+      if (s.pinned || isSessionPinned(s.id)) {
+        pinned.push(s);
+      } else {
+        recent.push(s);
+      }
+    }
+    return { pinnedSessions: pinned, recentSessions: recent };
   }, [filteredSessions]);
+
+  const groupedRecentSessions = useMemo(() => {
+    return groupSessionsByDate(recentSessions);
+  }, [recentSessions]);
+
+  const renderSessionItem = (s: ChatSession, isPinnedItem = false) => {
+    const isActive = s.id === activeSessionId;
+    const isRenaming = renamingId === s.id;
+    const isPinned = isPinnedItem || Boolean(s.pinned || isSessionPinned(s.id));
+    const isTask = s.session_type === 'task' || s.title?.startsWith('[Task]');
+
+    return (
+      <li
+        key={s.id}
+        className={`session-sidebar__item ${isActive ? 'session-sidebar__item--active' : ''}`}
+      >
+        {isRenaming ? (
+          <form
+            className="session-sidebar__rename-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (renameValue.trim() && renameValue.trim() !== s.title) {
+                try {
+                  await rename(s.id, renameValue.trim());
+                } catch {
+                  alert('Rename failed. Please retry.');
+                }
+              }
+              setRenamingId(null);
+            }}
+          >
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  setRenamingId(null);
+                }
+              }}
+              onBlur={async () => {
+                if (renameValue.trim() && renameValue.trim() !== s.title) {
+                  try {
+                    await rename(s.id, renameValue.trim());
+                  } catch {
+                    // keep old title on error
+                  }
+                }
+                setRenamingId(null);
+              }}
+              className="session-sidebar__rename-input"
+              aria-label="Rename conversation"
+            />
+          </form>
+        ) : (
+          <button
+            type="button"
+            className="session-sidebar__session-btn"
+            onClick={() => onSelect(s)}
+            title={s.title || 'Untitled conversation'}
+            aria-label={s.title || 'Untitled conversation'}
+          >
+            <span className="session-sidebar__session-title">
+              {isPinned && (
+                <span className="session-sidebar__item-icon-wrap" title="Pinned conversation">
+                  <Pin size={11} className="session-sidebar__pin-indicator" />
+                </span>
+              )}
+              {isTask && (
+                <span className="session-sidebar__item-icon-wrap" title="Task session">
+                  <Zap size={11} className="session-sidebar__task-indicator" />
+                </span>
+              )}
+              <span className="session-sidebar__session-title-text">
+                {s.title || 'Untitled conversation'}
+              </span>
+            </span>
+          </button>
+        )}
+
+        {/* Context Menu Trigger */}
+        {!isRenaming && (
+          <div className="session-sidebar__menu-container">
+            <button
+              type="button"
+              className={`session-sidebar__item-menu-btn ${activeMenuId === s.id ? 'session-sidebar__item-menu-btn--active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                const rect = e.currentTarget.getBoundingClientRect();
+                const spaceBelow = window.innerHeight - rect.bottom;
+                setMenuPlacement(spaceBelow < 185 ? 'up' : 'down');
+                setActiveMenuId((prev) => (prev === s.id ? null : s.id));
+              }}
+              aria-label="More conversation actions"
+              aria-expanded={activeMenuId === s.id}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+
+            {activeMenuId === s.id && (
+              <div
+                ref={menuRef}
+                className={`session-sidebar__dropdown session-sidebar__dropdown--${menuPlacement}`}
+                role="menu"
+              >
+                <button
+                  type="button"
+                  className="session-sidebar__dropdown-item"
+                  role="menuitem"
+                  aria-label="Rename conversation"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveMenuId(null);
+                    setRenamingId(s.id);
+                    setRenameValue(s.title || '');
+                  }}
+                >
+                  <Edit2 size={13} strokeWidth={2} />
+                  <span>Rename</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="session-sidebar__dropdown-item"
+                  role="menuitem"
+                  aria-label={isPinned ? 'Unpin conversation' : 'Pin conversation'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleTogglePin(s);
+                  }}
+                >
+                  <Pin size={13} strokeWidth={2} />
+                  <span>{isPinned ? 'Unpin' : 'Pin to top'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="session-sidebar__dropdown-item session-sidebar__dropdown-item--archive"
+                  role="menuitem"
+                  aria-label="Archive conversation"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleToggleArchive(s);
+                  }}
+                >
+                  <Archive size={13} strokeWidth={2} />
+                  <span>Archive</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="session-sidebar__dropdown-item session-sidebar__dropdown-item--share"
+                  role="menuitem"
+                  aria-label="Share conversation"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleShare(s);
+                  }}
+                >
+                  <Share2 size={13} strokeWidth={2} />
+                  <span>{copyShareToast === s.id ? 'Copied link!' : 'Share'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="session-sidebar__dropdown-item session-sidebar__dropdown-item--delete"
+                  role="menuitem"
+                  aria-label="Delete conversation"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActiveMenuId(null);
+                    if (window.confirm('Delete this conversation permanently?')) {
+                      try {
+                        await remove(s.id);
+                      } catch {
+                        alert('Delete failed. Please retry.');
+                      }
+                    }
+                  }}
+                >
+                  <Trash2 size={13} strokeWidth={2} />
+                  <span>Delete</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </li>
+    );
+  };
 
   // Handle New Chat trigger
   const handleNewChatAction = () => {
@@ -1015,22 +1305,20 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             )}
           </div>
         </div>
-      )}
-
-      {/* 3. Conversation Area: RECENT CHATS (Dedicated Independent Scroll Container) */}
+      )}      {/* 3. Conversation Area: RECENT & PINNED CHATS (Dedicated Independent Scroll Container) */}
       <div className="session-sidebar__chats-section">
-        <div className="session-sidebar__chats-header">
-          <span className="session-sidebar__chats-title">
-            {searchQuery ? 'Search Results' : 'Recent Chats'}
-          </span>
-          {filteredSessions.length > 0 && (
-            <span className="session-sidebar__chats-count">
-              {filteredSessions.length}
-            </span>
-          )}
-        </div>
+        {searchQuery ? (
+          <div className="session-sidebar__chats-header">
+            <span className="session-sidebar__chats-title">Search Results</span>
+            {filteredSessions.length > 0 && (
+              <span className="session-sidebar__chats-count">
+                {filteredSessions.length}
+              </span>
+            )}
+          </div>
+        ) : null}
 
-        {/* History List / Date Grouping */}
+        {/* History List / Date Grouping / Pinned Section */}
         <div className="session-sidebar__scroll-area">
           {loading && (
             <div className="session-sidebar__status-box">
@@ -1045,156 +1333,82 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             </div>
           )}
 
-          {groupedSessions.map(({ label, items }) => (
-            <div key={label} className="session-sidebar__date-group">
-              <span className="session-sidebar__date-label">{label}</span>
-              <ul className="session-sidebar__list">
-                {items.map((s) => {
-                  const isActive = s.id === activeSessionId;
-                  const isRenaming = renamingId === s.id;
-                  const isPinned = isSessionPinned(s.id);
-                  const isTask = s.session_type === 'task' || s.title?.startsWith('[Task]');
+          {/* If Search Query Active: Render Search Results List */}
+          {searchQuery.trim() ? (
+            <ul className="session-sidebar__list">
+              {filteredSessions.map((s) => renderSessionItem(s))}
+            </ul>
+          ) : (
+            <>
+              {/* PINNED SECTION (renders above Recent when pinned items exist) */}
+              {pinnedSessions.length > 0 && (
+                <div className="session-sidebar__pinned-section">
+                  <button
+                    type="button"
+                    className="session-sidebar__section-toggle"
+                    onClick={togglePinnedCollapsed}
+                    aria-expanded={!pinnedCollapsed}
+                    aria-label="Toggle pinned conversations"
+                  >
+                    <div className="session-sidebar__section-toggle-left">
+                      <Pin size={11} className="session-sidebar__section-pin-icon" />
+                      <span className="session-sidebar__section-title">PINNED</span>
+                      <span className="session-sidebar__section-count">{pinnedSessions.length}</span>
+                    </div>
+                    {pinnedCollapsed ? (
+                      <ChevronRight size={13} className="session-sidebar__section-chevron" />
+                    ) : (
+                      <ChevronDown size={13} className="session-sidebar__section-chevron" />
+                    )}
+                  </button>
 
-                  return (
-                    <li
-                      key={s.id}
-                      className={`session-sidebar__item ${isActive ? 'session-sidebar__item--active' : ''}`}
-                    >
-                      {isRenaming ? (
-                        <form
-                          className="session-sidebar__rename-form"
-                          onSubmit={async (e) => {
-                            e.preventDefault();
-                            if (renameValue.trim() && renameValue.trim() !== s.title) {
-                              await rename(s.id, renameValue.trim());
-                            }
-                            setRenamingId(null);
-                          }}
-                        >
-                          <input
-                            autoFocus
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Escape') {
-                                e.stopPropagation();
-                                setRenamingId(null);
-                              }
-                            }}
-                            onBlur={async () => {
-                              if (renameValue.trim() && renameValue.trim() !== s.title) {
-                                await rename(s.id, renameValue.trim());
-                              }
-                              setRenamingId(null);
-                            }}
-                            className="session-sidebar__rename-input"
-                            aria-label="Rename conversation"
-                          />
-                        </form>
-                      ) : (
-                        <button
-                          type="button"
-                          className="session-sidebar__session-btn"
-                          onClick={() => onSelect(s)}
-                          title={s.title || 'Untitled conversation'}
-                          aria-label={s.title || 'Untitled conversation'}
-                        >
-                          <span className="session-sidebar__session-title">
-                            {isPinned && (
-                              <span className="session-sidebar__item-icon-wrap" title="Pinned conversation">
-                                <Pin size={11} className="session-sidebar__pin-indicator" />
-                              </span>
-                            )}
-                            {isTask && (
-                              <span className="session-sidebar__item-icon-wrap" title="Task session">
-                                <Zap size={11} className="session-sidebar__task-indicator" />
-                              </span>
-                            )}
-                            <span className="session-sidebar__session-title-text">
-                              {s.title || 'Untitled conversation'}
-                            </span>
-                          </span>
-                        </button>
-                      )}
+                  {!pinnedCollapsed && (
+                    <ul className="session-sidebar__list">
+                      {pinnedSessions.map((s) => renderSessionItem(s, true))}
+                    </ul>
+                  )}
 
-                      {/* Context Menu Trigger */}
-                      {!isRenaming && (
-                        <div className="session-sidebar__menu-container">
-                          <button
-                            type="button"
-                            className={`session-sidebar__item-menu-btn ${activeMenuId === s.id ? 'session-sidebar__item-menu-btn--active' : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              const spaceBelow = window.innerHeight - rect.bottom;
-                              setMenuPlacement(spaceBelow < 145 ? 'up' : 'down');
-                              setActiveMenuId((prev) => (prev === s.id ? null : s.id));
-                            }}
-                            aria-label="Conversation options"
-                            aria-expanded={activeMenuId === s.id}
-                          >
-                            <MoreHorizontal size={14} />
-                          </button>
+                  <div className="session-sidebar__section-divider" />
+                </div>
+              )}
 
-                          {activeMenuId === s.id && (
-                            <div
-                              ref={menuRef}
-                              className={`session-sidebar__dropdown session-sidebar__dropdown--${menuPlacement}`}
-                              role="menu"
-                            >
-                              <button
-                                type="button"
-                                className="session-sidebar__dropdown-item"
-                                role="menuitem"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveMenuId(null);
-                                  setRenamingId(s.id);
-                                  setRenameValue(s.title || '');
-                                }}
-                              >
-                                <Edit2 size={13} strokeWidth={2} />
-                                <span>Rename</span>
-                              </button>
+              {/* RECENT SECTION (collapsible, with date groupings) */}
+              <div className="session-sidebar__recent-section">
+                <button
+                  type="button"
+                  className="session-sidebar__section-toggle"
+                  onClick={toggleRecentCollapsed}
+                  aria-expanded={!recentCollapsed}
+                  aria-label="Toggle recent conversations"
+                >
+                  <div className="session-sidebar__section-toggle-left">
+                    <span className="session-sidebar__section-title">RECENT</span>
+                    {recentSessions.length > 0 && (
+                      <span className="session-sidebar__section-count">{recentSessions.length}</span>
+                    )}
+                  </div>
+                  {recentCollapsed ? (
+                    <ChevronRight size={13} className="session-sidebar__section-chevron" />
+                  ) : (
+                    <ChevronDown size={13} className="session-sidebar__section-chevron" />
+                  )}
+                </button>
 
-                              <button
-                                type="button"
-                                className="session-sidebar__dropdown-item"
-                                role="menuitem"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  togglePin(s);
-                                }}
-                              >
-                                <Pin size={13} strokeWidth={2} />
-                                <span>{isPinned ? 'Unpin' : 'Pin to top'}</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                className="session-sidebar__dropdown-item session-sidebar__dropdown-item--delete"
-                                role="menuitem"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveMenuId(null);
-                                  if (window.confirm('Delete this conversation?')) {
-                                    void remove(s.id);
-                                  }
-                                }}
-                              >
-                                <Trash2 size={13} strokeWidth={2} />
-                                <span>Delete</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
+                {!recentCollapsed && (
+                  <>
+                    {groupedRecentSessions.map(({ label, items }) => (
+                      <div key={label} className="session-sidebar__date-group">
+                        <span className="session-sidebar__date-label">{label}</span>
+                        <ul className="session-sidebar__list">
+                          {items.map((s) => renderSessionItem(s, false))}
+                        </ul>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Empty State Requirements */}
           {!loading && filteredSessions.length === 0 && (

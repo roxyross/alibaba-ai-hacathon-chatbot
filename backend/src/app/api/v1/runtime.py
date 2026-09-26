@@ -11,6 +11,7 @@ Agent definitions live in .claude/agents/<slug>.md and are loaded at startup.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -2040,7 +2041,7 @@ async def runtime_chat(
 
     # Fast-path for pure greetings (<50ms) without invoking external LLMs
     from app.api.v1.greeting import get_warm_greeting, is_greeting
-    if not body.agent_override and is_greeting(body.message):
+    if is_greeting(body.message):
         warm_reply, _ = get_warm_greeting(body.message)
         if body.session_id:
             await _persist_runtime_interaction(
@@ -2121,7 +2122,7 @@ async def runtime_chat_stream(
 
     # Fast-path for pure greetings (<50ms) in streaming mode
     from app.api.v1.greeting import get_warm_greeting, is_greeting
-    if not body.agent_override and is_greeting(body.message):
+    if is_greeting(body.message):
         warm_reply, _ = get_warm_greeting(body.message)
 
         async def greeting_stream() -> AsyncGenerator[bytes, None]:
@@ -2145,8 +2146,10 @@ async def runtime_chat_stream(
                     "agent_slug": "greeting_assistant",
                 })
                 yield f"data: {data}\n\n".encode()
+                await asyncio.sleep(0.015)
             done_data = json.dumps({
                 "delta": "",
+                "response": warm_reply,
                 "provider": "local_fast_greeting",
                 "model": "greeting_assistant",
                 "done": True,
@@ -2154,12 +2157,13 @@ async def runtime_chat_stream(
             })
             yield f"data: {done_data}\n\n".encode()
             final_attr = json.dumps({
+                "event": "attribution",
                 "done": True,
                 "provider": "local_fast_greeting",
                 "model": "greeting_assistant",
                 "agent_slug": "greeting_assistant",
             })
-            yield f"event: attribution\ndata: {final_attr}\n\n".encode()
+            yield f"data: {final_attr}\n\n".encode()
 
         return StreamingResponse(
             greeting_stream(),

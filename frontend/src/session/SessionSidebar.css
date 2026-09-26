@@ -547,6 +547,87 @@
   gap: 0.12rem;
 }
 
+/* Collapsible Section Toggles (PINNED & RECENT) */
+.session-sidebar__section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--sidebar-muted);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.session-sidebar__section-toggle:hover {
+  background: var(--sidebar-input-bg);
+  color: var(--sidebar-text);
+}
+
+.session-sidebar__section-toggle:focus-visible {
+  outline: 2px solid var(--sidebar-accent);
+  outline-offset: -1px;
+}
+
+.session-sidebar__section-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.session-sidebar__section-pin-icon {
+  color: var(--sidebar-accent);
+  transform: rotate(45deg);
+}
+
+.session-sidebar__section-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: inherit;
+}
+
+.session-sidebar__section-count {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.05rem 0.35rem;
+  border-radius: 9999px;
+  background: var(--sidebar-input-bg);
+  color: var(--sidebar-muted);
+}
+
+.session-sidebar__section-chevron {
+  color: var(--sidebar-muted);
+  transition: transform 0.15s ease;
+}
+
+.session-sidebar__section-divider {
+  height: 1px;
+  background: var(--sidebar-border);
+  margin: 0.4rem 0.25rem;
+  opacity: 0.7;
+}
+
+.session-sidebar__pinned-section,
+.session-sidebar__recent-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.session-sidebar__dropdown-item--archive:hover {
+  color: #d97706 !important;
+}
+
+.session-sidebar__dropdown-item--share:hover {
+  color: #2563eb !important;
+}
+
 .session-sidebar__date-label {
   padding: 0.4rem 0.55rem 0.2rem;
   font-size: 0.66rem;

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth.dependencies import get_current_user
@@ -33,3 +35,17 @@ async def list_messages(
         session_id=session_id,
         has_more=len(msgs) == limit,
     )
+
+
+@router.delete("/{session_id}/messages/{message_id}")
+async def delete_single_message(
+    session_id: str,
+    message_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Delete a single message in the current user's session."""
+    session = await _sessions.get(session_id, current_user.id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    ok = await _messages.delete_message(message_id, session_id)
+    return {"deleted": ok, "message_id": message_id}

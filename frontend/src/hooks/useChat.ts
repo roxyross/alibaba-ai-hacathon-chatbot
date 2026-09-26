@@ -169,15 +169,28 @@ export function useChat(options: UseChatOptions = {}) {
                 }
 
                 if (parsed.done) {
-                  setState((prev) => ({
-                    ...prev,
-                    isStreaming: false,
-                    attribution: {
-                      agentSlug: parsed.agent_slug ?? agentSlug,
-                      provider: parsed.provider ?? provider,
-                      model: parsed.model ?? model,
-                    },
-                  }));
+                  const finalContent = parsed.response || parsed.content || parsed.text || accumulated;
+                  setState((prev) => {
+                    const msgs = [...prev.messages];
+                    const last = msgs[msgs.length - 1];
+                    if (last?.role === 'assistant') {
+                      if (finalContent) {
+                        msgs[msgs.length - 1] = { role: 'assistant', content: finalContent };
+                      }
+                    } else if (finalContent) {
+                      msgs.push({ role: 'assistant', content: finalContent });
+                    }
+                    return {
+                      ...prev,
+                      messages: msgs,
+                      isStreaming: false,
+                      attribution: {
+                        agentSlug: parsed.agent_slug ?? agentSlug,
+                        provider: parsed.provider ?? provider,
+                        model: parsed.model ?? model,
+                      },
+                    };
+                  });
                   accumulated = '';
                   continue;
                 }

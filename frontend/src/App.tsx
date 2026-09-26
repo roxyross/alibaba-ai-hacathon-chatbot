@@ -3,7 +3,7 @@ import { AuthProvider, AuthGate, useAuth } from './auth';
 import { ChatWindow } from './components/ChatWindow';
 import { SessionSidebar, type AppView } from './session';
 import { useSessions, type ChatSession, type CreateSessionInput } from './session';
-import { useSessionMessages, type ChatMessageRecord } from './chat_history';
+import { useSessionMessages } from './chat_history';
 import { type ModelSelection } from './model_provider';
 import { useChat } from './hooks/useChat';
 import {
@@ -89,6 +89,8 @@ export function ChatScreen() {
     refresh: refreshSessions,
     create: createSession,
     rename: renameSession,
+    togglePin: togglePinSession,
+    toggleArchive: toggleArchiveSession,
     remove: removeSession,
   } = useSessions();
 
@@ -228,7 +230,7 @@ export function ChatScreen() {
     model: modelSelection?.model,
     sessionId: activeSession?.id ?? undefined,
     accessToken,
-    agentOverride: mode === 'task' ? 'code_generation' : undefined,
+    agentOverride: mode === 'task' ? 'coding' : undefined,
     streaming: true,
   });
 
@@ -391,22 +393,104 @@ export function ChatScreen() {
     [activeSession, modelSelection, createSession, chat, history, mode, accessToken, user, openAuth, refreshSessions],
   );
 
-  // The messages the chat window renders: persisted history + the in-flight
-  // streaming assistant message (if any). History is shown immediately when
-  // switching sessions; live state is layered on top while streaming.
-  const renderedMessages = useMemo(() => {
-    if (activeSession) {
-      const historyMsgs = history.messages.map(toUiMessage);
-      if (chat.messages.length > 0) {
-        if (historyMsgs.length >= chat.messages.length) {
-          return historyMsgs;
-        }
-        return [...historyMsgs, ...chat.messages.slice(historyMsgs.length).map(toUiMessage)];
-      }
-      return historyMsgs;
+  // Message pinning persistent state (survives refresh and logout/login)
+  const [pinnedMessageIds, setPinnedMessageIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('roxy_pinned_message_ids');
+      return new Set(saved ? JSON.parse(saved) : []);
+    } catch {
+      return new Set();
     }
-    return chat.messages.map(toUiMessage);
-  }, [activeSession, history.messages, chat.messages]);
+  });
+
+  const handlePinMessage = useCallback((id: string, pinned: boolean) => {
+    setPinnedMessageIds((prev) => {
+      const next = new Set(prev);
+      if (pinned) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      try {
+        localStorage.setItem('roxy_pinned_message_ids', JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleDeleteMessage = useCallback(
+    async (id: string) => {
+      try {
+        await history.deleteMessage(id);
+      } catch {
+        chat.clearMessages();
+      }
+    },
+    [history, chat],
+  );
+
+  const handleShareSession = useCallback((session: ChatSession) => {
+    const url = `${window.location.origin}?session=${session.id}`;
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(url);
+      addToast('success', 'Conversation link copied to clipboard!');
+    }
+  }, [addToast]);
+
+  // The messages the chat window renders: combines persisted history + in-flight
+  // streaming message. When streaming or before DB refresh, live turns are rendered
+  // immediately so responses never vanish.
+  const renderedMessages = useMemo(() => {
+    const toUi = (m: { role: 'user' | 'assistant' | 'system'; content: string; id?: string }) => ({
+      id: m.id,
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+      isPinned: m.id ? pinnedMessageIds.has(m.id) : false,
+    });
+
+    if (!activeSession) {
+      return chat.messages.map(toUi);
+    }
+
+    const historyUi = history.messages.map(toUi);
+
+    if (chat.messages.length === 0) {
+      return historyUi;
+    }
+
+    // Check if the chat.messages turn is already in history
+    if (chat.isStreaming) {
+      // Find in-flight streaming assistant message
+      const liveUser = chat.messages.find((m) => m.role === 'user');
+      const liveAssistant = [...chat.messages].reverse().find((m) => m.role === 'assistant');
+
+      const historyHasUser = liveUser && historyUi.some(
+        (hm) => (hm.id && (liveUser as any)?.id && hm.id === (liveUser as any).id) ||
+                (hm.role === 'user' && hm.content === liveUser.content)
+      );
+
+      if (historyHasUser && liveAssistant) {
+        return [...historyUi, toUi(liveAssistant)];
+      }
+      return [...historyUi, ...chat.messages.map(toUi)];
+    }
+
+    // Not streaming: check if any chat.messages are not yet persisted in historyUi
+    const unpersisted: typeof chat.messages = [];
+    for (const m of chat.messages) {
+      const exists = historyUi.some(
+        (hm) => (hm.id && (m as any)?.id && hm.id === (m as any).id) ||
+                (hm.role === m.role && hm.content === m.content && hm.content.length > 0)
+      );
+      if (!exists) {
+        unpersisted.push(m);
+      }
+    }
+
+    return unpersisted.length > 0
+      ? [...historyUi, ...unpersisted.map(toUi)]
+      : historyUi;
+  }, [activeSession, history.messages, chat.messages, chat.isStreaming, pinnedMessageIds]);
 
   return (
     <div className={`app${sidebarOpen ? ' app--sidebar-open' : ''}`}>
@@ -440,6 +524,9 @@ export function ChatScreen() {
         error={sessionsError}
         onRename={renameSession}
         onRemove={handleDeleteSession}
+        onTogglePin={(id, pinned) => togglePinSession(id, pinned)}
+        onToggleArchive={(id, archived) => toggleArchiveSession(id, archived)}
+        onShare={handleShareSession}
         onModeChange={handleModeChange}
         onSelect={(s) => { handleSelectSession(s); setSidebarOpen(false); }}
         onNewChat={() => { handleNewChat(); setSidebarOpen(false); }}
@@ -829,6 +916,8 @@ export function ChatScreen() {
               nextActions={chat.nextActions}
               onSend={handleSend}
               onStop={chat.abort}
+              onPinMessage={handlePinMessage}
+              onDeleteMessage={handleDeleteMessage}
               modelSelection={modelSelection}
               onModelChange={setModelSelection}
               onVoiceClick={() => {
@@ -905,11 +994,6 @@ export function ChatScreen() {
   );
 }
 
-function toUiMessage(
-  m: { role: 'user' | 'assistant'; content: string } | ChatMessageRecord,
-) {
-  return { role: m.role as 'user' | 'assistant', content: m.content };
-}
 
 export function App() {
   return (
