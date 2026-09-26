@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import AsyncIterator
+
 import httpx
 import pytest
 
@@ -25,12 +27,12 @@ from app.main import app
 
 
 @pytest.fixture
-def anyio_backend():
+def anyio_backend() -> str:
     return "asyncio"
 
 
 @pytest.fixture
-async def client():
+async def client() -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
@@ -47,7 +49,7 @@ async def get_auth_headers(client: httpx.AsyncClient, email: str) -> dict[str, s
 class TestHelloAndGreetingStreaming:
     """Verifies that greeting messages ('Hello', 'hi', 'salam') stream immediately without delay."""
 
-    async def test_hello_stream_in_chat_mode(self, client: httpx.AsyncClient):
+    async def test_hello_stream_in_chat_mode(self, client: httpx.AsyncClient) -> None:
         """TEST 1: Sending 'Hello' returns immediate streaming response with done: True."""
         res = await client.post(
             "/api/v1/runtime/chat/stream",
@@ -59,7 +61,7 @@ class TestHelloAndGreetingStreaming:
         assert "ROXY AI" in text or "assist" in text
         assert '"done": true' in text.lower()
 
-    async def test_hello_stream_in_new_task_mode(self, client: httpx.AsyncClient):
+    async def test_hello_stream_in_new_task_mode(self, client: httpx.AsyncClient) -> None:
         """TEST 2: Sending 'Hello' in Task mode (agent_override='coding') also returns immediate greeting."""
         res = await client.post(
             "/api/v1/runtime/chat/stream",
@@ -76,7 +78,7 @@ class TestHelloAndGreetingStreaming:
         assert "ROXY AI" in text or "assist" in text
         assert '"done": true' in text.lower()
 
-    async def test_salam_greeting_streaming(self, client: httpx.AsyncClient):
+    async def test_salam_greeting_streaming(self, client: httpx.AsyncClient) -> None:
         """Greeting in Urdu/Arabic returns warm cultural response immediately."""
         res = await client.post(
             "/api/v1/runtime/chat/stream",
@@ -93,7 +95,7 @@ class TestSessionConversationActions:
 
     async def test_session_lifecycle_pin_archive_rename_delete(
         self, client: httpx.AsyncClient
-    ):
+    ) -> None:
         user_headers = await get_auth_headers(client, "user_lifecycle@roxy.ai")
 
         # 1. Create a session
@@ -172,7 +174,7 @@ class TestMessageActionsAndSecurity:
 
     async def test_message_deletion_and_isolation(
         self, client: httpx.AsyncClient
-    ):
+    ) -> None:
         user_a_headers = await get_auth_headers(client, "user_msg_a@roxy.ai")
         user_b_headers = await get_auth_headers(client, "user_msg_b@roxy.ai")
 

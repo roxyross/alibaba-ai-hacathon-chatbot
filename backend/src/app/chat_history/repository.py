@@ -168,7 +168,7 @@ class ChatMessageRepository:
         factory = get_session_factory()
         if factory is not None:
             async with factory() as session:
-                from sqlalchemy import delete
+                from sqlalchemy import CursorResult, delete
                 result = await session.execute(
                     delete(ChatMessage).where(
                         ChatMessage.id == message_id,
@@ -176,7 +176,9 @@ class ChatMessageRepository:
                     )
                 )
                 await session.commit()
-                return bool(result.rowcount and result.rowcount > 0)
+                if isinstance(result, CursorResult):
+                    return bool(result.rowcount and result.rowcount > 0)
+                return True
         return True
 
     async def search_messages(
