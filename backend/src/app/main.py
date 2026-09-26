@@ -112,8 +112,18 @@ app.include_router(audit_router, prefix="/api/v1")
 app.include_router(media_router, prefix="/api/v1")
 
 _static_dir = Path(__file__).resolve().parents[2] / "static"
-_static_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+try:
+    _static_dir.mkdir(parents=True, exist_ok=True)
+except OSError:
+    import tempfile
+    _static_dir = Path(tempfile.gettempdir()) / "roxy_static"
+    try:
+        _static_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+if _static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 @app.on_event("startup")

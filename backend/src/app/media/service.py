@@ -8,6 +8,7 @@ import hashlib
 import logging
 import os
 import re
+import tempfile
 import urllib.parse
 import uuid
 from datetime import datetime, timezone
@@ -33,12 +34,26 @@ from app.models.subscription import CreditWallet, UsageLog
 
 logger = logging.getLogger(__name__)
 
-MEDIA_STORAGE_DIR = os.path.join(os.getcwd(), "static", "media")
+if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    MEDIA_STORAGE_DIR = os.path.join(tempfile.gettempdir(), "static", "media")
+else:
+    MEDIA_STORAGE_DIR = os.path.join(os.getcwd(), "static", "media")
+
 GENERATED_DIR = os.path.join(MEDIA_STORAGE_DIR, "generated")
 UPLOADS_DIR = os.path.join(MEDIA_STORAGE_DIR, "uploads")
 
-os.makedirs(GENERATED_DIR, exist_ok=True)
-os.makedirs(UPLOADS_DIR, exist_ok=True)
+try:
+    os.makedirs(GENERATED_DIR, exist_ok=True)
+    os.makedirs(UPLOADS_DIR, exist_ok=True)
+except OSError:
+    MEDIA_STORAGE_DIR = os.path.join(tempfile.gettempdir(), "roxy_media")
+    GENERATED_DIR = os.path.join(MEDIA_STORAGE_DIR, "generated")
+    UPLOADS_DIR = os.path.join(MEDIA_STORAGE_DIR, "uploads")
+    try:
+        os.makedirs(GENERATED_DIR, exist_ok=True)
+        os.makedirs(UPLOADS_DIR, exist_ok=True)
+    except OSError:
+        logger.warning("Could not create media storage directories in read-only environment")
 
 # In-memory storage fallback for test and local dev environments without DB connection
 _MEM_JOBS: dict[str, dict[str, Any]] = {}

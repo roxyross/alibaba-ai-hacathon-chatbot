@@ -17,4 +17,8 @@ __pycache__
 .ruff_cache
 tests
 backend/tests
-
+recording.mp4
+*.mp4
+frontend/dist
+.qoder
+.specify
