@@ -31,6 +31,12 @@ interface ChatMessageProps {
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
+  const [wrapped, setWrapped] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const lines = React.useMemo(() => code.split('\n'), [code]);
+  const isLong = lines.length > 25;
+  const displayedCode = isLong && !isExpanded ? lines.slice(0, 25).join('\n') : code;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(code).then(() => {
@@ -39,22 +45,124 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
     });
   };
 
+  const handleOpenInEditor = () => {
+    const ext = (lang || '').toLowerCase();
+    let filename = 'script.py';
+    if (ext.includes('py')) filename = 'script.py';
+    else if (ext.includes('ts') || ext.includes('react')) filename = 'component.tsx';
+    else if (ext.includes('js')) filename = 'index.js';
+    else if (ext.includes('html')) filename = 'index.html';
+    else if (ext.includes('css')) filename = 'styles.css';
+    else if (ext.includes('json')) filename = 'data.json';
+    else if (ext.includes('sql')) filename = 'query.sql';
+    else if (ext) filename = `code.${ext}`;
+
+    window.dispatchEvent(
+      new CustomEvent('roxy-open-editor', {
+        detail: { code, language: lang || 'python', filename },
+      })
+    );
+  };
+
+  const handleRunInConsole = () => {
+    window.dispatchEvent(
+      new CustomEvent('roxy-run-terminal', {
+        detail: { code, language: lang || 'python' },
+      })
+    );
+  };
+
+  const handleDownload = () => {
+    const ext = (lang || 'txt').toLowerCase();
+    const cleanExt = ext.includes('py') ? 'py' : ext.includes('ts') ? 'ts' : ext.includes('js') ? 'js' : ext.includes('html') ? 'html' : ext.includes('css') ? 'css' : ext.includes('sql') ? 'sql' : 'txt';
+    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `roxy_code_${Date.now()}.${cleanExt}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="chat-message__code-block">
       <div className="chat-message__code-header">
-        <span className="chat-message__code-lang">{lang || 'code'}</span>
-        <button
-          type="button"
-          className="chat-message__code-copy"
-          onClick={handleCopy}
-          aria-label="Copy code"
-        >
-          {copied ? '✓ Copied' : 'Copy'}
-        </button>
+        <div className="chat-message__code-header-left">
+          <span className="chat-message__code-lang">{lang || 'code'}</span>
+          <span className="chat-message__code-lines-count">{lines.length} lines</span>
+        </div>
+        <div className="chat-message__code-header-right">
+          <button
+            type="button"
+            className="chat-message__code-action-btn chat-message__code-action-btn--run"
+            onClick={handleRunInConsole}
+            title="Execute code in Developer Terminal"
+            aria-label="Run in Terminal"
+          >
+            ▶ Run
+          </button>
+          <button
+            type="button"
+            className="chat-message__code-action-btn"
+            onClick={handleOpenInEditor}
+            title="Open in Developer Workspace Editor"
+            aria-label="Open in Editor"
+          >
+            Open in Editor
+          </button>
+          <button
+            type="button"
+            className="chat-message__code-action-btn"
+            onClick={() => setWrapped((w) => !w)}
+            title="Toggle word wrap"
+            aria-label="Toggle word wrap"
+          >
+            {wrapped ? 'Unwrap' : 'Wrap'}
+          </button>
+          <button
+            type="button"
+            className="chat-message__code-action-btn"
+            onClick={handleDownload}
+            title="Download code file"
+            aria-label="Download code"
+          >
+            ↓ Save
+          </button>
+          <button
+            type="button"
+            className="chat-message__code-copy"
+            onClick={handleCopy}
+            aria-label="Copy code"
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+        </div>
       </div>
-      <pre className="chat-message__code-pre">
-        <code>{code}</code>
-      </pre>
+      <div className={`chat-message__code-body ${wrapped ? 'chat-message__code-body--wrapped' : ''}`}>
+        <div className="chat-message__code-gutter" aria-hidden="true">
+          {displayedCode.split('\n').map((_, i) => (
+            <div key={i} className="chat-message__code-gutter-num">
+              {i + 1}
+            </div>
+          ))}
+        </div>
+        <pre className="chat-message__code-pre">
+          <code>{displayedCode}</code>
+        </pre>
+      </div>
+      {isLong && (
+        <div className="chat-message__code-footer">
+          <button
+            type="button"
+            className="chat-message__code-expand-btn"
+            onClick={() => setIsExpanded((e) => !e)}
+          >
+            {isExpanded ? '▲ Collapse Code' : `▼ Show all ${lines.length} lines`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -525,6 +525,16 @@ export function ChatScreen() {
               ROXY <span>AI</span>
             </h1>
 
+            {mode === 'task' && (
+              <div className="app__task-title-badge" title="Active Developer Task">
+                <span className="app__task-title-dot" />
+                <span className="app__task-title-text">
+                  {activeSession?.title ? activeSession.title.replace(/^\[Task\]\s*/, '') : 'New Task'}
+                </span>
+                <span className="app__task-branch-pill">main</span>
+              </div>
+            )}
+
             {/* Prominent Search button in top bar */}
             <button
               type="button"
@@ -837,6 +847,9 @@ export function ChatScreen() {
               }}
               disabledNoModel={!modelSelection}
               mode={mode}
+              accessToken={accessToken}
+              activeSessionId={activeSession?.id ?? null}
+              taskTitle={activeSession?.title ? activeSession.title.replace(/^\[Task\]\s*/, '') : undefined}
               onNavigateView={setActiveView}
               onClearConversation={handleNewChat}
             />

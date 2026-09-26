@@ -241,21 +241,23 @@
    ========================================================================== */
 .session-sidebar__primary-action {
   display: flex;
+  align-items: center;
+  gap: 0.4rem;
   width: 100%;
 }
 
 .session-sidebar__new-chat-btn {
+  flex: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.52rem 0.85rem;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
   background: var(--sidebar-accent);
   color: #ffffff;
   border: 1px solid transparent;
   border-radius: 8px;
-  font-size: 0.825rem;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(13, 148, 136, 0.2), 0 1px 2px rgba(13, 148, 136, 0.1);
@@ -271,7 +273,6 @@
 
 .session-sidebar__new-chat-btn:active {
   transform: translateY(0) scale(0.985);
-  box-shadow: 0 1px 2px rgba(13, 148, 136, 0.2);
 }
 
 .session-sidebar__new-chat-btn:focus-visible {
@@ -279,10 +280,48 @@
   outline-offset: 2px;
 }
 
-.session-sidebar__new-chat-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  pointer-events: none;
+.session-sidebar__new-task-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--sidebar-input-bg);
+  color: var(--sidebar-text);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.session-sidebar__new-task-btn:hover {
+  background: rgba(13, 148, 136, 0.1);
+  color: var(--sidebar-accent);
+  border-color: rgba(13, 148, 136, 0.3);
+  transform: translateY(-1px);
+}
+
+.session-sidebar__new-task-btn--active {
+  background: var(--sidebar-accent);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 1px 3px rgba(13, 148, 136, 0.25);
+}
+
+[data-theme="dark"] .session-sidebar__new-task-btn {
+  background: #212c2c;
+  border-color: #2c3a3a;
+  color: #e2e8e7;
+}
+
+[data-theme="dark"] .session-sidebar__new-task-btn--active {
+  background: #14b8a6;
+  color: #ffffff;
+  border-color: transparent;
 }
 
 /* Refined Segmented Control: Chat / Task Switcher */

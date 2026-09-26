@@ -422,12 +422,25 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             {/* Primary navigation icons */}
             <button
               type="button"
-              className={`session-sidebar__rail-btn ${activeView === 'chat' ? 'session-sidebar__rail-btn--active' : ''}`}
-              onClick={() => onViewChange('chat')}
+              className={`session-sidebar__rail-btn ${activeView === 'chat' && mode === 'chat' ? 'session-sidebar__rail-btn--active' : ''}`}
+              onClick={() => {
+                onModeChange?.('chat');
+                onViewChange('chat');
+              }}
               aria-label="Chat"
               data-tooltip="Chat"
             >
               <MessageSquare size={17} strokeWidth={1.8} />
+            </button>
+
+            <button
+              type="button"
+              className={`session-sidebar__rail-btn ${activeView === 'chat' && mode === 'task' ? 'session-sidebar__rail-btn--active session-sidebar__rail-btn--accent-active' : ''}`}
+              onClick={handleNewTaskAction}
+              aria-label="New Task"
+              data-tooltip="New Task"
+            >
+              <Zap size={17} strokeWidth={1.8} />
             </button>
 
             <button
@@ -711,16 +724,27 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
           )}
         </div>
 
-        {/* 2. Primary Action: Prominent New Chat Button */}
+        {/* 2. Primary Actions: New Chat & New Task */}
         <div className="session-sidebar__primary-action">
           <button
             type="button"
-            className="session-sidebar__new-chat-btn"
+            className={`session-sidebar__new-chat-btn ${mode === 'chat' ? 'session-sidebar__new-chat-btn--primary' : ''}`}
             onClick={handleNewChatAction}
             aria-label="New Chat"
+            title="Start a new conversation"
           >
-            <Plus size={16} strokeWidth={2.4} />
+            <Plus size={15} strokeWidth={2.4} />
             <span>New Chat</span>
+          </button>
+          <button
+            type="button"
+            className={`session-sidebar__new-task-btn ${mode === 'task' ? 'session-sidebar__new-task-btn--active' : ''}`}
+            onClick={handleNewTaskAction}
+            aria-label="New Task"
+            title="Start a new task & coding project"
+          >
+            <Zap size={14} strokeWidth={2.2} />
+            <span>New Task</span>
           </button>
         </div>
 
@@ -799,11 +823,22 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
           <div className="session-sidebar__nav-list" aria-label="Primary Navigation">
             <button
               type="button"
-              className={`session-sidebar__nav-link ${activeView === 'chat' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('chat')}
+              className={`session-sidebar__nav-link ${activeView === 'chat' && mode === 'chat' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => {
+                onModeChange?.('chat');
+                onViewChange('chat');
+              }}
             >
               <MessageSquare size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
               <span className="session-sidebar__nav-text">Chat</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'chat' && mode === 'task' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={handleNewTaskAction}
+            >
+              <Zap size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">New Task</span>
             </button>
             <button
               type="button"
