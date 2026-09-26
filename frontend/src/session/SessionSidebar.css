@@ -385,106 +385,24 @@
 }
 
 /* ==========================================================================
-   3. Recent Chats Header
+   3. Recent Chats Section (Dedicated Independent Scroll Container)
    ========================================================================== */
 .session-sidebar__chats-section {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.session-sidebar__chats-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.65rem 0.85rem 0.35rem;
-  flex-shrink: 0;
-}
-
-.session-sidebar__chats-title {
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--sidebar-muted);
-}
-
-.session-sidebar__chats-count {
-  font-size: 0.65rem;
-  font-weight: 700;
-  padding: 0.08rem 0.42rem;
-  border-radius: 10px;
-  background: var(--sidebar-input-bg);
-  color: var(--sidebar-muted);
-}
-
-.session-sidebar__quick-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.session-sidebar__action-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: var(--sidebar-input-bg);
-  color: var(--sidebar-text);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  position: relative;
-}
-
-.session-sidebar__action-icon-btn:hover {
-  background: var(--sidebar-bg);
-  border-color: var(--sidebar-accent);
-  color: var(--sidebar-accent);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
-}
-
-.session-sidebar__action-icon-btn:active {
-  transform: scale(0.95);
-}
-
-.session-sidebar__action-icon-btn:focus-visible {
-  outline: 2px solid var(--sidebar-accent);
-  outline-offset: 1px;
-}
-
-.session-sidebar__action-icon-btn--task {
-  color: var(--sidebar-muted);
-}
-
-.session-sidebar__action-icon-btn--task:hover {
-  color: #d97706;
-  border-color: rgba(217, 119, 6, 0.3);
-  background: rgba(245, 158, 11, 0.08);
-}
-
-/* ==========================================================================
-   Recent Chats Section (Dedicated Independent Scroll Container)
-   ========================================================================== */
-.session-sidebar__chats-section {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border-top: 1px solid var(--sidebar-border);
+  background: var(--sidebar-bg);
+  position: relative;
 }
 
 .session-sidebar__chats-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.65rem 0.85rem 0.4rem;
+  padding: 0.55rem 0.85rem 0.35rem;
   flex-shrink: 0;
 }
 
@@ -509,14 +427,16 @@
    Date Grouping & Conversation List
    ========================================================================== */
 .session-sidebar__scroll-area {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 0.5rem 0.75rem;
+  padding: 0.35rem 0.5rem 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.55rem;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .session-sidebar__scroll-area::-webkit-scrollbar {
@@ -1016,14 +936,14 @@
 }
 
 /* ==========================================================================
-   4. Primary Navigation & Collapsible Tools Accordion
+   4. Primary Navigation & Collapsible Tools Section
    ========================================================================== */
 .session-sidebar__primary-nav {
-  padding: 0.4rem 0.65rem 0.45rem;
+  padding: 0.35rem 0.65rem 0.35rem;
   border-bottom: 1px solid var(--sidebar-border);
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.12rem;
   flex-shrink: 0;
   background: var(--sidebar-bg);
 }
@@ -1087,9 +1007,20 @@
   text-overflow: ellipsis;
 }
 
-/* Tools Collapsible Accordion */
+/* ==========================================================================
+   4.1 Tools Section (Independent Collapsible Container)
+   ========================================================================== */
+.session-sidebar__tools-section {
+  padding: 0.35rem 0.65rem 0.35rem;
+  border-bottom: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+}
+
 .session-sidebar__tools-accordion {
-  margin-top: 0.25rem;
   display: flex;
   flex-direction: column;
 }
@@ -1099,7 +1030,7 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 0.36rem 0.55rem;
+  padding: 0.38rem 0.55rem;
   border-radius: 6px;
   border: 1px solid transparent;
   background: var(--sidebar-input-bg);
@@ -1109,6 +1040,7 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.14s ease;
+  user-select: none;
 }
 
 .session-sidebar__tools-toggle:hover {
@@ -1181,15 +1113,19 @@
 }
 
 .session-sidebar__tools-drawer {
-  max-height: 190px;
+  max-height: min(200px, 28vh);
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0.25rem 0.2rem;
-  margin-top: 0.25rem;
+  margin-top: 0.2rem;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.02);
   border: 1px solid var(--sidebar-border);
   animation: tools-drawer-expand 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 1;
+  min-height: 48px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 [data-theme="dark"] .session-sidebar__tools-drawer {
@@ -1562,3 +1498,47 @@
     height: 32px;
   }
 }
+
+/* ==========================================================================
+   7. Height-Constrained Viewports (Laptops, Vertical Split-Screen, Short Windows)
+   ========================================================================== */
+@media (max-height: 720px) {
+  .session-sidebar__header {
+    padding: 0.55rem 0.75rem 0.45rem;
+    gap: 0.4rem;
+  }
+  .session-sidebar__primary-nav {
+    padding: 0.25rem 0.6rem;
+  }
+  .session-sidebar__nav-link {
+    padding: 0.3rem 0.5rem;
+  }
+  .session-sidebar__tools-section {
+    padding: 0.25rem 0.6rem;
+  }
+  .session-sidebar__tools-drawer {
+    max-height: min(140px, 20vh);
+  }
+}
+
+@media (max-height: 580px) {
+  .session-sidebar__header {
+    padding: 0.35rem 0.6rem 0.3rem;
+    gap: 0.3rem;
+  }
+  .session-sidebar__primary-action {
+    display: none; /* Mode switcher tabs provide chat/task switching */
+  }
+  .session-sidebar__primary-nav,
+  .session-sidebar__tools-section {
+    padding: 0.2rem 0.55rem;
+  }
+  .session-sidebar__nav-link {
+    padding: 0.25rem 0.45rem;
+    font-size: 0.775rem;
+  }
+  .session-sidebar__tools-drawer {
+    max-height: min(110px, 18vh);
+  }
+}
+
