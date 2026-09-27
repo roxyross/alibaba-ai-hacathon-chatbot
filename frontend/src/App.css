@@ -6,8 +6,8 @@
   --color-border: #e2e8e6;
   --color-text: #1e292b;
   --color-muted: #64748b;
-  --color-user-bg: #1e292b;
-  --color-user-fg: #ffffff;
+  --color-user-bg: #f1f5f4;
+  --color-user-fg: #1e292b;
   --color-assistant-bg: #ffffff;
   --color-assistant-fg: #1e292b;
   --color-accent: #0d9488;
@@ -22,8 +22,8 @@
   --color-border: #e2e8e6;
   --color-text: #1e292b;
   --color-muted: #64748b;
-  --color-user-bg: #1e292b;
-  --color-user-fg: #ffffff;
+  --color-user-bg: #f1f5f4;
+  --color-user-fg: #1e292b;
   --color-assistant-bg: #ffffff;
   --color-assistant-fg: #1e292b;
   --color-accent: #0d9488;
@@ -704,6 +704,8 @@ body {
 .chat-message--user .chat-message__bubble {
   background: var(--color-user-bg);
   color: var(--color-user-fg);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   border-bottom-right-radius: 0.25rem;
 }
 

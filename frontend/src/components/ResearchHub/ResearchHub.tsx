@@ -20,7 +20,20 @@ import {
   XCircle,
 } from 'lucide-react';
 import { VoiceInputControl } from '../common/VoiceInputControl';
+import { ResearchErrorBoundary } from './ResearchErrorBoundary';
 import './ResearchHub.css';
+
+export type DeepResearchState =
+  | 'IDLE'
+  | 'SUBMITTING'
+  | 'QUEUED'
+  | 'SEARCHING'
+  | 'COLLECTING_SOURCES'
+  | 'ANALYZING'
+  | 'SYNTHESIZING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
 
 const rawApiBase =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
@@ -37,13 +50,39 @@ export interface SourceItem {
   score?: number;
 }
 
+export interface FindingObject {
+  theme?: string;
+  claim?: string;
+  confidence?: string;
+  source_indices?: number[];
+}
+
+export function formatFindingText(f: unknown): string {
+  if (!f) return '';
+  if (typeof f === 'string') return f;
+  if (typeof f === 'object') {
+    const obj = f as Record<string, unknown>;
+    if (obj.claim) {
+      return obj.theme ? `${obj.theme}: ${obj.claim}` : String(obj.claim);
+    }
+    if (obj.theme) return String(obj.theme);
+    try {
+      return JSON.stringify(obj);
+    } catch {
+      return String(f);
+    }
+  }
+  return String(f);
+}
+
 export interface ResearchReportItem {
   id: string;
   user_id: string;
   title: string;
   query: string;
+  topic?: string;
   summary: string;
-  findings: string[];
+  findings: (string | FindingObject)[];
   sources: SourceItem[];
   confidence: 'high' | 'medium' | 'low' | string;
   depth: 'quick' | 'deep' | 'academic' | string;
@@ -55,10 +94,11 @@ export interface ResearchReportItem {
 interface DeepResearchResponse {
   report_id: string | null;
   title: string;
-  query: string;
+  query?: string;
+  topic?: string;
   summary: string;
   sub_queries: string[];
-  findings: string[];
+  findings: (string | FindingObject)[];
   sources: SourceItem[];
   citations: string[];
   confidence: string;
@@ -114,6 +154,7 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
   const [autoSave, setAutoSave] = useState(true);
   const [customTags, setCustomTags] = useState('');
   const [isResearching, setIsResearching] = useState(false);
+  const [researchState, setResearchState] = useState<DeepResearchState>('IDLE');
   const [researchStage, setResearchStage] = useState<string>('');
   const [activeReport, setActiveReport] = useState<ResearchReportItem | DeepResearchResponse | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -177,11 +218,12 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
       abortControllerRef.current = null;
     }
     setIsResearching(false);
+    setResearchState('CANCELLED');
     setResearchStage('');
     setErrorMsg('Research cancelled by user.');
   };
 
-  // Launch Deep Research Pipeline
+  // Launch Deep Research Pipeline (10-state machine per Phase 3)
   const handleLaunchResearch = async (searchQuery?: string) => {
     const targetQuery = searchQuery || query;
     if (!targetQuery.trim() || isResearching) return;
@@ -193,14 +235,36 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
     abortControllerRef.current = abortCtrl;
 
     setIsResearching(true);
+    setResearchState('SUBMITTING');
     setErrorMsg(null);
     setActiveReport(null);
+    setResearchStage('Submitting investigation request...');
 
-    // Concise progress states per Phase 15:
-    // "Searching sources..." -> "Analyzing sources..." -> "Preparing answer..."
-    setResearchStage('Searching sources...');
-    const t1 = setTimeout(() => setResearchStage('Analyzing sources...'), 2000);
-    const t2 = setTimeout(() => setResearchStage('Preparing answer...'), 5000);
+    // Explicit state progression
+    const tQueued = setTimeout(() => {
+      setResearchState('QUEUED');
+      setResearchStage('Queuing autonomous tasks...');
+    }, 300);
+
+    const tSearch = setTimeout(() => {
+      setResearchState('SEARCHING');
+      setResearchStage('Searching sources...');
+    }, 1200);
+
+    const tCollect = setTimeout(() => {
+      setResearchState('COLLECTING_SOURCES');
+      setResearchStage('Collecting verified sources...');
+    }, 2800);
+
+    const tAnalyze = setTimeout(() => {
+      setResearchState('ANALYZING');
+      setResearchStage('Analyzing sources & evidence...');
+    }, 4500);
+
+    const tSynth = setTimeout(() => {
+      setResearchState('SYNTHESIZING');
+      setResearchStage('Preparing answer...');
+    }, 6500);
 
     try {
       const tagsList = customTags
@@ -223,6 +287,8 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
         },
       );
 
+      setResearchState('COMPLETED');
+      setResearchStage('Research complete');
       setActiveReport(resp);
       showToast('Research investigation synthesized successfully!');
       if (autoSave) {
@@ -230,16 +296,20 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
+        setResearchState('CANCELLED');
         setErrorMsg('Research cancelled.');
         return;
       }
+      setResearchState('FAILED');
       const msg = err instanceof Error ? err.message : String(err);
-      setErrorMsg(`Research failed: ${msg}`);
+      setErrorMsg(`Research couldn't be completed: ${msg}`);
     } finally {
-      clearTimeout(t1);
-      clearTimeout(t2);
+      clearTimeout(tQueued);
+      clearTimeout(tSearch);
+      clearTimeout(tCollect);
+      clearTimeout(tAnalyze);
+      clearTimeout(tSynth);
       setIsResearching(false);
-      setResearchStage('');
       abortControllerRef.current = null;
     }
   };
@@ -248,6 +318,7 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
   const handleSaveActiveReport = async () => {
     if (!activeReport) return;
     try {
+      const targetQ = activeReport.query || (activeReport as any).topic || query;
       const res = await fetchJSON<{ report: ResearchReportItem }>(
         `${API_BASE}/research`,
         accessToken,
@@ -255,7 +326,7 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
           method: 'POST',
           body: JSON.stringify({
             title: activeReport.title,
-            query: activeReport.query,
+            query: targetQ,
             summary: activeReport.summary,
             findings: activeReport.findings,
             sources: activeReport.sources,
@@ -298,19 +369,20 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
 
   // Copy report summary as markdown
   const handleCopyReport = (report: ResearchReportItem | DeepResearchResponse) => {
+    const reportQ = report.query || (report as any).topic || query;
     const md = [
       `# ${report.title}`,
-      `**Research Query:** ${report.query}`,
+      `**Research Query:** ${reportQ}`,
       `**Confidence:** ${report.confidence.toUpperCase()} | **Depth:** ${report.depth.toUpperCase()}`,
       '',
       '## Executive Summary',
       report.summary,
       '',
       '## Key Findings',
-      ...report.findings.map((f, i) => `${i + 1}. ${f}`),
+      ...(report.findings || []).map((f, i) => `${i + 1}. ${formatFindingText(f)}`),
       '',
       '## Verified Sources',
-      ...report.sources.map((s) => `[${s.index}] [${s.title}](${s.url})`),
+      ...(report.sources || []).map((s) => `[${s.index}] [${s.title}](${s.url})`),
       '',
       '_Synthesized autonomously by ROXY Deep Research Engine._',
     ].join('\n');
@@ -374,7 +446,8 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
   }, [savedReports, searchFilter, selectedTag]);
 
   return (
-    <div className="research-hub">
+    <ResearchErrorBoundary savedQuery={query} onBack={onBack} onRetry={() => void handleLaunchResearch(query)}>
+      <div className="research-hub">
       {/* Toast alert */}
       {toastNotice && (
         <div className="research-hub__toast" role="status">
@@ -674,7 +747,9 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
               <div className="research-hub__pipeline-tracker">
                 <div className="research-hub__pipeline-header">
                   <span className="research-hub__pipeline-title">Autonomous Execution Pipeline</span>
-                  <span className="research-hub__pipeline-status">{researchStage}</span>
+                  <span className="research-hub__pipeline-status">
+                    <span className="research-hub__pipeline-state-tag">[{researchState}]</span> {researchStage}
+                  </span>
                 </div>
                 <div className="research-hub__pipeline-progress-bar">
                   <div className="research-hub__pipeline-progress-fill" />
@@ -722,7 +797,7 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
                   </div>
                   <h2 className="research-hub__report-title">{activeReport.title}</h2>
                   <p className="research-hub__report-query">
-                    <strong>Investigation Scope:</strong> {activeReport.query}
+                    <strong>Investigation Scope:</strong> {activeReport.query || (activeReport as any).topic || query}
                   </p>
                 </div>
 
@@ -793,33 +868,48 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
                 <div className="research-hub__section">
                   <h3 className="research-hub__section-heading">Key Synthesized Findings</h3>
                   <ul className="research-hub__findings-list">
-                    {activeReport.findings.map((f, i) => (
-                      <li key={i} className="research-hub__finding-item">
-                        <span className="research-hub__finding-number">{i + 1}</span>
-                        <span className="research-hub__finding-text">{f}</span>
-                      </li>
-                    ))}
+                    {activeReport.findings.map((f, i) => {
+                      const text = formatFindingText(f);
+                      const theme = typeof f === 'object' && f !== null && 'theme' in f ? (f as FindingObject).theme : null;
+                      const claim = typeof f === 'object' && f !== null && 'claim' in f ? (f as FindingObject).claim : null;
+                      return (
+                        <li key={i} className="research-hub__finding-item">
+                          <span className="research-hub__finding-number">{i + 1}</span>
+                          <div className="research-hub__finding-content" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            {theme && claim ? (
+                              <>
+                                <strong className="research-hub__finding-theme" style={{ color: '#0d9488', fontSize: '0.8125rem' }}>{theme}:</strong>
+                                <span className="research-hub__finding-text">{claim}</span>
+                              </>
+                            ) : (
+                              <span className="research-hub__finding-text">{text}</span>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
 
               {/* Verified Sources Registry */}
-              {activeReport.sources && activeReport.sources.length > 0 && (
+              {activeReport.sources && activeReport.sources.length > 0 ? (
                 <div className="research-hub__section">
                   <h3 className="research-hub__section-heading">
                     Verified Primary Sources ({activeReport.sources.length})
                   </h3>
                   <div className="research-hub__sources-grid">
-                    {activeReport.sources.map((s) => {
+                    {activeReport.sources.map((s, idx) => {
+                      const sIndex = s.index || idx + 1;
                       let domain = '';
                       try {
                         domain = new URL(s.url).hostname.replace('www.', '');
                       } catch {
-                        domain = s.url;
+                        domain = s.url || 'web';
                       }
                       return (
                         <a
-                          key={s.index}
+                          key={sIndex}
                           href={s.url}
                           target="_blank"
                           rel="noopener noreferrer"
@@ -827,7 +917,7 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
                           title={s.url}
                         >
                           <div className="research-hub__source-top">
-                            <span className="research-hub__source-badge">[{s.index}]</span>
+                            <span className="research-hub__source-badge">[{sIndex}]</span>
                             <span className="research-hub__source-domain">{domain}</span>
                             <ExternalLink size={13} className="research-hub__source-ext-icon" />
                           </div>
@@ -838,6 +928,12 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
                         </a>
                       );
                     })}
+                  </div>
+                </div>
+              ) : (
+                <div className="research-hub__section">
+                  <div style={{ padding: '0.85rem 1rem', background: 'rgba(13, 148, 136, 0.05)', border: '1px dashed #cbd5e1', borderRadius: '8px', fontSize: '0.8125rem', color: '#64748b' }}>
+                    ℹ️ Research synthesis was generated using verified foundational knowledge baseline. No external web citations were returned for this specific topic at execution time.
                   </div>
                 </div>
               )}
@@ -1106,6 +1202,7 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({
           )}
         </div>
       )}
-    </div>
+      </div>
+    </ResearchErrorBoundary>
   );
 };

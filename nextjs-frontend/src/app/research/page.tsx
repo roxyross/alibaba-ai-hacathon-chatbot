@@ -28,14 +28,32 @@ interface ResearchReportItem {
 interface DeepResearchResponse {
   report_id?: string | null;
   title: string;
-  query: string;
+  query?: string;
+  topic?: string;
   summary: string;
   sub_queries: string[];
-  findings: string[];
+  findings: any[];
   sources: SourceItem[];
   citations: string[];
   confidence: string;
   depth: string;
+}
+
+function formatFindingText(f: any): string {
+  if (!f) return '';
+  if (typeof f === 'string') return f;
+  if (typeof f === 'object') {
+    if (f.claim) {
+      return f.theme ? `${f.theme}: ${f.claim}` : String(f.claim);
+    }
+    if (f.theme) return String(f.theme);
+    try {
+      return JSON.stringify(f);
+    } catch {
+      return String(f);
+    }
+  }
+  return String(f);
 }
 
 interface WebFetchResponse {
@@ -233,7 +251,7 @@ export default function ResearchPage() {
       report.summary,
       "",
       "## Key Findings",
-      ...(report.findings || []).map((f) => `- ${f}`),
+      ...(report.findings || []).map((f) => `- ${formatFindingText(f)}`),
       "",
       "## Citations & Sources",
       ...(report.sources || []).map((s) => `[${s.index}] ${s.title}: ${s.url}`),
@@ -486,7 +504,7 @@ export default function ResearchPage() {
                       {activeReport.findings.map((f, i) => (
                         <li key={i} className="text-xs text-slate-700 flex items-start gap-2">
                           <span className="text-[#0d9488] font-bold">✓</span>
-                          <span className="leading-relaxed">{f}</span>
+                          <span className="leading-relaxed">{formatFindingText(f)}</span>
                         </li>
                       ))}
                     </ul>

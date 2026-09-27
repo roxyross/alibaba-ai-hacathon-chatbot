@@ -332,6 +332,12 @@ export function ChatScreen() {
   }, [accessToken, user, openAuth, chat, history, refreshSessions]);
 
   // After a turn completes in a brand-new session, adopt it
+  // Immediate optimistic turn state: ensures user message appears instantaneously
+  // upon submit (0ms), before createSession network round-trip, and remains visible
+  // throughout Thinking, Planning, Synthesizing, Streaming, and Final Persisted state.
+  const [optimisticTurn, setOptimisticTurn] = useState<{ id: string; role: 'user'; content: string } | null>(null);
+
+  // After a turn completes in a brand-new session, adopt it
   // as the active session so the sidebar highlights it.
   const handleSend = useCallback(
     async (text: string) => {
@@ -348,6 +354,10 @@ export function ChatScreen() {
         }
         localStorage.setItem(GUEST_PROMPT_KEY, String(count + 1));
       }
+
+      // 0ms Optimistic render: user prompt appears immediately before any network calls
+      const optId = `opt-user-${Date.now()}`;
+      setOptimisticTurn({ id: optId, role: 'user', content: text });
 
       // Detect greeting in any language and convert to warm personalized greeting
       const detected = detectGreetingMessage(text);
@@ -378,16 +388,23 @@ export function ChatScreen() {
           // If session creation fails, proceed with ephemeral chat
         }
       }
-      await chat.sendMessage(text, session?.id);
+
+      try {
+        await chat.sendMessage(text, session?.id);
+      } finally {
+        setOptimisticTurn(null);
+      }
+
       // Refresh history and sessions once the server has persisted the turn.
       if (session?.id) {
         window.setTimeout(() => {
           void history.reload();
           void refreshSessions();
-        }, 500);
+        }, 400);
         window.setTimeout(() => {
+          void history.reload();
           void refreshSessions();
-        }, 2500);
+        }, 2000);
       }
     },
     [activeSession, modelSelection, createSession, chat, history, mode, accessToken, user, openAuth, refreshSessions],
@@ -448,14 +465,22 @@ export function ChatScreen() {
       isPinned: m.id ? pinnedMessageIds.has(m.id) : false,
     });
 
+    const historyUi = activeSession ? history.messages.map(toUi) : [];
+    const chatUi = chat.messages.map(toUi);
+
+    // If optimistic turn is active and not yet present in chat.messages or history, display it immediately
+    const optList = optimisticTurn &&
+      !chatUi.some((m) => m.content === optimisticTurn.content) &&
+      !historyUi.some((m) => m.content === optimisticTurn.content)
+        ? [toUi(optimisticTurn)]
+        : [];
+
     if (!activeSession) {
-      return chat.messages.map(toUi);
+      return [...optList, ...chatUi];
     }
 
-    const historyUi = history.messages.map(toUi);
-
     if (chat.messages.length === 0) {
-      return historyUi;
+      return [...historyUi, ...optList];
     }
 
     // Check if the chat.messages turn is already in history
@@ -469,10 +494,10 @@ export function ChatScreen() {
                 (hm.role === 'user' && hm.content === liveUser.content)
       );
 
-      if (historyHasUser && liveAssistant) {
-        return [...historyUi, toUi(liveAssistant)];
+      if (historyHasUser) {
+        return liveAssistant ? [...historyUi, toUi(liveAssistant)] : historyUi;
       }
-      return [...historyUi, ...chat.messages.map(toUi)];
+      return [...historyUi, ...optList, ...chatUi];
     }
 
     // Not streaming: check if any chat.messages are not yet persisted in historyUi
@@ -490,7 +515,7 @@ export function ChatScreen() {
     return unpersisted.length > 0
       ? [...historyUi, ...unpersisted.map(toUi)]
       : historyUi;
-  }, [activeSession, history.messages, chat.messages, chat.isStreaming, pinnedMessageIds]);
+  }, [activeSession, history.messages, chat.messages, chat.isStreaming, pinnedMessageIds, optimisticTurn]);
 
   return (
     <div className={`app${sidebarOpen ? ' app--sidebar-open' : ''}`}>

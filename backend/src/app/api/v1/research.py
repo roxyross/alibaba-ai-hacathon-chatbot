@@ -181,6 +181,7 @@ async def deep_research_endpoint(
     )
     return DeepResearchResponse(
         topic=res["topic"],
+        query=res.get("query") or res["topic"],
         title=res["title"],
         summary=res["summary"],
         findings=res["findings"],

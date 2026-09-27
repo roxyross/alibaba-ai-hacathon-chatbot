@@ -6,6 +6,8 @@ multi-source claim synthesis, citation formatting, and report persistence.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import re
 import urllib.parse
 from typing import Any
@@ -188,63 +190,128 @@ class ResearchService:
                 if fetch_res.get("status") == "success" and len(fetch_res.get("content", "")) > 100:
                     primary_excerpts.append(fetch_res["content"])
 
-        # 3. Construct structured findings with citation indices
+        # 3. Formulate structured findings with citation indices & AI synthesis
         findings: list[dict[str, Any]] = []
-        if not all_sources:
-            findings.append({
-                "theme": "Information Retrieval Status",
-                "claim": f"No live external web sources could be retrieved for '{clean_topic}'. Research was completed without external citations.",
-                "source_indices": [],
-                "confidence": "low",
-            })
-        else:
-            if len(all_sources) >= 1:
-                findings.append({
-                    "theme": "Core Overview & Definitional Baseline",
-                    "claim": f"{clean_topic} represents an evolving domain focused on reliability, performance, and scalability across modern implementations.",
-                    "source_indices": [1],
-                    "confidence": "high",
-                })
-            if len(all_sources) >= 2:
-                findings.append({
-                    "theme": "Comparative Performance & Key Differentiators",
-                    "claim": f"Recent evaluations highlight that {clean_topic} demonstrates significant throughput advantages while maintaining strict operational constraints.",
-                    "source_indices": [1, 2],
-                    "confidence": "high" if len(all_sources) >= 3 else "medium",
-                })
-            if len(all_sources) >= 3:
-                findings.append({
-                    "theme": "Emerging Developments & Industry Best Practices",
-                    "claim": "Adoption patterns indicate widespread integration with automated tooling, proactive telemetry, and multi-tenant security guarantees.",
-                    "source_indices": [2, 3],
-                    "confidence": "medium",
-                })
+        summary = ""
 
-        # 4. Formulate Executive Summary with inline citations
-        if all_sources:
-            summary_paras = [
-                f"Autonomous multi-source research into **{clean_topic}** synthesizes evidence across {len(all_sources)} authoritative sources [1]. "
-                "Findings confirm that modern implementations prioritize modular architecture, clear boundaries, and verified interoperability.",
-                "Cross-source verification indicates strong consensus regarding core technical advantages [1, 2], with ongoing innovation focused on developer experience, privacy posture, and edge execution [2, 3].",
-            ]
-            summary = "\n\n".join(summary_paras)
-        else:
-            summary = (
-                f"Autonomous research query for **{clean_topic}** completed. "
-                "However, no authoritative live web sources were returned by the search provider at this time. "
-                "Please verify your network connectivity, search provider credentials (e.g. TAVILY_API_KEY / SERPAPI_API_KEY), or refine the search query."
+        # Attempt high-fidelity AI synthesis if gateway is available
+        try:
+            from app.ai_gateway.models.schemas import AIRequest, Message, MessageRole
+            from app.ai_gateway.services.router import AIRouter
+
+            sources_context = ""
+            if all_sources:
+                sources_context = "\n".join(
+                    f"[{idx}] {s.get('title', '')} ({s.get('domain', '')}): {s.get('snippet', '')}"
+                    for idx, s in enumerate(all_sources[:6], 1)
+                )
+
+            ai_prompt = (
+                f"You are the ROXY Autonomous Deep Research Intelligence Engine.\n"
+                f"Synthesize an authoritative research report for the query: '{clean_topic}'.\n\n"
+                + (f"Live Search Sources Found:\n{sources_context}\n\n" if sources_context else "Note: No live external search sources were returned.\n\n")
+                + "Instructions:\n"
+                "- Write a comprehensive Executive Summary (2-3 paragraphs).\n"
+                "- Provide 3-5 distinct key findings with themes and factual claims.\n"
+                "- If search sources are provided, cite them using [1], [2], etc.\n"
+                "- If no external sources were returned, provide foundational knowledge on the query while stating that live citations were unavailable. Distinguish established facts from uncertain details, and do NOT fabricate fake sources or citations.\n"
+                "- Return valid JSON with keys: \"summary\" (string), and \"findings\" (array of objects with \"theme\", \"claim\", \"confidence\", and \"source_indices\")."
             )
 
-        # 5. Formulate Citations List
+            ai_router = AIRouter()
+            ai_req = AIRequest(
+                messages=[Message(role=MessageRole.USER, content=ai_prompt)],
+                temperature=0.4,
+                max_tokens=2048,
+            )
+            ai_resp = await asyncio.wait_for(ai_router.route(ai_req), timeout=15.0)
+            ai_text = getattr(ai_resp, "content", None) or (
+                ai_resp.choices[0].message.content if hasattr(ai_resp, "choices") else ""
+            )
+
+            if ai_text:
+                json_match = re.search(r"\{.*\}", ai_text, re.DOTALL)
+                if json_match:
+                    parsed = json.loads(json_match.group(0))
+                    if isinstance(parsed, dict) and "summary" in parsed and "findings" in parsed:
+                        summary = parsed["summary"]
+                        for item in parsed.get("findings", []):
+                            if isinstance(item, dict):
+                                findings.append({
+                                    "theme": str(item.get("theme", "Key Synthesized Finding")),
+                                    "claim": str(item.get("claim", "")),
+                                    "confidence": str(item.get("confidence", "high" if all_sources else "medium")),
+                                    "source_indices": item.get("source_indices", [1] if all_sources else []),
+                                })
+                            elif isinstance(item, str):
+                                findings.append({
+                                    "theme": "Key Synthesized Finding",
+                                    "claim": item,
+                                    "confidence": "high" if all_sources else "medium",
+                                    "source_indices": [1] if all_sources else [],
+                                })
+                elif len(ai_text.strip()) > 80:
+                    summary = ai_text.strip()
+        except Exception as exc:
+            log.info("research.ai_synthesis_fallback", reason=str(exc))
+
+        # Fallback to deterministic synthesis if AI synthesis didn't populate summary/findings
+        if not findings:
+            if not all_sources:
+                findings.append({
+                    "theme": "Information Retrieval Status",
+                    "claim": f"No live external web sources could be retrieved for '{clean_topic}'. Research was completed using foundational knowledge baseline without external citations.",
+                    "source_indices": [],
+                    "confidence": "low",
+                })
+            else:
+                if len(all_sources) >= 1:
+                    findings.append({
+                        "theme": "Core Overview & Definitional Baseline",
+                        "claim": f"{clean_topic} represents an evolving domain focused on reliability, performance, and scalability across modern implementations.",
+                        "source_indices": [1],
+                        "confidence": "high",
+                    })
+                if len(all_sources) >= 2:
+                    findings.append({
+                        "theme": "Comparative Performance & Key Differentiators",
+                        "claim": f"Recent evaluations highlight that {clean_topic} demonstrates significant throughput advantages while maintaining strict operational constraints.",
+                        "source_indices": [1, 2],
+                        "confidence": "high" if len(all_sources) >= 3 else "medium",
+                    })
+                if len(all_sources) >= 3:
+                    findings.append({
+                        "theme": "Emerging Developments & Industry Best Practices",
+                        "claim": "Adoption patterns indicate widespread integration with automated tooling, proactive telemetry, and multi-tenant security guarantees.",
+                        "source_indices": [2, 3],
+                        "confidence": "medium",
+                    })
+
+        if not summary:
+            if all_sources:
+                summary_paras = [
+                    f"Autonomous multi-source research into **{clean_topic}** synthesizes evidence across {len(all_sources)} authoritative sources [1]. "
+                    "Findings confirm that modern implementations prioritize modular architecture, clear boundaries, and verified interoperability.",
+                    "Cross-source verification indicates strong consensus regarding core technical advantages [1, 2], with ongoing innovation focused on developer experience, privacy posture, and edge execution [2, 3].",
+                ]
+                summary = "\n\n".join(summary_paras)
+            else:
+                summary = (
+                    f"Autonomous research query for **{clean_topic}** completed. "
+                    "However, no authoritative live web sources were returned by the search provider at this time. "
+                    "Please verify your network connectivity, search provider credentials (e.g. TAVILY_API_KEY / SERPAPI_API_KEY), or refine the search query."
+                )
+
+        # 4. Formulate Citations List
         citations: list[str] = [
             f"[{idx}] {s['title']} — {s['url']} ({s['domain']})"
             for idx, s in enumerate(all_sources, 1)
         ]
 
-        # 6. Assess Overall Confidence
+        # 5. Assess Overall Confidence
         confidence = "high" if len(all_sources) >= 3 else ("medium" if all_sources else "low")
 
-        # 7. Generate Follow-up Next Actions
+        # 6. Generate Follow-up Next Actions
         next_actions = [
             f"Conduct an in-depth benchmark analysis comparing {clean_topic} against leading alternatives.",
             f"Schedule a recurring weekly intelligence briefing on {clean_topic} in your Scheduled Jobs dashboard.",

@@ -104,13 +104,14 @@ class DeepResearchResponse(BaseModel):
     topic: str
     title: str
     summary: str
-    findings: list[dict[str, Any]]
-    sources: list[dict[str, Any]]
-    citations: list[str]
-    confidence: str
-    depth: str
-    sub_queries: list[str]
-    next_actions: list[str]
+    confidence: str = "medium"
+    depth: str = "deep"
+    query: str = ""
+    findings: list[Any] = Field(default_factory=list)
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    citations: list[str] = Field(default_factory=list)
+    sub_queries: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
     report_id: str | None = None
 
 

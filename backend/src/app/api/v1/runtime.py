@@ -199,6 +199,24 @@ _SEARCH_PREFIXES = [
     re.compile(r"^(?:search\s+(?:the\s+)?web\s+for|web\s+search\s+for|google\s+search\s+for|look\s+up|search\s+for)\s*:\s*", re.I),
 ]
 
+# Freshness & live research inquiry patterns (Phase 13, 16)
+_FRESHNESS_PATTERNS = [
+    re.compile(r"\b(?:latest|recent|breaking)\s+(?:[a-zA-Z0-9_\-]+\s+)?(?:news|updates?|developments?|info|information|headlines?)\b", re.I),
+    re.compile(r"\b(?:current|latest|live)\s+(?:[a-zA-Z0-9_\-]+\s+)?(?:price|rate|stock|value|cost|quote)\b", re.I),
+    re.compile(r"\bwho\s+is\s+currently\s+(?:the\s+)?(?:ceo|president|leader|minister|head|chair|director)\b", re.I),
+    re.compile(r"\bwhat(?:'s|\s+is)\s+happening\s+(?:today|right\s+now|this\s+week)\b", re.I),
+    re.compile(r"\blatest\s+(?:info|information|update|news)\s+(?:on|about)\b", re.I),
+    re.compile(r"^(?:google|search\s+(?:the\s+)?web\s+for|search\s+for)\s+(.+)$", re.I),
+]
+
+# Conversational follow-ups that must resolve from context rather than triggering external search (Phase 10, 11)
+_CONVERSATIONAL_FOLLOWUP_PATTERNS = [
+    re.compile(r"^(?:what\s+happened\s+after\s+that|what\s+about\s+that|and\s+then\s+what|what\s+next)\b", re.I),
+    re.compile(r"^(?:make\s+it\s+shorter|summarize\s+it|explain\s+that|tell\s+me\s+more\s+about\s+(?:it|that|them|him|her))\b", re.I),
+    re.compile(r"^(?:what\s+about\s+the\s+(?:first|second|third|other|previous)\s+one)\b", re.I),
+    re.compile(r"\b(?:what\s+did\s+we\s+discuss|as\s+mentioned\s+earlier|previous\s+message)\b", re.I),
+]
+
 # Phase 8: Smart Entity & Case Reference patterns (e.g., "Mir Raza ka case", "Mir Raza's case", "case of Mir Raza")
 _ENTITY_CASE_PATTERNS = [
     re.compile(r"([A-Za-z\u0600-\u06FF\s]{2,40}?)\s+(?:ka\s+case|ke\s+case|ki\s+file|ka\s+record|ka\s+matter|ka\s+issue)\b", re.I),
@@ -262,6 +280,11 @@ def check_search_or_weather_intent(message: str) -> tuple[bool, str, bool, str]:
     Returns (is_search_or_weather, search_query, is_weather, city_name).
     """
     msg = message.strip()
+
+    # Conversational follow-ups must resolve from conversation context, not trigger live web search
+    if any(p.search(msg) for p in _CONVERSATIONAL_FOLLOWUP_PATTERNS):
+        return False, msg, False, ""
+
     is_search_prefix = False
     clean_query = msg
 
@@ -271,10 +294,18 @@ def check_search_or_weather_intent(message: str) -> tuple[bool, str, bool, str]:
             is_search_prefix = True
             break
 
+    is_freshness_search = False
+    if not is_search_prefix:
+        for p in _FRESHNESS_PATTERNS:
+            if p.search(msg):
+                is_freshness_search = True
+                clean_query = msg
+                break
+
     is_weather = bool(_WEATHER_KEYWORDS.search(msg))
     city = extract_city_from_query(clean_query if is_search_prefix else msg)
 
-    is_search = is_search_prefix or is_weather
+    is_search = is_search_prefix or is_freshness_search or is_weather
     return is_search, clean_query or msg, is_weather, city
 
 
@@ -726,11 +757,25 @@ def detect_user_language_instruction(text: str) -> str:
     )
 
 
+PRE_2_0_CONTEXT_MANDATE = (
+    "[CONVERSATIONAL CONTINUITY & CONTEXT RESOLUTION]:\n"
+    "- Always maintain continuity with the ongoing conversation history.\n"
+    "- Resolve contextual references and pronouns seamlessly (e.g., 'this', 'that', 'it', 'them', 'him', 'her', 'this story', 'that story', 'the first one', 'the second one', 'previous message', 'make it shorter') from prior turns in the conversation.\n"
+    "- Never ask unnecessary clarification if conversation context makes the reference clear.\n"
+    "- Ground responses in the user's specific context, recent messages, and current discussion topic.\n\n"
+    "[FACTUAL INTEGRITY: CURRENT, HISTORICAL & FUTURE KNOWLEDGE]:\n"
+    "- Current Information: For freshness-sensitive inquiries (latest news, current prices, current leadership), rely on authoritative real-time live search data provided in system ground-truth blocks. If live data is not available, state honestly that current live data is unavailable rather than fabricating information or inventing citations.\n"
+    "- Historical Information: Rely on established historical knowledge. Clearly distinguish between established facts, source claims, and uncertain details without claiming certainty where none exists.\n"
+    "- Future Information: When discussing future events, categorize the information clearly as DOCUMENTED, SCHEDULED, FORECAST, PREDICTION, or UNKNOWN. Never fabricate certainty or claim to know unknown future events.\n"
+    "- Natural Reasoning (No Mind Reading): Infer user intent naturally from their exact words and conversation context. Never claim supernatural powers or mind-reading."
+)
+
+
 def load_agent_system_prompt(slug: str) -> str:
     """Load the system prompt from .claude/agents/<slug>.md.
 
-    Strips YAML frontmatter and returns the markdown body with the universal multilingual mandate.
-    Returns a comprehensive default prompt for general inquiries and fallback agents.
+    Strips YAML frontmatter and returns the markdown body with the universal multilingual mandate
+    and the Pre-2.0 context and intelligence mandate.
     """
     default_prompt = (
         "You are ROXY, an intelligent, helpful, and highly knowledgeable autonomous AI assistant. "
@@ -739,16 +784,16 @@ def load_agent_system_prompt(slug: str) -> str:
         "and full runnable code examples when requested. Format your output with clear markdown headings, lists, and formatting."
     )
     if slug in ("general", "assistant", "default"):
-        return f"{MULTILINGUAL_AGENT_HEADER}\n\n{default_prompt}"
+        return f"{MULTILINGUAL_AGENT_HEADER}\n\n{default_prompt}\n\n{PRE_2_0_CONTEXT_MANDATE}"
 
     if not _AGENTS_DIR.exists():
         base = f"You are the {slug} agent. Handle the user's request thoroughly and provide complete answers."
-        return f"{MULTILINGUAL_AGENT_HEADER}\n\n{base}"
+        return f"{MULTILINGUAL_AGENT_HEADER}\n\n{base}\n\n{PRE_2_0_CONTEXT_MANDATE}"
 
     agent_file = _AGENTS_DIR / f"{slug}.md"
     if not agent_file.exists():
         base = f"You are the {slug} agent. Handle the user's request thoroughly and provide complete answers."
-        return f"{MULTILINGUAL_AGENT_HEADER}\n\n{base}"
+        return f"{MULTILINGUAL_AGENT_HEADER}\n\n{base}\n\n{PRE_2_0_CONTEXT_MANDATE}"
 
     content = agent_file.read_text(encoding="utf-8")
     # Strip YAML frontmatter
@@ -756,7 +801,7 @@ def load_agent_system_prompt(slug: str) -> str:
         parts = content.split("---", 2)
         if len(parts) >= 3:
             content = parts[2].lstrip("\n")
-    return f"{MULTILINGUAL_AGENT_HEADER}\n\n{content.strip()}"
+    return f"{MULTILINGUAL_AGENT_HEADER}\n\n{content.strip()}\n\n{PRE_2_0_CONTEXT_MANDATE}"
 
 
 # ---------------------------------------------------------------------------
@@ -890,7 +935,7 @@ async def _call_ai_for_agent(
         try:
             from app.chat_history.repository import ChatMessageRepository
             repo = ChatMessageRepository()
-            rows = await repo.list_for_session(session_id, user_id, limit=8)
+            rows = await repo.list_for_session(session_id, user_id, limit=16)
             for r in rows:
                 role = MessageRole.USER if r.role == "user" else MessageRole.ASSISTANT
                 history_messages.append(Message(role=role, content=r.content))
@@ -2249,11 +2294,11 @@ async def runtime_chat_stream(
         try:
             system_prompt = _get_agent_prompt(agent_slug)
             history_messages: list[Message] = [Message(role=MessageRole.SYSTEM, content=system_prompt)]
-            if body.session_id and current_user:
+            if body.session_id and effective_user_id:
                 try:
                     from app.chat_history.repository import ChatMessageRepository
                     repo = ChatMessageRepository()
-                    rows = await repo.list_for_session(body.session_id, effective_user_id, limit=8)
+                    rows = await repo.list_for_session(body.session_id, effective_user_id, limit=16)
                     for r in rows:
                         role = MessageRole.USER if r.role == "user" else MessageRole.ASSISTANT
                         history_messages.append(Message(role=role, content=r.content))
