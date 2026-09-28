@@ -62,7 +62,7 @@ class ConnectorInstance(Base):
 
     def get_config(self) -> dict[str, Any]:
         try:
-            val = json.loads(self.config_json) if self.config_json else {}
+            val = json.loads(self.config_json)
             return val if isinstance(val, dict) else {}
         except Exception:
             return {}
@@ -72,7 +72,7 @@ class ConnectorInstance(Base):
 
     def get_credentials(self) -> dict[str, Any]:
         try:
-            val = json.loads(self.encrypted_credentials_json) if self.encrypted_credentials_json else {}
+            val = json.loads(self.encrypted_credentials_json)
             return val if isinstance(val, dict) else {}
         except Exception:
             return {}

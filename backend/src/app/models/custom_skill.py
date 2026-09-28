@@ -60,7 +60,7 @@ class CustomSkill(Base):
 
     def get_trigger_phrases(self) -> list[str]:
         try:
-            val = json.loads(self.trigger_phrases_json) if self.trigger_phrases_json else []
+            val = json.loads(self.trigger_phrases_json)
             return [str(x) for x in val] if isinstance(val, list) else []
         except Exception:
             return []
@@ -70,7 +70,7 @@ class CustomSkill(Base):
 
     def get_parameters_schema(self) -> dict[str, Any]:
         try:
-            val = json.loads(self.parameters_schema_json) if self.parameters_schema_json else {}
+            val = json.loads(self.parameters_schema_json)
             return val if isinstance(val, dict) else {}
         except Exception:
             return {}

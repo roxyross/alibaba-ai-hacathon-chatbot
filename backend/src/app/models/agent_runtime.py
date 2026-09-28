@@ -154,7 +154,7 @@ class AgentStep(Base):
 
     def get_tool_output(self) -> dict[str, Any]:
         try:
-            val = json.loads(self.tool_output_json) if self.tool_output_json else {}
+            val = json.loads(self.tool_output_json)
             return val if isinstance(val, dict) else ({"result": val} if val is not None else {})
         except Exception:
             return {}
@@ -216,7 +216,7 @@ class AgentAction(Base):
 
     def get_input_parameters(self) -> dict[str, Any]:
         try:
-            val = json.loads(self.input_parameters_json) if self.input_parameters_json else {}
+            val = json.loads(self.input_parameters_json)
             return val if isinstance(val, dict) else {}
         except Exception:
             return {}
@@ -226,7 +226,7 @@ class AgentAction(Base):
 
     def get_result(self) -> dict[str, Any]:
         try:
-            val = json.loads(self.result_json) if self.result_json else {}
+            val = json.loads(self.result_json)
             return val if isinstance(val, dict) else ({"result": val} if val is not None else {})
         except Exception:
             return {}

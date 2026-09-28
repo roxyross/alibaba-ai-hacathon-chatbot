@@ -232,8 +232,9 @@ class CustomSkillService:
 
         elif exec_type == "python_sandbox":
             # Safe AST math/expression evaluation
-            safe_globals = {
-                "__builtins__": {},
+            safe_builtins: dict[str, Any] = {}
+            safe_globals: dict[str, Any] = {
+                "__builtins__": safe_builtins,
                 "len": len,
                 "min": min,
                 "max": max,

@@ -69,7 +69,7 @@ class MCPServerConfig(Base):
 
     def get_arguments(self) -> list[str]:
         try:
-            val = json.loads(self.arguments_json) if self.arguments_json else []
+            val = json.loads(self.arguments_json)
             return [str(x) for x in val] if isinstance(val, list) else []
         except Exception:
             return []
@@ -79,7 +79,7 @@ class MCPServerConfig(Base):
 
     def get_env(self) -> dict[str, str]:
         try:
-            val = json.loads(self.env_json) if self.env_json else {}
+            val = json.loads(self.env_json)
             return {str(k): str(v) for k, v in val.items()} if isinstance(val, dict) else {}
         except Exception:
             return {}
@@ -89,7 +89,7 @@ class MCPServerConfig(Base):
 
     def get_discovered_tools(self) -> list[dict[str, Any]]:
         try:
-            val = json.loads(self.discovered_tools_json) if self.discovered_tools_json else []
+            val = json.loads(self.discovered_tools_json)
             return val if isinstance(val, list) else []
         except Exception:
             return []
@@ -99,7 +99,7 @@ class MCPServerConfig(Base):
 
     def get_discovered_resources(self) -> list[dict[str, Any]]:
         try:
-            val = json.loads(self.discovered_resources_json) if self.discovered_resources_json else []
+            val = json.loads(self.discovered_resources_json)
             return val if isinstance(val, list) else []
         except Exception:
             return []
@@ -109,7 +109,7 @@ class MCPServerConfig(Base):
 
     def get_discovered_prompts(self) -> list[dict[str, Any]]:
         try:
-            val = json.loads(self.discovered_prompts_json) if self.discovered_prompts_json else []
+            val = json.loads(self.discovered_prompts_json)
             return val if isinstance(val, list) else []
         except Exception:
             return []

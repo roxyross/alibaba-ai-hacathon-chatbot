@@ -83,12 +83,13 @@ class MCPClient:
 
     async def initialize(self) -> dict[str, Any]:
         """Perform MCP initialize handshake and send notifications/initialized."""
-        init_params = {
+        capabilities: dict[str, Any] = {
+            "roots": {"listChanged": True},
+            "sampling": {},
+        }
+        init_params: dict[str, Any] = {
             "protocolVersion": self.protocol_version,
-            "capabilities": {
-                "roots": {"listChanged": True},
-                "sampling": {},
-            },
+            "capabilities": capabilities,
             "clientInfo": {
                 "name": "roxy-ai",
                 "version": "2.0.0",
