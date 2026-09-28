@@ -41,8 +41,12 @@ from app.models.code_snippet import CodeExecution, CodeSnippet
 from app.models.semantic_memory import CuratorRunReport, SemanticMemory
 from app.models.audit_log import AuditLogEntry
 from app.models.media_job import MediaAsset, MediaGenerationJob
+from app.models.agent_runtime import AgentAction, AgentStep, AgentTask, PermissionGrant
 
 __all__ = [
+    "AgentAction",
+    "AgentStep",
+    "AgentTask",
     "AuditLogEntry",
     "BankConnection",
     "BrowserTask",
@@ -67,6 +71,7 @@ __all__ = [
     "Payment",
     "PaymentEvent",
     "PaymentMethod",
+    "PermissionGrant",
     "Project",
     "ProjectDocument",
     "ProjectTask",

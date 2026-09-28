@@ -1,0 +1,73 @@
+"""Tool Registry schemas and type definitions for ROXY-AI 2.0.
+
+Fulfills Phase 2 and Section 14 (Central Tool Registry architecture).
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+from typing import Any, Callable, Coroutine
+from pydantic import BaseModel, Field
+
+
+class ToolSource(str, Enum):
+    SYSTEM = "system"
+    SKILL = "skill"
+    CONNECTOR = "connector"
+    MCP = "mcp"
+    PLUGIN = "plugin"
+    DEVICE = "device"
+    AGENT = "agent"
+
+
+class RiskLevel(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class AgentTool(BaseModel):
+    """Specification of an executable capability in the Tool Registry."""
+
+    id: str = Field(..., description="Unique tool identifier, e.g. 'system_calculator'")
+    name: str = Field(..., description="Human-readable tool title")
+    description: str = Field(..., description="Detailed description of tool functionality")
+    source: ToolSource = Field(..., description="Origin of tool: system, skill, connector, mcp, plugin, device, agent")
+    capabilities: list[str] = Field(default_factory=list, description="Categorical tags, e.g. ['math', 'calculation']")
+    input_schema: dict[str, Any] = Field(default_factory=dict, description="JSONSchema defining accepted input arguments")
+    permissions: list[str] = Field(default_factory=list, description="Required permission scopes")
+    risk_level: RiskLevel = Field(default=RiskLevel.LOW, description="Risk assessment: low, medium, high, critical")
+    requires_confirmation: bool = Field(default=False, description="Whether execution triggers approval gate by default")
+    enabled: bool = Field(default=True, description="Whether tool is active and discoverable")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "source": self.source.value,
+            "capabilities": self.capabilities,
+            "input_schema": self.input_schema,
+            "permissions": self.permissions,
+            "risk_level": self.risk_level.value,
+            "requires_confirmation": self.requires_confirmation,
+            "enabled": self.enabled,
+        }
+
+
+class ToolExecutionRequest(BaseModel):
+    tool_id: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    user_id: str
+    workspace_id: str | None = None
+    task_id: str | None = None
+    step_id: str | None = None
+
+
+class ToolExecutionResult(BaseModel):
+    tool_id: str
+    success: bool
+    output: Any = None
+    error: str | None = None
+    duration_ms: int = 0

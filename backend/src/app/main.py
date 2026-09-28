@@ -48,6 +48,10 @@ from app.providers.router import router as providers_router
 from app.session.router import router as session_router
 from app.settings.router import router as settings_router
 from app.skills.router import router as skills_router
+from app.permissions.router import router as permissions_router
+from app.actions.router import router as actions_router
+from app.agent_runtime.router import router as agents_router, tools_router
+from app.tools.builtin import register_builtin_tools
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(
@@ -110,6 +114,10 @@ app.include_router(coding_router, prefix="/api/v1")
 app.include_router(memory_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
 app.include_router(media_router, prefix="/api/v1")
+app.include_router(permissions_router, prefix="/api/v1")
+app.include_router(actions_router, prefix="/api/v1")
+app.include_router(agents_router, prefix="/api/v1")
+app.include_router(tools_router, prefix="/api/v1")
 
 _static_dir = Path(__file__).resolve().parents[2] / "static"
 try:
@@ -133,6 +141,7 @@ async def on_startup() -> None:
     try:
         import app.auth.models  # noqa: F401
         import app.chat_history.models  # noqa: F401
+        import app.models.agent_runtime  # noqa: F401
         import app.models.audit_log  # noqa: F401
         import app.models.bank_connection  # noqa: F401
         import app.models.browser_task  # noqa: F401
@@ -172,6 +181,12 @@ async def on_startup() -> None:
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("job_scheduler.startup_failed", error=str(exc))
+
+    try:
+        register_builtin_tools()
+    except Exception as exc:
+        import structlog
+        structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))
 
 
 @app.on_event("shutdown")
