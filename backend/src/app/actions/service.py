@@ -6,7 +6,6 @@ and verified post-approval tool execution.
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -86,12 +85,12 @@ class ActionService:
                     db_action.set_input_parameters(action_in.input_parameters)
                     session.add(db_action)
                     await session.commit()
-                    return ActionResponse(**db_action.to_dict())
+                    return ActionResponse.model_validate(db_action.to_dict())
             except Exception as exc:
                 log.warning("action_service.db_create_failed", error=str(exc))
 
         self._mem[action_id] = record_dict
-        return ActionResponse(**record_dict)
+        return ActionResponse.model_validate(record_dict)
 
     async def get_action(self, user_id: str, action_id: str) -> ActionResponse | None:
         """Fetch action details ensuring multi-tenant isolation."""
@@ -106,13 +105,13 @@ class ActionService:
                     res = await session.execute(stmt)
                     item = res.scalars().first()
                     if item:
-                        return ActionResponse(**item.to_dict())
+                        return ActionResponse.model_validate(item.to_dict())
             except Exception as exc:
                 log.warning("action_service.db_get_failed", error=str(exc))
 
         mem_item = self._mem.get(action_id)
         if mem_item and mem_item.get("user_id") == user_id:
-            return ActionResponse(**mem_item)
+            return ActionResponse.model_validate(mem_item)
         return None
 
     async def list_pending_actions(self, user_id: str) -> list[ActionResponse]:
@@ -132,12 +131,12 @@ class ActionService:
                     res = await session.execute(stmt)
                     rows = res.scalars().all()
                     if rows:
-                        return [ActionResponse(**r.to_dict()) for r in rows]
+                        return [ActionResponse.model_validate(r.to_dict()) for r in rows]
             except Exception as exc:
                 log.warning("action_service.db_list_pending_failed", error=str(exc))
 
         return [
-            ActionResponse(**a)
+            ActionResponse.model_validate(a)
             for a in self._mem.values()
             if a.get("user_id") == user_id and a.get("status") == ActionStatus.PENDING.value
         ]
@@ -157,13 +156,13 @@ class ActionService:
                     res = await session.execute(stmt)
                     rows = res.scalars().all()
                     if rows:
-                        return [ActionResponse(**r.to_dict()) for r in rows]
+                        return [ActionResponse.model_validate(r.to_dict()) for r in rows]
             except Exception as exc:
                 log.warning("action_service.db_list_history_failed", error=str(exc))
 
         user_actions = [a for a in self._mem.values() if a.get("user_id") == user_id]
         user_actions.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-        return [ActionResponse(**a) for a in user_actions[:limit]]
+        return [ActionResponse.model_validate(a) for a in user_actions[:limit]]
 
     async def edit_action_params(
         self,
@@ -191,13 +190,13 @@ class ActionService:
                     if item:
                         item.set_input_parameters(new_params)
                         await session.commit()
-                        return ActionResponse(**item.to_dict())
+                        return ActionResponse.model_validate(item.to_dict())
             except Exception as exc:
                 log.warning("action_service.db_edit_failed", error=str(exc))
 
         if action_id in self._mem:
             self._mem[action_id]["input_parameters"] = new_params
-            return ActionResponse(**self._mem[action_id])
+            return ActionResponse.model_validate(self._mem[action_id])
 
         raise ValueError(f"Action '{action_id}' could not be updated.")
 
@@ -274,7 +273,7 @@ class ActionService:
                                         db_t.status = "running"
 
                         await session.commit()
-                        return ActionResponse(**item.to_dict())
+                        return ActionResponse.model_validate(item.to_dict())
             except Exception as exc:
                 log.warning("action_service.db_approve_failed", error=str(exc))
 
@@ -309,7 +308,7 @@ class ActionService:
             self._mem[action_id]["result"] = output_data
             self._mem[action_id]["error"] = err_msg
             self._mem[action_id]["resolved_at"] = now.isoformat()
-            return ActionResponse(**self._mem[action_id])
+            return ActionResponse.model_validate(self._mem[action_id])
 
         return ActionResponse(
             id=action_id,
@@ -369,7 +368,7 @@ class ActionService:
                                 step.finished_at = now
 
                         await session.commit()
-                        return ActionResponse(**item.to_dict())
+                        return ActionResponse.model_validate(item.to_dict())
             except Exception as exc:
                 log.warning("action_service.db_reject_failed", error=str(exc))
 
@@ -377,7 +376,7 @@ class ActionService:
             self._mem[action_id]["status"] = ActionStatus.REJECTED.value
             self._mem[action_id]["error"] = err_msg
             self._mem[action_id]["resolved_at"] = now.isoformat()
-            return ActionResponse(**self._mem[action_id])
+            return ActionResponse.model_validate(self._mem[action_id])
 
         return ActionResponse(
             id=action_id,

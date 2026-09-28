@@ -107,9 +107,9 @@ class AgentTask(Base):
             "deliverables": self.get_deliverables(),
             "error": self.error,
             "steps": [s.to_dict() for s in self.steps] if self.steps else [],
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at is not None else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at is not None else None,
         }
 
 
@@ -152,9 +152,10 @@ class AgentStep(Base):
     def set_tool_input(self, data: dict[str, Any]) -> None:
         self.tool_input_json = json.dumps(data)
 
-    def get_tool_output(self) -> Any:
+    def get_tool_output(self) -> dict[str, Any]:
         try:
-            return json.loads(self.tool_output_json)
+            val = json.loads(self.tool_output_json) if self.tool_output_json else {}
+            return val if isinstance(val, dict) else ({"result": val} if val is not None else {})
         except Exception:
             return {}
 
@@ -172,9 +173,9 @@ class AgentStep(Base):
             "tool_output": self.get_tool_output(),
             "status": self.status,
             "error": self.error,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "started_at": self.started_at.isoformat() if self.started_at is not None else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at is not None else None,
         }
 
 
@@ -215,7 +216,7 @@ class AgentAction(Base):
 
     def get_input_parameters(self) -> dict[str, Any]:
         try:
-            val = json.loads(self.input_parameters_json)
+            val = json.loads(self.input_parameters_json) if self.input_parameters_json else {}
             return val if isinstance(val, dict) else {}
         except Exception:
             return {}
@@ -223,9 +224,10 @@ class AgentAction(Base):
     def set_input_parameters(self, data: dict[str, Any]) -> None:
         self.input_parameters_json = json.dumps(data)
 
-    def get_result(self) -> Any:
+    def get_result(self) -> dict[str, Any]:
         try:
-            return json.loads(self.result_json)
+            val = json.loads(self.result_json) if self.result_json else {}
+            return val if isinstance(val, dict) else ({"result": val} if val is not None else {})
         except Exception:
             return {}
 
@@ -246,8 +248,8 @@ class AgentAction(Base):
             "status": self.status,
             "result": self.get_result(),
             "error": self.error,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at is not None else None,
         }
 
 
@@ -289,6 +291,6 @@ class PermissionGrant(Base):
             "permission": self.permission,
             "policy": self.policy,
             "scope": self.scope,
-            "granted_at": self.granted_at.isoformat() if self.granted_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "granted_at": self.granted_at.isoformat() if self.granted_at is not None else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at is not None else None,
         }
