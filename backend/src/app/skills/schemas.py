@@ -543,3 +543,25 @@ class TextToSpeechResponse(BaseModel):
     duration_seconds: float | None = None
     model: str
 
+
+# ---------------------------------------------------------------------------
+# Custom Skills
+# ---------------------------------------------------------------------------
+
+class CustomSkillCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    skill_key: str = Field(..., min_length=1, max_length=64)
+    description: str = Field(..., min_length=1, max_length=255)
+    code_or_prompt_template: str = Field(..., min_length=1)
+    execution_type: str = Field(default="prompt")
+    parameters_schema: dict[str, Any] = Field(default_factory=dict)
+    trigger_phrases: list[str] = Field(default_factory=list)
+    risk_level: str = Field(default="low")
+    requires_confirmation: bool = Field(default=False)
+    workspace_id: str | None = None
+
+
+class CustomSkillExecuteRequest(BaseModel):
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+

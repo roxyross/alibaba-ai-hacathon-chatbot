@@ -51,6 +51,8 @@ from app.skills.router import router as skills_router
 from app.permissions.router import router as permissions_router
 from app.actions.router import router as actions_router
 from app.agent_runtime.router import router as agents_router, tools_router
+from app.connectors.router import router as connectors_router
+from app.mcp.router import router as mcp_router
 from app.tools.builtin import register_builtin_tools
 from fastapi.staticfiles import StaticFiles
 
@@ -118,6 +120,8 @@ app.include_router(permissions_router, prefix="/api/v1")
 app.include_router(actions_router, prefix="/api/v1")
 app.include_router(agents_router, prefix="/api/v1")
 app.include_router(tools_router, prefix="/api/v1")
+app.include_router(connectors_router, prefix="/api/v1")
+app.include_router(mcp_router, prefix="/api/v1")
 
 _static_dir = Path(__file__).resolve().parents[2] / "static"
 try:
@@ -148,10 +152,13 @@ async def on_startup() -> None:
         import app.models.budget  # noqa: F401
         import app.models.calendar_event  # noqa: F401
         import app.models.code_snippet  # noqa: F401
+        import app.models.connector  # noqa: F401
+        import app.models.custom_skill  # noqa: F401
         import app.models.document_vault  # noqa: F401
         import app.models.email_message  # noqa: F401
         import app.models.finance_account  # noqa: F401
         import app.models.generated_image  # noqa: F401
+        import app.models.mcp  # noqa: F401
         import app.models.media_job  # noqa: F401
         import app.models.model  # noqa: F401
         import app.models.project  # noqa: F401

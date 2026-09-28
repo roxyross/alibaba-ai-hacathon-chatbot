@@ -42,6 +42,9 @@ from app.models.semantic_memory import CuratorRunReport, SemanticMemory
 from app.models.audit_log import AuditLogEntry
 from app.models.media_job import MediaAsset, MediaGenerationJob
 from app.models.agent_runtime import AgentAction, AgentStep, AgentTask, PermissionGrant
+from app.models.connector import ConnectorInstance
+from app.models.custom_skill import CustomSkill
+from app.models.mcp import MCPServerConfig
 
 __all__ = [
     "AgentAction",
@@ -56,8 +59,10 @@ __all__ = [
     "ChatSession",
     "CodeExecution",
     "CodeSnippet",
+    "ConnectorInstance",
     "CreditWallet",
     "CuratorRunReport",
+    "CustomSkill",
     "DocumentRecord",
     "EmailMessage",
     "FinanceAccount",
@@ -65,6 +70,7 @@ __all__ = [
     "FinanceTransaction",
     "GeneratedImage",
     "MagicLinkToken",
+    "MCPServerConfig",
     "MediaAsset",
     "MediaGenerationJob",
     "Model",

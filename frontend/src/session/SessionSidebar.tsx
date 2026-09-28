@@ -63,9 +63,11 @@ export type AppView =
   | 'study'
   | 'coding'
   | 'memory'
-  | 'audit';
+  | 'audit'
+  | 'connectors';
 
 export const SECONDARY_VIEWS: AppView[] = [
+  'connectors',
   'finance',
   'jobs',
   'voice',
@@ -1298,6 +1300,14 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                 >
                   <ShieldCheck size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
                   <span className="session-sidebar__nav-text">Audit & Security</span>
+                </button>
+                <button
+                  type="button"
+                  className={`session-sidebar__nav-link ${activeView === 'connectors' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('connectors')}
+                >
+                  <Layers size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">Connectors & MCP</span>
                 </button>
                 <button
                   type="button"

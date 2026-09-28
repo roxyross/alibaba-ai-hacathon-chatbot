@@ -613,3 +613,88 @@ async def skill_document_ingest(
     """
     executor = document_ingest_executor()
     return await _run_skill(executor, req, current_user, skill_slug="document_ingest")
+
+
+# ---------------------------------------------------------------------------
+# Custom Skills Endpoints
+# ---------------------------------------------------------------------------
+from app.skills.custom_skills import CustomSkillService
+from app.skills.schemas import CustomSkillCreateRequest, CustomSkillExecuteRequest
+
+_custom_skill_service = CustomSkillService()
+
+
+@router.get("/custom")
+async def list_custom_skills(
+    current_user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """List all custom skills registered by the authenticated user."""
+    return await _custom_skill_service.list_skills(user_id=current_user.id)
+
+
+@router.post("/custom", status_code=status.HTTP_201_CREATED)
+async def create_custom_skill(
+    req: CustomSkillCreateRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Create and register a custom skill into the Tool Registry."""
+    try:
+        return await _custom_skill_service.create_skill(
+            user_id=current_user.id,
+            name=req.name,
+            skill_key=req.skill_key,
+            description=req.description,
+            code_or_prompt_template=req.code_or_prompt_template,
+            execution_type=req.execution_type,
+            parameters_schema=req.parameters_schema,
+            trigger_phrases=req.trigger_phrases,
+            risk_level=req.risk_level,
+            requires_confirmation=req.requires_confirmation,
+            workspace_id=req.workspace_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/custom/{skill_id}")
+async def get_custom_skill(
+    skill_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Retrieve details of a specific custom skill."""
+    skill = await _custom_skill_service.get_skill(user_id=current_user.id, skill_id=skill_id)
+    if not skill:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Custom skill '{skill_id}' not found.")
+    return skill
+
+
+@router.delete("/custom/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_custom_skill(
+    skill_id: str,
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Delete a custom skill and unregister its tool from Tool Registry."""
+    deleted = await _custom_skill_service.delete_skill(user_id=current_user.id, skill_id=skill_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Custom skill '{skill_id}' not found.")
+
+
+@router.post("/custom/{skill_id}/execute")
+async def execute_custom_skill(
+    skill_id: str,
+    req: CustomSkillExecuteRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Execute a custom skill using provided input arguments."""
+    skill = await _custom_skill_service.get_skill(user_id=current_user.id, skill_id=skill_id)
+    if not skill:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Custom skill '{skill_id}' not found.")
+    try:
+        return await _custom_skill_service.execute_skill_by_key(
+            user_id=current_user.id,
+            skill_key=skill["skill_key"],
+            arguments=req.arguments,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
