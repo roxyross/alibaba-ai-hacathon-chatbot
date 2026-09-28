@@ -5,12 +5,13 @@ Fulfills Phase 2 and Section 14 (Central Tool Registry architecture).
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any, Callable, Coroutine
+from enum import StrEnum
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
-class ToolSource(str, Enum):
+class ToolSource(StrEnum):
     SYSTEM = "system"
     SKILL = "skill"
     CONNECTOR = "connector"
@@ -20,7 +21,7 @@ class ToolSource(str, Enum):
     AGENT = "agent"
 
 
-class RiskLevel(str, Enum):
+class RiskLevel(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"

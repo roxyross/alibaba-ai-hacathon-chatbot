@@ -9,14 +9,14 @@ from __future__ import annotations
 import ast
 import operator
 import time
+from collections.abc import Callable
 from typing import Any
 
 from app.tools.registry import ToolRegistry
 from app.tools.schemas import AgentTool, RiskLevel, ToolSource
 
-
 # Safe math evaluator
-_SAFE_OPERATORS = {
+_SAFE_OPERATORS: dict[type[ast.AST], Callable[..., Any]] = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
@@ -35,10 +35,12 @@ def _safe_eval_math(node: ast.AST) -> float:
     elif isinstance(node, ast.BinOp) and type(node.op) in _SAFE_OPERATORS:
         left = _safe_eval_math(node.left)
         right = _safe_eval_math(node.right)
-        return float(_SAFE_OPERATORS[type(node.op)](left, right))
+        op_func = _SAFE_OPERATORS[type(node.op)]
+        return float(op_func(left, right))
     elif isinstance(node, ast.UnaryOp) and type(node.op) in _SAFE_OPERATORS:
         operand = _safe_eval_math(node.operand)
-        return float(_SAFE_OPERATORS[type(node.op)](operand))
+        op_func = _SAFE_OPERATORS[type(node.op)]
+        return float(op_func(operand))
     raise ValueError("Unsupported or unsafe expression in calculation.")
 
 
@@ -54,10 +56,10 @@ async def _handle_calculator(expression: str) -> dict[str, Any]:
 async def _handle_web_search(query: str, max_results: int = 5) -> dict[str, Any]:
     """Execute real web search using available skills or mock fallback."""
     try:
-        from app.skills.web_search import get_executor
         from app.skills.schemas import WebSearchRequest
+        from app.skills.web_search import get_executor
         executor = get_executor()
-        res = await executor.execute(WebSearchRequest(query=query, max_results=max_results))
+        res = await executor.execute(WebSearchRequest(query=query, num_results=max_results))
         return {
             "query": query,
             "results": getattr(res, "results", []) or [{"title": "Web Search Result", "snippet": str(res)}],
@@ -132,7 +134,7 @@ async def _handle_memory_store(
         from app.memory.repository import MemoryRepository
         repo = MemoryRepository()
         if user_id:
-            await repo.create_memory(user_id=user_id, fact=f"{key}: {value}", importance=4)
+            await repo.store_memory(user_id=user_id, content=f"{key}: {value}", importance="high")
         return {"key": key, "value": value, "stored": True}
     except Exception:
         return {"key": key, "value": value, "stored": True, "cached": True}
@@ -146,7 +148,7 @@ async def _handle_memory_retrieve(
     try:
         from app.memory.repository import MemoryRepository
         repo = MemoryRepository()
-        memories = await repo.search_memories(user_id=user_id or "default", query=query, limit=5)
+        memories, _ = await repo.list_memories(user_id=user_id or "default", query=query, limit=5)
         return {"query": query, "memories": memories}
     except Exception:
         return {"query": query, "memories": []}

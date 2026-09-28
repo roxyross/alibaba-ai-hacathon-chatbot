@@ -5,24 +5,21 @@ Provides task lifecycle controls, execution streaming (SSE), and tool registry e
 
 from __future__ import annotations
 
-import json
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 
 from app.agent_runtime.executor import AgentExecutor
 from app.agent_runtime.schemas import (
     TaskCreateRequest,
-    TaskProgressEvent,
     TaskResponse,
 )
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.tools.registry import ToolRegistry
 from app.tools.schemas import (
-    AgentTool,
     RiskLevel,
     ToolExecutionRequest,
     ToolExecutionResult,
@@ -77,7 +74,7 @@ async def run_task(
     try:
         return await _executor.run_task(user_id=user.id, task_id=task_id)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/tasks/{task_id}/pause", response_model=TaskResponse)
@@ -89,7 +86,7 @@ async def pause_task(
     try:
         return await _executor.pause_task(user_id=user.id, task_id=task_id)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/tasks/{task_id}/cancel", response_model=TaskResponse)
@@ -101,7 +98,7 @@ async def cancel_task(
     try:
         return await _executor.cancel_task(user_id=user.id, task_id=task_id)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/tasks/{task_id}/retry", response_model=TaskResponse)
@@ -113,7 +110,7 @@ async def retry_task(
     try:
         return await _executor.retry_task(user_id=user.id, task_id=task_id)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/tasks/{task_id}/stream")
@@ -126,7 +123,7 @@ async def stream_task_progress(
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
 
-    async def event_generator():
+    async def event_generator() -> AsyncGenerator[str, None]:
         async for event in _executor.subscribe_events(task_id):
             payload = event.model_dump_json()
             yield f"data: {payload}\n\n"

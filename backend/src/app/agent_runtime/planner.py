@@ -6,7 +6,6 @@ with dynamic tool discovery from the Central Tool Registry.
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
@@ -55,7 +54,6 @@ class AgentPlanner:
 
         # Multi-step: Search AND Email
         if ("search" in lower or "find" in lower or "look up" in lower) and ("email" in lower or "mail" in lower or "send" in lower):
-            search_query = text
             # Extract email recipient if present
             email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", text)
             to_addr = email_match.group(0) if email_match else "recipient@example.com"
@@ -101,7 +99,7 @@ class AgentPlanner:
                 },
                 {
                     "step_number": 2,
-                    "description": f"Store calculated result in memory",
+                    "description": "Store calculated result in memory",
                     "tool_id": "system_memory_store",
                     "tool_input": {"key": "calculation_result", "value": f"Result of {expr}"},
                     "depends_on": [1],

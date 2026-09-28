@@ -8,9 +8,16 @@ from __future__ import annotations
 
 import inspect
 import time
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import Any
 
-from app.tools.schemas import AgentTool, RiskLevel, ToolExecutionRequest, ToolExecutionResult, ToolSource
+from app.tools.schemas import (
+    AgentTool,
+    RiskLevel,
+    ToolExecutionRequest,
+    ToolExecutionResult,
+    ToolSource,
+)
 
 
 class ToolRegistry:

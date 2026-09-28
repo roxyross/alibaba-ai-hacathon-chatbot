@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user

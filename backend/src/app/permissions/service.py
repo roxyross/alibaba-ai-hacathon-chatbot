@@ -211,7 +211,8 @@ class PermissionService:
                     )
                     res = await session.execute(stmt)
                     await session.commit()
-                    if res.rowcount and res.rowcount > 0:
+                    rowcount = getattr(res, "rowcount", 0)
+                    if rowcount is not None and rowcount > 0:
                         deleted = True
             except Exception as exc:
                 log.warning("permission_service.db_revoke_failed", error=str(exc))

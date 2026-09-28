@@ -66,7 +66,8 @@ class AgentTask(Base):
 
     def get_plan(self) -> list[dict[str, Any]]:
         try:
-            return json.loads(self.plan_json)
+            val = json.loads(self.plan_json)
+            return val if isinstance(val, list) else []
         except Exception:
             return []
 
@@ -75,7 +76,8 @@ class AgentTask(Base):
 
     def get_context(self) -> dict[str, Any]:
         try:
-            return json.loads(self.context_json)
+            val = json.loads(self.context_json)
+            return val if isinstance(val, dict) else {}
         except Exception:
             return {}
 
@@ -84,7 +86,8 @@ class AgentTask(Base):
 
     def get_deliverables(self) -> list[dict[str, Any]]:
         try:
-            return json.loads(self.deliverables_json)
+            val = json.loads(self.deliverables_json)
+            return val if isinstance(val, list) else []
         except Exception:
             return []
 
@@ -141,7 +144,8 @@ class AgentStep(Base):
 
     def get_tool_input(self) -> dict[str, Any]:
         try:
-            return json.loads(self.tool_input_json)
+            val = json.loads(self.tool_input_json)
+            return val if isinstance(val, dict) else {}
         except Exception:
             return {}
 
@@ -211,7 +215,8 @@ class AgentAction(Base):
 
     def get_input_parameters(self) -> dict[str, Any]:
         try:
-            return json.loads(self.input_parameters_json)
+            val = json.loads(self.input_parameters_json)
+            return val if isinstance(val, dict) else {}
         except Exception:
             return {}
 

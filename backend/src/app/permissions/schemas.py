@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any
+from enum import StrEnum
+
 from pydantic import BaseModel, Field
 
 
-class PermissionPolicy(str, Enum):
+class PermissionPolicy(StrEnum):
     ALWAYS_ASK = "always_ask"
     ASK_ONCE = "ask_once"
     ALLOW_AUTOMATICALLY = "allow_automatically"

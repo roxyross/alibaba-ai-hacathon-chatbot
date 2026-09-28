@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
+
 from pydantic import BaseModel, Field
 
 
-class TaskStatusEnum(str, Enum):
+class TaskStatusEnum(StrEnum):
     DRAFT = "draft"
     PLANNING = "planning"
     RUNNING = "running"
@@ -19,7 +20,7 @@ class TaskStatusEnum(str, Enum):
     CANCELLED = "cancelled"
 
 
-class StepStatusEnum(str, Enum):
+class StepStatusEnum(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     WAITING_FOR_APPROVAL = "waiting_for_approval"

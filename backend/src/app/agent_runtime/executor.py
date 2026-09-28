@@ -7,10 +7,11 @@ confirmation pauses, safe retries, deliverables generation, and event streaming.
 from __future__ import annotations
 
 import asyncio
-import json
+import contextlib
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from typing import Any, AsyncGenerator
+from typing import Any
 
 import structlog
 from sqlalchemy import select
@@ -27,7 +28,7 @@ from app.agent_runtime.schemas import (
     TaskStepResponse,
 )
 from app.db import get_session_factory
-from app.models.agent_runtime import AgentAction, AgentStep, AgentTask
+from app.models.agent_runtime import AgentStep, AgentTask
 from app.permissions.service import PermissionService
 from app.tools.registry import ToolRegistry
 from app.tools.schemas import ToolExecutionRequest
@@ -83,10 +84,8 @@ class AgentExecutor:
         )
         queues = _EVENT_QUEUES.get(task_id, [])
         for q in queues:
-            try:
+            with contextlib.suppress(Exception):
                 q.put_nowait(evt)
-            except Exception:
-                pass
 
     async def subscribe_events(self, task_id: str) -> AsyncGenerator[TaskProgressEvent, None]:
         """Subscribe to real-time execution milestone events for a task."""
@@ -117,7 +116,7 @@ class AgentExecutor:
         task_id = str(uuid.uuid4())
         title = req.title or (req.objective[:50] + "..." if len(req.objective) > 50 else req.objective)
 
-        record_dict = {
+        record_dict: dict[str, Any] = {
             "id": task_id,
             "user_id": user_id,
             "workspace_id": req.workspace_id,
@@ -160,7 +159,7 @@ class AgentExecutor:
         if req.auto_run:
             return await self.run_task(user_id=user_id, task_id=task_id)
 
-        return await self.get_task(user_id=user_id, task_id=task_id) or TaskResponse(**record_dict)
+        return await self.get_task(user_id=user_id, task_id=task_id) or TaskResponse.model_validate(record_dict)
 
     async def get_task(self, user_id: str, task_id: str) -> TaskResponse | None:
         """Retrieve task details and associated execution steps."""
@@ -185,16 +184,16 @@ class AgentExecutor:
                         steps = s_res.scalars().all()
                         d = task.to_dict()
                         d["steps"] = [s.to_dict() for s in steps]
-                        return TaskResponse(**d)
+                        return TaskResponse.model_validate(d)
             except Exception as exc:
                 log.warning("agent_executor.db_get_failed", error=str(exc))
 
         mem_task = self._mem_tasks.get(task_id)
         if mem_task and mem_task.get("user_id") == user_id:
-            steps = self._mem_steps.get(task_id, [])
+            steps_data = self._mem_steps.get(task_id, [])
             d = dict(mem_task)
-            d["steps"] = [TaskStepResponse(**s) for s in steps]
-            return TaskResponse(**d)
+            d["steps"] = [TaskStepResponse.model_validate(s) for s in steps_data]
+            return TaskResponse.model_validate(d)
 
         return None
 
@@ -213,7 +212,7 @@ class AgentExecutor:
                     res = await session.execute(stmt)
                     tasks = res.scalars().all()
                     if tasks:
-                        return [TaskResponse(**t.to_dict()) for t in tasks]
+                        return [TaskResponse.model_validate(t.to_dict()) for t in tasks]
             except Exception as exc:
                 log.warning("agent_executor.db_list_failed", error=str(exc))
 
@@ -222,8 +221,8 @@ class AgentExecutor:
         results: list[TaskResponse] = []
         for t in user_tasks[:limit]:
             d = dict(t)
-            d["steps"] = [TaskStepResponse(**s) for s in self._mem_steps.get(t["id"], [])]
-            results.append(TaskResponse(**d))
+            d["steps"] = [TaskStepResponse.model_validate(s) for s in self._mem_steps.get(t["id"], [])]
+            results.append(TaskResponse.model_validate(d))
         return results
 
     async def run_task(self, user_id: str, task_id: str) -> TaskResponse:
