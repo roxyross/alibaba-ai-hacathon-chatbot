@@ -56,7 +56,6 @@ async function audioToBase64(blob: Blob): Promise<string> {
 }
 
 // Check for Web Speech API
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
 type DictationState = 'idle' | 'recording' | 'transcribing';
@@ -105,7 +104,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const folderInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const actionBtnRef = useRef<HTMLButtonElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const dictationStateRef = useRef<DictationState>('idle');
   dictationStateRef.current = dictationState;
@@ -290,7 +288,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       mediaRecorderRef.current = recorder;
 
       // Dynamic waveform visualizer
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
         const ctx = new AudioCtx();
@@ -334,7 +331,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         recognition.interimResults = true;
         recognition.lang = navigator.language || '';
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         recognition.onresult = (event: any) => {
           let finalChunk = '';
           let interimChunk = '';

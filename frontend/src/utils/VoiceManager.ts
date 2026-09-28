@@ -316,8 +316,8 @@ class TTSController {
     const cleanText = text
       .replace(/```[\s\S]*?```/g, 'Code block omitted.')
       .replace(/`([^`]+)`/g, '$1')
-      .replace(/[*#_~>\[\]]/g, '')
-      .replace(/\(http[^\)]+\)/g, '')
+      .replace(/[*#_~>[\]]/g, '')
+      .replace(/\(http[^)]+\)/g, '')
       .trim();
 
     if (!cleanText) return;

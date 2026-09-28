@@ -263,7 +263,7 @@ export async function speakVoiceText(text: string, lang = 'en-US'): Promise<void
     // Auto-play is disabled by policy. Do NOT speak automatically.
     return;
   }
-  const clean = text.replace(/[*#`_\[\]()]/g, '').trim();
+  const clean = text.replace(/[*#`_[\]()]/g, '').trim();
   if (!clean) return;
   await voiceManager.tts.speak(clean, { voiceLang: lang });
 }

@@ -430,7 +430,9 @@ export function ChatScreen() {
       }
       try {
         localStorage.setItem('roxy_pinned_message_ids', JSON.stringify([...next]));
-      } catch {}
+      } catch {
+        /* ignore storage error */
+      }
       return next;
     });
   }, []);

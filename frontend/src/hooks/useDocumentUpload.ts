@@ -82,7 +82,9 @@ export function useDocumentUpload(options: UseDocumentUploadOptions = {}) {
           try {
             const err = await response.json();
             detail = err.detail || detail;
-          } catch {}
+          } catch {
+            /* ignore JSON parse error */
+          }
           throw new Error(detail);
         }
 

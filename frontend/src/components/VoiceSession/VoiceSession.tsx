@@ -339,7 +339,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         isTranscribingRef.current = false;
       }
     },
-    [accessToken], // eslint-disable-line react-hooks/exhaustive-deps
+    [accessToken],
   );
 
   // ─── Recording ──────────────────────────────────────────────────────
@@ -469,7 +469,7 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
         setError(`Microphone access error: ${err.message}`);
         setMicPermission(false);
       });
-  }, [isSpeaking]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isSpeaking]);
 
   const stopRecording = useCallback(() => {
     if (silenceTimerRef.current) {
@@ -695,14 +695,14 @@ export const VoiceSession: React.FC<{ accessToken?: string | null; onBack?: () =
       audio.onerror = () => {
         setIsSpeaking(false);
         URL.revokeObjectURL(audioUrl);
-        const clean = text.replace(/[*#`_\[\]()]/g, '').trim();
+        const clean = text.replace(/[*#`_[\]()]/g, '').trim();
         playWithBrowserSpeech(clean);
       };
 
       await audio.play();
     } catch (err) {
       setIsSpeaking(false);
-      const clean = text.replace(/[*#`_\[\]()]/g, '').trim();
+      const clean = text.replace(/[*#`_[\]()]/g, '').trim();
       const spoke = playWithBrowserSpeech(clean);
       if (!spoke) {
         setError(`TTS failed: ${(err as Error).message}`);

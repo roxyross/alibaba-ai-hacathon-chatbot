@@ -59,11 +59,7 @@ export function parseSpokenMath(spoken: string): string {
   s = s
     // Addition
     .replace(/\b(plus|jamah|jod|dhan|aur)\b/gi, '+')
-    .replace(/[جمع\u091C\u094B\u095C\u0927\u0928\u0914\u0930]/g, (match) => {
-      if (match === 'جمع' || match === 'اور') return '+';
-      return match;
-    })
-    .replace(/(जोड़|धन|और)/g, '+')
+    .replace(/(جمع|اور|जोड़|धन)/g, '+')
 
     // Subtraction
     .replace(/\b(minus|manfi|ghatana|ghatao|rin)\b/gi, '-')
@@ -101,7 +97,7 @@ export function parseSpokenMath(spoken: string): string {
     // Also remove trailing or stray words "is", "to", "ka", etc.
     .replace(/\b(is|to|ka|ki|ke|ko|se)\b/gi, '')
     .replace(/(کا|کی|کے|کو|سے|का|की|के|को|से)/g, '')
-    .replace(/[=?:\!]/g, '')
+    .replace(/[=?:!]/g, '')
     .trim();
 
   // 7. Clean up double spaces or spaces around operators

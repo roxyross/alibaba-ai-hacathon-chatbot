@@ -180,7 +180,7 @@ export const TaskWorkspacePanel: React.FC<TaskWorkspacePanelProps> = ({
     const handleOpenEditor = (e: CustomEvent<{ code: string; language?: string; filename?: string }>) => {
       const { code, language = 'python', filename = 'script.py' } = e.detail;
       setFiles((prev) => {
-        let existing = prev.find((f) => f.name === filename);
+        const existing = prev.find((f) => f.name === filename);
         if (!existing) {
           const newFile: WorkspaceFile = {
             id: `file-${Date.now()}`,

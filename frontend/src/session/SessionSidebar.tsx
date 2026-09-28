@@ -328,7 +328,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
       const next = !prev;
       try {
         localStorage.setItem('roxy_sidebar_pinned_collapsed', String(next));
-      } catch {}
+      } catch {
+        /* ignore storage error */
+      }
       return next;
     });
   };
@@ -338,7 +340,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
       const next = !prev;
       try {
         localStorage.setItem('roxy_sidebar_recent_collapsed', String(next));
-      } catch {}
+      } catch {
+        /* ignore storage error */
+      }
       return next;
     });
   };
