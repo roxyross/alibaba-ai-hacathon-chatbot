@@ -18,6 +18,8 @@ import structlog
 from app.research.repository import ResearchRepository
 from app.skills.schemas import WebSearchRequest
 from app.skills.web_search import WebSearchSkill
+from app.tools.registry import ToolRegistry
+from app.tools.schemas import AgentTool, RiskLevel, ToolSource
 
 log = structlog.get_logger()
 
@@ -29,9 +31,19 @@ _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 class ResearchService:
     """Autonomous deep research and real-time information retrieval engine."""
 
+    _instance: ResearchService | None = None
+
     def __init__(self, repo: ResearchRepository | None = None) -> None:
         self.repo = repo or ResearchRepository()
         self.search_skill = WebSearchSkill()
+
+    @classmethod
+    def get_instance(cls) -> ResearchService:
+        """Singleton accessor ensuring tools are registered in the Central ToolRegistry."""
+        if cls._instance is None:
+            cls._instance = cls()
+            cls._instance.register_research_tools()
+        return cls._instance
 
     def decompose_query(self, topic: str) -> list[str]:
         """Decompose a broad research topic into 2-4 targeted search queries."""
@@ -225,9 +237,13 @@ class ResearchService:
                 max_tokens=2048,
             )
             ai_resp = await asyncio.wait_for(ai_router.route(ai_req), timeout=15.0)
-            ai_text = getattr(ai_resp, "content", None) or (
-                ai_resp.choices[0].message.content if hasattr(ai_resp, "choices") else ""
+            raw_choices = getattr(ai_resp, "choices", None)
+            choices_text = (
+                raw_choices[0].message.content
+                if raw_choices and hasattr(raw_choices[0], "message")
+                else ""
             )
+            ai_text = getattr(ai_resp, "content", None) or choices_text
 
             if ai_text:
                 json_match = re.search(r"\{.*\}", ai_text, re.DOTALL)
@@ -318,8 +334,8 @@ class ResearchService:
             "Export this research report to your Knowledge Vault to ground future AI chats.",
         ]
 
-        report_title = title or f"Research: {clean_topic.title()}"
-        report_data = {
+        report_title: str = title or f"Research: {clean_topic.title()}"
+        report_data: dict[str, Any] = {
             "topic": clean_topic,
             "title": report_title,
             "query": clean_topic,
@@ -344,3 +360,325 @@ class ResearchService:
                 log.warning("research.auto_save_failed", error=str(exc))
 
         return report_data
+
+    async def export_to_vault(
+        self,
+        user_id: str,
+        report_id: str,
+        folder: str = "Research",
+    ) -> dict[str, Any]:
+        """Export an existing research report as a structured Knowledge Vault note."""
+        report = await self.repo.get_report(user_id=user_id, report_id=report_id)
+        if not report:
+            return {"success": False, "error": f"Research report '{report_id}' not found."}
+
+        # Build markdown content
+        findings_md = ""
+        findings_list = report.get("findings", [])
+        if isinstance(findings_list, list):
+            for idx, f in enumerate(findings_list, 1):
+                if isinstance(f, dict):
+                    findings_md += f"### {idx}. {f.get('theme', 'Finding')}\n{f.get('claim', '')}\n\n"
+                else:
+                    findings_md += f"### {idx}. Finding\n{f}\n\n"
+
+        sources_md = ""
+        sources_list = report.get("sources", [])
+        if isinstance(sources_list, list):
+            for idx, s in enumerate(sources_list, 1):
+                if isinstance(s, dict):
+                    sources_md += f"- [{idx}] [{s.get('title', 'Source')}]({s.get('url', '#')}) ({s.get('domain', '')})\n"
+
+        rep_title: str = str(report.get("title", "Research Report"))
+        rep_query: str = str(report.get("query", ""))
+        rep_conf: str = str(report.get("confidence", "medium"))
+        rep_depth: str = str(report.get("depth", "deep"))
+        rep_summary: str = str(report.get("summary", ""))
+
+        content = (
+            f"# {rep_title}\n\n"
+            f"**Query**: {rep_query}\n"
+            f"**Confidence**: {rep_conf} | **Depth**: {rep_depth}\n\n"
+            f"## Executive Summary\n{rep_summary}\n\n"
+            f"## Key Findings\n{findings_md}\n"
+            f"## Sources & Citations\n{sources_md}"
+        )
+
+        from app.vault.service import VaultService
+
+        vault = VaultService.get_instance()
+        doc = await vault.create_note(
+            user_id=user_id,
+            title=rep_title,
+            content=content,
+            folder=folder,
+            tags=report.get("tags") or ["research", "report"],
+        )
+        return {
+            "success": True,
+            "document_id": doc.id,
+            "title": doc.filename,
+            "folder": doc.folder,
+            "report_id": report_id,
+        }
+
+    # -------------------------------------------------------------------------
+    # Central Tool Registry Integration
+    # -------------------------------------------------------------------------
+
+    def register_research_tools(self) -> None:
+        """Register Deep Research tools into the Central Tool Registry."""
+        reg = ToolRegistry.get_instance()
+        empty_tags: list[str] = []
+
+        async def _tool_research_deep_investigate(
+            query: str,
+            depth: str = "deep",
+            save_report: bool = True,
+            title: str | None = None,
+            tags: list[str] | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            return await self.synthesize_research(
+                topic=query,
+                depth=depth,
+                save_report=save_report,
+                user_id=uid,
+                title=title,
+                tags=tags or empty_tags,
+            )
+
+        async def _tool_research_live_search(
+            query: str,
+            num_results: int = 5,
+            source: str | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            results = await self.search_web(query=query, num_results=num_results, source=source)
+            return {
+                "query": query,
+                "total_results": len(results),
+                "results": results,
+            }
+
+        async def _tool_research_fetch_page(
+            url: str,
+            max_chars: int = 4000,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            return await self.fetch_url(url=url, max_chars=max_chars)
+
+        async def _tool_research_list_reports(
+            limit: int = 50,
+            search: str | None = None,
+            tag: str | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            items = await self.repo.list_reports(user_id=uid, limit=limit, search=search, tag=tag)
+            return {"total": len(items), "reports": items}
+
+        async def _tool_research_get_report(
+            report_id: str,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            report = await self.repo.get_report(user_id=uid, report_id=report_id)
+            return {"found": report is not None, "report": report}
+
+        async def _tool_research_delete_report(
+            report_id: str,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            deleted = await self.repo.delete_report(user_id=uid, report_id=report_id)
+            return {"report_id": report_id, "deleted": deleted}
+
+        async def _tool_research_export_to_vault(
+            report_id: str,
+            folder: str = "Research",
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            return await self.export_to_vault(user_id=uid, report_id=report_id, folder=folder)
+
+        # 1. Deep Research
+        reg.register(
+            AgentTool(
+                id="research_deep_investigate",
+                name="Deep Research Investigation",
+                description=(
+                    "Perform autonomous deep web research on a complex topic with recursive "
+                    "query decomposition, multi-source live web search, primary page reading, "
+                    "structured factual synthesis, confidence scoring, and verified citation formatting."
+                ),
+                source=ToolSource.SYSTEM,
+                capabilities=["research", "search", "investigation", "web", "synthesis"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Research question or topic to investigate"},
+                        "depth": {
+                            "type": "string",
+                            "enum": ["quick", "deep", "academic"],
+                            "default": "deep",
+                            "description": "Investigation depth",
+                        },
+                        "save_report": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Whether to persist report to database",
+                        },
+                        "title": {"type": "string", "description": "Optional custom title override"},
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional categorization tags",
+                        },
+                    },
+                    "required": ["query"],
+                },
+                permissions=["research:read", "research:write"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_research_deep_investigate,
+        )
+
+        # 2. Live Search
+        reg.register(
+            AgentTool(
+                id="research_live_search",
+                name="Live Multi-Engine Search",
+                description="Execute real-time multi-engine web search with normalized schema and snippet extraction.",
+                source=ToolSource.SYSTEM,
+                capabilities=["search", "web", "lookup"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query keywords"},
+                        "num_results": {"type": "integer", "default": 5, "description": "Number of results to retrieve"},
+                        "source": {"type": "string", "description": "Search provider preference"},
+                    },
+                    "required": ["query"],
+                },
+                permissions=["research:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_research_live_search,
+        )
+
+        # 3. Fetch Page
+        reg.register(
+            AgentTool(
+                id="research_fetch_page",
+                name="Web Page Content Extractor",
+                description="Fetch and extract readable clean text from a web page URL, stripping HTML scripts and styles.",
+                source=ToolSource.SYSTEM,
+                capabilities=["web", "scrape", "extract", "fetch"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "Target canonical web page URL"},
+                        "max_chars": {"type": "integer", "default": 4000, "description": "Maximum characters to extract"},
+                    },
+                    "required": ["url"],
+                },
+                permissions=["research:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_research_fetch_page,
+        )
+
+        # 4. List Reports
+        reg.register(
+            AgentTool(
+                id="research_list_reports",
+                name="List Saved Research Reports",
+                description="List saved research reports and executive briefings for the current user.",
+                source=ToolSource.SYSTEM,
+                capabilities=["research", "reports", "list"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "default": 50},
+                        "search": {"type": "string", "description": "Optional search term"},
+                        "tag": {"type": "string", "description": "Optional tag filter"},
+                    },
+                },
+                permissions=["research:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_research_list_reports,
+        )
+
+        # 5. Get Report
+        reg.register(
+            AgentTool(
+                id="research_get_report",
+                name="Get Research Report Details",
+                description="Retrieve full details, key findings, and citations of a research report by ID.",
+                source=ToolSource.SYSTEM,
+                capabilities=["research", "reports", "read"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "report_id": {"type": "string", "description": "Unique research report ID"},
+                    },
+                    "required": ["report_id"],
+                },
+                permissions=["research:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_research_get_report,
+        )
+
+        # 6. Delete Report
+        reg.register(
+            AgentTool(
+                id="research_delete_report",
+                name="Delete Research Report",
+                description="Permanently remove a research report with strict multi-tenant isolation.",
+                source=ToolSource.SYSTEM,
+                capabilities=["research", "reports", "delete"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "report_id": {"type": "string", "description": "Unique research report ID to delete"},
+                    },
+                    "required": ["report_id"],
+                },
+                permissions=["research:delete"],
+                risk_level=RiskLevel.MEDIUM,
+                requires_confirmation=False,
+            ),
+            _tool_research_delete_report,
+        )
+
+        # 7. Export to Vault
+        reg.register(
+            AgentTool(
+                id="research_export_to_vault",
+                name="Export Research Report to Vault",
+                description="Export a completed research report into the user's Knowledge Vault as a permanent searchable document note.",
+                source=ToolSource.SYSTEM,
+                capabilities=["research", "vault", "export"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "report_id": {"type": "string", "description": "ID of research report to export"},
+                        "folder": {"type": "string", "default": "Research", "description": "Vault folder name"},
+                    },
+                    "required": ["report_id"],
+                },
+                permissions=["research:read", "vault:write"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_research_export_to_vault,
+        )

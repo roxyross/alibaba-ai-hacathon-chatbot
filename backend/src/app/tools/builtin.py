@@ -422,3 +422,12 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     except Exception as exc:
         log.warning("register_builtin_tools.vault_failed", error=str(exc))
 
+    # 10. Register Deep Research tools (research_deep_investigate, research_live_search, etc.)
+    try:
+        from app.research.service import ResearchService
+
+        ResearchService.get_instance().register_research_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.research_failed", error=str(exc))
+
+

@@ -207,6 +207,38 @@ class AgentPlanner:
                 }
             ]
 
+        # Single-intent: Deep research & autonomous investigation
+        if (
+            lower.startswith("deep research")
+            or lower.startswith("research ")
+            or lower.startswith("investigate ")
+            or "comprehensive analysis of" in lower
+            or "deep investigation on" in lower
+            or "conduct research on" in lower
+        ):
+            q = re.sub(
+                r"(?i)^(?:deep research(?:\s+on|\s+into)?|research(?:\s+on|\s+into)?|investigate(?:\s+into)?|conduct research on)\s*",
+                "",
+                text,
+            ).strip()
+            if not q:
+                q = text
+            research_tool_id = (
+                "research_deep_investigate"
+                if "research_deep_investigate" in available_tools
+                or self._tool_registry.get("research_deep_investigate")
+                else "system_web_search"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Conduct autonomous deep research on '{q}'",
+                    "tool_id": research_tool_id,
+                    "tool_input": {"query": q, "depth": "deep", "save_report": True},
+                    "depends_on": [],
+                }
+            ]
+
         return None
 
     def _build_default_plan(

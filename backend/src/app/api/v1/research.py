@@ -210,3 +210,21 @@ async def fetch_url_endpoint(
         domain=res["domain"],
         status=res.get("status", "success"),
     )
+
+
+@router.post("/reports/{report_id}/export-vault")
+async def export_report_to_vault_endpoint(
+    report_id: str,
+    folder: str = Query(default="Research"),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Export an existing research report as a structured Knowledge Vault note."""
+    user_id = str(current_user.id)
+    service = ResearchService.get_instance()
+    res = await service.export_to_vault(user_id=user_id, report_id=report_id, folder=folder)
+    if not res.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=res.get("error", f"Research report '{report_id}' not found."),
+        )
+    return res

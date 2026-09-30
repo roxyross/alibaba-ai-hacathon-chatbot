@@ -198,9 +198,12 @@ async def on_startup() -> None:
         register_builtin_tools()
         from app.device.service import DeviceService
         DeviceService.get_instance().register_device_tools()
+        from app.research.service import ResearchService
+        ResearchService.get_instance().register_research_tools()
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))
+
 
 
 @app.on_event("shutdown")
