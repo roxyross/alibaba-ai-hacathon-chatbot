@@ -127,16 +127,14 @@ class CalendarService:
 
         # 6. Extract clean title
         title = prompt
-        # Strip common command prefixes
-        for prefix in (
-            "schedule a", "schedule an", "schedule",
-            "set a reminder for", "set a reminder to", "set reminder for", "set reminder",
-            "add a meeting with", "add meeting with", "add an event", "add event", "create event",
-            "remind me to", "remind me about",
-        ):
-            if prompt_lower.startswith(prefix):
-                title = prompt[len(prefix):].strip()
-                break
+        # Strip common command prefixes safely with whitespace/word boundaries
+        clean_title = re.sub(
+            r"(?i)^(?:schedule\s+(?:a\s+|an\s+)?|set\s+(?:a\s+)?reminder\s+(?:for\s+|to\s+)?|add\s+(?:a\s+)?meeting\s+with\s+|add\s+(?:an\s+)?event\s+|create\s+event\s+|remind\s+me\s+(?:to\s+|about\s+)?)\s*",
+            "",
+            prompt,
+        ).strip()
+        if clean_title:
+            title = clean_title
 
         # Trim date/time fragments from end of title if present
         title = re.sub(r"\s+(?:tomorrow|yesterday|today|on\s+[a-zA-Z]+|at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|for\s+\d+\s*(?:mins?|minutes?|hours?)).*$", "", title, flags=re.IGNORECASE).strip()

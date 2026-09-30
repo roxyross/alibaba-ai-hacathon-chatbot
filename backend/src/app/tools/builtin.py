@@ -478,6 +478,14 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     except Exception as exc:
         log.warning("register_builtin_tools.cowork_failed", error=str(exc))
 
+    # 17. Register Job Scheduler & Automation tools (scheduler_list_jobs, scheduler_create_job, etc.)
+    try:
+        from app.jobs.service import JobService
+
+        JobService.get_instance().register_scheduler_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.scheduler_failed", error=str(exc))
+
 
 
 

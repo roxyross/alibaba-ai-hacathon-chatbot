@@ -1678,6 +1678,361 @@ class AgentPlanner:
                 }
             ]
 
+        # ---------------------------------------------------------------------
+        # Phase 7: Projects, Tasks, Automations & Workflow Scheduler
+        # ---------------------------------------------------------------------
+
+        # Single-intent: Workspace Hub - Delete Project (destructive - requires confirmation)
+        if (
+            lower.startswith("delete project ")
+            or lower.startswith("remove project ")
+            or lower.startswith("delete workspace project ")
+            or "delete project" in lower
+        ):
+            proj_id = re.sub(
+                r"(?i)^(?:delete\s+(?:workspace\s+)?project|remove\s+(?:workspace\s+)?project)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not proj_id:
+                proj_id = ctx_dict.get("project_id", "proj_1")
+            tool_id = (
+                "workspace_delete_project"
+                if "workspace_delete_project" in tools or self._tool_registry.get("workspace_delete_project")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Delete workspace project '{proj_id}' (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {"project_id": proj_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - Create Task in Project
+        if (
+            lower.startswith("create task ")
+            or lower.startswith("add task ")
+            or "create task in project" in lower
+            or "add task to project" in lower
+        ):
+            task_title = text
+            proj_id = ctx_dict.get("project_id", "default_proj")
+            m = re.search(r"(?i)(?:create|add)\s+task\s+['\"]?(.+?)['\"]?\s+(?:in|to)\s+project\s+['\"]?([a-zA-Z0-9_\-]+)['\"]?", text)
+            if m:
+                task_title = m.group(1).strip()
+                proj_id = m.group(2).strip()
+            else:
+                task_title = re.sub(r"(?i)^(?:create\s+task|add\s+task)\s*", "", text).strip()
+            tool_id = (
+                "workspace_create_task"
+                if "workspace_create_task" in tools or self._tool_registry.get("workspace_create_task")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Add task '{task_title}' to workspace project '{proj_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"project_id": proj_id, "title": task_title, "status": "todo", "priority": "medium"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - Update Task Status
+        if (
+            lower.startswith("update task ")
+            or lower.startswith("mark task ")
+            or lower.startswith("complete task ")
+        ):
+            status = "done" if ("complete" in lower or "done" in lower) else "in_progress"
+            task_id = re.sub(r"(?i)^(?:update\s+task|mark\s+task|complete\s+task)\s*", "", text)
+            task_id = re.sub(r"(?i)\s+(?:as\s+)?(?:done|complete|in_progress|todo)\s*$", "", task_id).strip().strip("'\"")
+            proj_id = ctx_dict.get("project_id", "default_proj")
+            tool_id = (
+                "workspace_update_task"
+                if "workspace_update_task" in tools or self._tool_registry.get("workspace_update_task")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Update workspace task '{task_id}' status to '{status}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"project_id": proj_id, "task_id": task_id, "status": status},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - Create Project
+        if (
+            lower.startswith("create project ")
+            or lower.startswith("new project ")
+            or lower.startswith("create workspace project ")
+            or lower.startswith("start project ")
+        ):
+            name = re.sub(r"(?i)^(?:create\s+(?:workspace\s+)?project|new\s+project|start\s+project)\s*", "", text).strip().strip("'\"")
+            tool_id = (
+                "workspace_create_project"
+                if "workspace_create_project" in tools or self._tool_registry.get("workspace_create_project")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Create new workspace project '{name}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"name": name, "description": f"Project {name}", "status": "active"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - List Projects
+        if (
+            "list projects" in lower
+            or "show projects" in lower
+            or "my projects" in lower
+            or "workspace projects" in lower
+            or lower.startswith("list workspace")
+            or lower.startswith("show workspace")
+        ):
+            tool_id = (
+                "workspace_list_projects"
+                if "workspace_list_projects" in tools or self._tool_registry.get("workspace_list_projects")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "List workspace projects, milestones, and task counts",
+                    "tool_id": tool_id,
+                    "tool_input": {"status": "all"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - Delete Event (destructive - requires confirmation)
+        if (
+            lower.startswith("delete calendar event ")
+            or lower.startswith("cancel calendar event ")
+            or lower.startswith("delete event ")
+            or lower.startswith("cancel event ")
+        ):
+            event_id = re.sub(
+                r"(?i)^(?:delete\s+calendar\s+event|cancel\s+calendar\s+event|delete\s+event|cancel\s+event)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not event_id:
+                event_id = ctx_dict.get("event_id", "event_1")
+            tool_id = (
+                "calendar_delete_event"
+                if "calendar_delete_event" in tools or self._tool_registry.get("calendar_delete_event")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Delete calendar event '{event_id}' (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {"event_id": event_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - Schedule Meeting / Event
+        if (
+            lower.startswith("schedule meeting")
+            or lower.startswith("schedule event")
+            or lower.startswith("schedule a meeting")
+            or lower.startswith("schedule an event")
+            or lower.startswith("schedule call")
+            or lower.startswith("book meeting")
+            or lower.startswith("set up meeting")
+        ):
+            tool_id = (
+                "calendar_create_event"
+                if "calendar_create_event" in tools or self._tool_registry.get("calendar_create_event")
+                else "system_schedule_job"
+            )
+            from app.calendar.service import CalendarService
+            parsed = CalendarService.get_instance().parse_event_from_prompt(text)
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Schedule calendar event '{parsed['title']}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "title": parsed["title"],
+                        "start_time": parsed["start_time"],
+                        "end_time": parsed["end_time"],
+                        "category": parsed.get("category", "meeting"),
+                        "location": parsed.get("location"),
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - Upcoming Events
+        if (
+            "upcoming events" in lower
+            or "upcoming meetings" in lower
+            or "what's next on my calendar" in lower
+            or "what is on my calendar" in lower
+            or lower.startswith("calendar upcoming")
+        ):
+            tool_id = (
+                "calendar_get_upcoming"
+                if "calendar_get_upcoming" in tools or self._tool_registry.get("calendar_get_upcoming")
+                else "system_schedule_job"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Retrieve upcoming calendar events and meetings",
+                    "tool_id": tool_id,
+                    "tool_input": {"days_ahead": 7},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - List Events
+        if (
+            "list calendar events" in lower
+            or "show calendar events" in lower
+            or "show my calendar" in lower
+            or "view calendar" in lower
+        ):
+            tool_id = (
+                "calendar_list_events"
+                if "calendar_list_events" in tools or self._tool_registry.get("calendar_list_events")
+                else "system_schedule_job"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "List scheduled calendar events",
+                    "tool_id": tool_id,
+                    "tool_input": {"limit": 50},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Scheduled Jobs - Delete Job (destructive - requires confirmation)
+        if (
+            lower.startswith("delete scheduled job ")
+            or lower.startswith("delete automation ")
+            or lower.startswith("remove scheduled job ")
+            or lower.startswith("delete job ")
+        ):
+            job_id = re.sub(
+                r"(?i)^(?:delete\s+scheduled\s+job|delete\s+automation|remove\s+scheduled\s+job|delete\s+job)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not job_id:
+                job_id = ctx_dict.get("job_id", "job_1")
+            tool_id = (
+                "scheduler_delete_job"
+                if "scheduler_delete_job" in tools or self._tool_registry.get("scheduler_delete_job")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Delete scheduled job '{job_id}' (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {"job_id": job_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Scheduled Jobs - Run Job Now
+        if (
+            lower.startswith("run job ")
+            or lower.startswith("run scheduled job ")
+            or lower.startswith("execute scheduled job ")
+            or lower.startswith("trigger job ")
+        ):
+            job_id = re.sub(
+                r"(?i)^(?:run\s+scheduled\s+job|execute\s+scheduled\s+job|run\s+job|trigger\s+job)\s*",
+                "",
+                text,
+            )
+            job_id = re.sub(r"(?i)\s+now$", "", job_id).strip().strip("'\"")
+            if not job_id:
+                job_id = ctx_dict.get("job_id", "job_1")
+            tool_id = (
+                "scheduler_run_job_now"
+                if "scheduler_run_job_now" in tools or self._tool_registry.get("scheduler_run_job_now")
+                else "system_schedule_job"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Immediately execute scheduled job '{job_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"job_id": job_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Scheduled Jobs - Pause or Resume Job
+        if (
+            lower.startswith("pause scheduled job ")
+            or lower.startswith("pause job ")
+            or lower.startswith("resume scheduled job ")
+            or lower.startswith("resume job ")
+        ):
+            status = "Pause" if "pause" in lower else "Active"
+            job_id = re.sub(
+                r"(?i)^(?:pause\s+scheduled\s+job|pause\s+job|resume\s+scheduled\s+job|resume\s+job)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not job_id:
+                job_id = ctx_dict.get("job_id", "job_1")
+            tool_id = (
+                "scheduler_update_job_status"
+                if "scheduler_update_job_status" in tools or self._tool_registry.get("scheduler_update_job_status")
+                else "system_schedule_job"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Update scheduled job '{job_id}' status to '{status}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"job_id": job_id, "status": status},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Scheduled Jobs - List Jobs / Automations
+        if (
+            "list scheduled jobs" in lower
+            or "show scheduled jobs" in lower
+            or "list automations" in lower
+            or "show automations" in lower
+            or "list scheduled tasks" in lower
+            or "my scheduled jobs" in lower
+        ):
+            tool_id = (
+                "scheduler_list_jobs"
+                if "scheduler_list_jobs" in tools or self._tool_registry.get("scheduler_list_jobs")
+                else "system_schedule_job"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "List all scheduled automated jobs and recurring tasks",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
         return None
 
     def _build_default_plan(

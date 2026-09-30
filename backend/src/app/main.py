@@ -214,6 +214,8 @@ async def on_startup() -> None:
         CalendarService.get_instance().register_calendar_tools()
         from app.artifacts.service import CoworkService
         CoworkService.get_instance().register_cowork_tools()
+        from app.jobs.service import JobService
+        JobService.get_instance().register_scheduler_tools()
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))

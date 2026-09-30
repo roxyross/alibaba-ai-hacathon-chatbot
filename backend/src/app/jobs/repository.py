@@ -6,14 +6,14 @@ Provides access to `scheduled_jobs` with resilient in-memory fallback stores
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
-import uuid
 
+import structlog
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-import structlog
 
 from app.db import get_session_factory
 from app.models.scheduled_job import ScheduledJob
