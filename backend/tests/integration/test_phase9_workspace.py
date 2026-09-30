@@ -608,3 +608,324 @@ async def test_workspace_chat_offline_fallback(client: httpx.AsyncClient) -> Non
         assert "1/1 completed" in data2["response"]
 
 
+# -----------------------------------------------------------------------------
+# 10. ProjectService Singleton & ToolRegistry Verification
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_project_service_singleton_and_tool_registration() -> None:
+    """Verify ProjectService singleton identity and 7 native tools in ToolRegistry."""
+    from app.projects.service import ProjectService
+    from app.tools.registry import ToolRegistry
+    from app.tools.schemas import RiskLevel
+
+    svc1 = ProjectService.get_instance()
+    svc2 = ProjectService.get_instance()
+    assert svc1 is svc2
+
+    svc1.register_workspace_tools()
+    reg = ToolRegistry.get_instance()
+
+    expected_tools = [
+        "workspace_list_projects",
+        "workspace_get_project",
+        "workspace_create_project",
+        "workspace_create_task",
+        "workspace_update_task",
+        "workspace_link_document",
+        "workspace_delete_project",
+    ]
+    for tid in expected_tools:
+        tool = reg.get(tid)
+        assert tool is not None, f"Expected tool {tid} to be registered"
+        assert "workspace" in tool.capabilities
+
+    # High-risk confirmation gating
+    del_tool = reg.get("workspace_delete_project")
+    assert del_tool is not None
+    assert del_tool.risk_level == RiskLevel.HIGH
+    assert del_tool.requires_confirmation is True
+
+
+# -----------------------------------------------------------------------------
+# 11. Workspace Hub Native Tools Direct Execution
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_workspace_tools_direct_execution() -> None:
+    """Verify end-to-end execution of all 7 workspace tools via Central ToolRegistry."""
+    from app.projects.service import ProjectService
+    from app.tools.registry import ToolRegistry
+    from app.tools.schemas import ToolExecutionRequest
+
+    svc = ProjectService.get_instance()
+    svc.register_workspace_tools()
+    reg = ToolRegistry.get_instance()
+
+    user_id = f"tool_exec_{uuid.uuid4().hex[:6]}"
+
+    # 1. workspace_list_projects (empty)
+    res_list_empty = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_list_projects",
+            arguments={},
+            user_id=user_id,
+        )
+    )
+    assert res_list_empty.success is True
+    assert res_list_empty.output["total_projects"] == 0
+
+    # 2. workspace_create_project
+    res_create_proj = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_create_project",
+            arguments={"name": "Quantum Neural Net", "description": "Core intelligence model"},
+            user_id=user_id,
+        )
+    )
+    assert res_create_proj.success is True
+    assert res_create_proj.output["status"] == "success"
+    proj_id = res_create_proj.output["project"]["id"]
+    assert "Quantum Neural Net" in res_create_proj.output["project"]["name"]
+
+    # 3. workspace_get_project
+    res_get_proj = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_get_project",
+            arguments={"project_id": proj_id},
+            user_id=user_id,
+        )
+    )
+    assert res_get_proj.success is True
+    assert res_get_proj.output["project"]["id"] == proj_id
+
+    # 4. workspace_create_task
+    res_create_task = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_create_task",
+            arguments={
+                "project_id": proj_id,
+                "title": "Train Transformer Attention Heads",
+                "priority": "high",
+            },
+            user_id=user_id,
+        )
+    )
+    assert res_create_task.success is True
+    task_id = res_create_task.output["task"]["id"]
+    assert res_create_task.output["task"]["title"] == "Train Transformer Attention Heads"
+
+    # 5. workspace_update_task
+    res_update_task = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_update_task",
+            arguments={
+                "project_id": proj_id,
+                "task_id": task_id,
+                "status": "done",
+            },
+            user_id=user_id,
+        )
+    )
+    assert res_update_task.success is True
+    assert res_update_task.output["task"]["status"] == "done"
+
+    # 6. workspace_link_document
+    res_link_doc = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_link_document",
+            arguments={
+                "project_id": proj_id,
+                "document_id": "doc_transformer_math_99",
+                "title": "Transformer Attention Mathematics.pdf",
+                "file_type": "pdf",
+            },
+            user_id=user_id,
+        )
+    )
+    assert res_link_doc.success is True
+    assert res_link_doc.output["document"]["document_id"] == "doc_transformer_math_99"
+
+    # 7. workspace_list_projects (reflects 1 project, 1 task, 100% completed)
+    res_list_after = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_list_projects",
+            arguments={},
+            user_id=user_id,
+        )
+    )
+    assert res_list_after.success is True
+    assert res_list_after.output["total_projects"] == 1
+    assert "1/1 tasks completed (100.0%)" in res_list_after.output["summary"]
+
+    # 8. workspace_delete_project (cascading purge)
+    res_del_proj = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_delete_project",
+            arguments={"project_id": proj_id},
+            user_id=user_id,
+        )
+    )
+    assert res_del_proj.success is True
+    assert res_del_proj.output["deleted"] is True
+
+    # 9. Verify project is gone
+    res_get_deleted = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_get_project",
+            arguments={"project_id": proj_id},
+            user_id=user_id,
+        )
+    )
+    assert res_get_deleted.output["status"] == "not_found"
+
+
+# -----------------------------------------------------------------------------
+# 12. AgentPlanner Workspace Hub Intent Routing
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_agent_planner_workspace_intent_routing() -> None:
+    """Verify AgentPlanner deterministic decomposition and routing to workspace tools."""
+    from app.agent_runtime.planner import AgentPlanner
+    from app.projects.service import ProjectService
+
+    ProjectService.get_instance().register_workspace_tools()
+    planner = AgentPlanner()
+
+    # A. List workspace projects
+    plan_list = await planner.create_plan("list projects in my workspace")
+    assert len(plan_list) == 1
+    assert plan_list[0]["tool_id"] == "workspace_list_projects"
+
+    # B. Project details
+    plan_details = await planner.create_plan("project details for proj-alpha-99")
+    assert len(plan_details) == 1
+    assert plan_details[0]["tool_id"] == "workspace_get_project"
+    assert plan_details[0]["tool_input"]["project_id"] == "proj-alpha-99"
+
+    # C. Create project
+    plan_create = await planner.create_plan("create project Distributed Consensus Engine")
+    assert len(plan_create) == 1
+    assert plan_create[0]["tool_id"] == "workspace_create_project"
+    assert plan_create[0]["tool_input"]["name"] == "Distributed Consensus Engine"
+
+    # D. Create task
+    plan_task = await planner.create_plan("create task Implement Raft Protocol in project proj-raft-01")
+    assert len(plan_task) == 1
+    assert plan_task[0]["tool_id"] == "workspace_create_task"
+    assert plan_task[0]["tool_input"]["project_id"] == "proj-raft-01"
+    assert "Implement Raft Protocol" in plan_task[0]["tool_input"]["title"]
+
+    # E. Update task (mark done)
+    plan_update = await planner.create_plan("mark task task-leader-election done in project proj-raft-01")
+    assert len(plan_update) == 1
+    assert plan_update[0]["tool_id"] == "workspace_update_task"
+    assert plan_update[0]["tool_input"]["project_id"] == "proj-raft-01"
+    assert plan_update[0]["tool_input"]["status"] == "done"
+
+    # F. Link document
+    plan_link = await planner.create_plan("link document doc-raft-paper to project proj-raft-01")
+    assert len(plan_link) == 1
+    assert plan_link[0]["tool_id"] == "workspace_link_document"
+    assert plan_link[0]["tool_input"]["project_id"] == "proj-raft-01"
+
+    # G. Delete project (requires confirmation)
+    plan_del = await planner.create_plan("delete project proj-raft-01")
+    assert len(plan_del) == 1
+    assert plan_del[0]["tool_id"] == "workspace_delete_project"
+    assert plan_del[0]["tool_input"]["project_id"] == "proj-raft-01"
+
+
+# -----------------------------------------------------------------------------
+# 13. Multi-Tenant Isolation via Tool Registry Execution
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_workspace_tool_multitenant_isolation() -> None:
+    """Verify strict multi-tenant isolation across workspace projects and tasks via ToolRegistry."""
+    from app.projects.service import ProjectService
+    from app.tools.registry import ToolRegistry
+    from app.tools.schemas import ToolExecutionRequest
+
+    svc = ProjectService.get_instance()
+    svc.register_workspace_tools()
+    reg = ToolRegistry.get_instance()
+
+    user_a = f"ws_tenant_a_{uuid.uuid4().hex[:6]}"
+    user_b = f"ws_tenant_b_{uuid.uuid4().hex[:6]}"
+
+    # User A creates a confidential project with task
+    res_a = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_create_project",
+            arguments={"name": "Project Manhattan Secret", "description": "Classified"},
+            user_id=user_a,
+        )
+    )
+    assert res_a.success is True
+    proj_a_id = res_a.output["project"]["id"]
+
+    await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_create_task",
+            arguments={"project_id": proj_a_id, "title": "Classified Task Alpha"},
+            user_id=user_a,
+        )
+    )
+
+    # User B lists projects -> 0 projects, zero leak
+    res_b_list = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_list_projects",
+            arguments={},
+            user_id=user_b,
+        )
+    )
+    assert res_b_list.success is True
+    assert res_b_list.output["total_projects"] == 0
+    assert len(res_b_list.output["projects"]) == 0
+
+    # User B tries to inspect User A's project directly -> not_found
+    res_b_get = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_get_project",
+            arguments={"project_id": proj_a_id},
+            user_id=user_b,
+        )
+    )
+    assert res_b_get.output["status"] == "not_found"
+
+    # User B tries to add a task to User A's project -> error
+    res_b_task = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_create_task",
+            arguments={"project_id": proj_a_id, "title": "Intruder Task"},
+            user_id=user_b,
+        )
+    )
+    assert res_b_task.output["status"] == "error"
+
+    # User B tries to delete User A's project -> deleted is False
+    res_b_del = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_delete_project",
+            arguments={"project_id": proj_a_id},
+            user_id=user_b,
+        )
+    )
+    assert res_b_del.output["deleted"] is False
+
+    # Confirm User A's project still exists untouched
+    res_a_verify = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="workspace_get_project",
+            arguments={"project_id": proj_a_id},
+            user_id=user_a,
+        )
+    )
+    assert res_a_verify.output["status"] == "success"
+    assert res_a_verify.output["project"]["id"] == proj_a_id
+
+
+

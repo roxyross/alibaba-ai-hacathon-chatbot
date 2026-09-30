@@ -2078,6 +2078,58 @@
 - Frontend Typecheck (`tsc --noEmit`): **Passed (exit 0)**
 - Code Quality: `ruff check` (0 errors), `mypy` (0 errors)
 
+---
+
+## Phase 9: Workspace Hub, Project Management Engine & Central Tool Registry Integration
+
+### Status: Complete & Verified (Exit Gate Passed)
+
+### Summary of Changes
+1. **`ProjectService.get_instance()` Singleton Pattern (`backend/src/app/projects/service.py`)**:
+   - Implemented thread-safe `_instance: ClassVar[ProjectService | None]` and `get_instance(cls)` singleton to guarantee unified state across repositories, tool registries, and FastAPI endpoints.
+   - Updated `backend/src/app/api/v1/projects.py` to bind directly to the singleton instance (`_service = ProjectService.get_instance()`, `_repo = _service.repo`).
+2. **Central Tool Registry Integration with 7 Native Workspace Tools (`register_workspace_tools`)**:
+   - `workspace_list_projects`: Lists all workspace projects for the authenticated user with computed task counts, completion progress percentage, and status filtering (`all`, `active`, `completed`, `archived`).
+   - `workspace_get_project`: Retrieves full details, task items, and linked documents for a specific workspace project.
+   - `workspace_create_project`: Creates a new workspace project to track milestones, tasks, and deliverables.
+   - `workspace_create_task`: Adds a new task item with status (`todo`, `in_progress`, `done`, `blocked`), priority (`low`, `medium`, `high`, `urgent`), and optional assigned agent to a project.
+   - `workspace_update_task`: Updates a task's status, priority, or title with immediate project progress recalculation.
+   - `workspace_link_document`: Links a Knowledge Vault document to a workspace project.
+   - `workspace_delete_project`: Permanently deletes a workspace project along with cascading purge of all associated tasks and document links, gated by high-risk human confirmation (`requires_confirmation=True`, `RiskLevel.HIGH`).
+3. **Agent Planner Deterministic Intent Decomposition (`backend/src/app/agent_runtime/planner.py`)**:
+   - Added pattern matching for natural language workspace management queries:
+     - Project listing & overview ("list projects", "my workspace projects", "workspace summary", "show projects") → routes to `workspace_list_projects`.
+     - Project detail inspection ("project details for proj-123", "view project proj-123") → routes to `workspace_get_project`.
+     - Project creation ("create project Distributed Consensus", "new project Mobile App") → routes to `workspace_create_project`.
+     - Task creation ("create task Draft Wireframes in project proj-123", "add task Implement Auth") → routes to `workspace_create_task`.
+     - Task update & completion ("mark task task-123 done in project proj-123", "complete task", "update task") → routes to `workspace_update_task`.
+     - Document linking ("link document doc-123 to project proj-123", "attach document") → routes to `workspace_link_document`.
+     - Project deletion ("delete project proj-123", "remove project") → routes to `workspace_delete_project` with confirmation gating.
+4. **Startup Tool Registration Hooks (`backend/src/app/tools/builtin.py` & `backend/src/app/main.py`)**:
+   - Wired `ProjectService.get_instance().register_workspace_tools()` into `register_builtin_tools()` and FastAPI `on_startup` lifecycle.
+5. **Multi-Tenant Isolation & Confirmation Gating**:
+   - Enforced strict multi-tenant isolation across all 7 workspace tools in ToolRegistry: User B cannot list, inspect, add tasks to, or delete User A's projects.
+   - Sensitive project deletions enforce high-risk confirmation gating (`RiskLevel.HIGH`, `requires_confirmation=True`).
+
+### Tests Executed
+- `pytest backend/tests/integration/test_phase9_workspace.py -v`: **13 passed in 56.85s**
+  - Section 1: `test_workspace_empty_state` (empty projects and tasks list)
+  - Section 2: `test_project_crud_and_filtering` (project creation, status updates, active/archived filters)
+  - Section 3: `test_task_lifecycle_and_progress` (task lifecycle, todo -> done, real-time dynamic progress calculation)
+  - Section 4: `test_document_linking_lifecycle` (document linking and unlinking from Knowledge Vault)
+  - Section 5: `test_project_cascading_deletion` (cascading purge of tasks and linked docs on project deletion)
+  - Section 6: `test_workspace_multi_tenant_isolation` (REST endpoint anti-IDOR isolation)
+  - Section 7: `test_workspace_chat_grounding` (multi-agent coordinator context injection)
+  - Section 8: `test_workspace_streaming_chat_grounding` (SSE streaming context injection)
+  - Section 9: `test_workspace_chat_offline_fallback` (offline fallback parity with live telemetry)
+  - Section 10: `test_project_service_singleton_and_tool_registration` (singleton identity, 7 tools in ToolRegistry, confirmation gating)
+  - Section 11: `test_workspace_tools_direct_execution` (direct execution of all 7 tools via ToolRegistry)
+  - Section 12: `test_agent_planner_workspace_intent_routing` (planner deterministic decomposition to workspace tools)
+  - Section 13: `test_workspace_tool_multitenant_isolation` (multi-tenant boundary enforcement via ToolRegistry execution)
+- Full Regression Suite across Phases 1–9: **78/78 passed in 368.77s (100% green, 0 regressions)**
+- Code Quality: `ruff check` (0 errors), `mypy` (0 errors)
+
+
 
 
 

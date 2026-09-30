@@ -13,10 +13,11 @@ from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
-from app.projects.repository import ProjectRepository
+from app.projects.service import ProjectService
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-_repo = ProjectRepository()
+_service = ProjectService.get_instance()
+_repo = _service.repo
 
 
 # -----------------------------------------------------------------------------

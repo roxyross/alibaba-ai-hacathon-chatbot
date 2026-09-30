@@ -446,5 +446,13 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     except Exception as exc:
         log.warning("register_builtin_tools.billing_failed", error=str(exc))
 
+    # 13. Register Workspace Hub tools (workspace_list_projects, workspace_create_task, etc.)
+    try:
+        from app.projects.service import ProjectService
+
+        ProjectService.get_instance().register_workspace_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.workspace_failed", error=str(exc))
+
 
 

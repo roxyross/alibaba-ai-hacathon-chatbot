@@ -52,6 +52,7 @@ class AgentPlanner:
         tools = available_tools or {}
         text = objective.strip()
         lower = text.lower()
+        ctx_dict: dict[str, Any] = ctx or {}
 
         # Multi-step: Search AND Email
         if ("search" in lower or "find" in lower or "look up" in lower) and ("email" in lower or "mail" in lower or "send" in lower):
@@ -522,6 +523,190 @@ class AgentPlanner:
                 {
                     "step_number": 1,
                     "description": "Cancel active subscription at period end (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - Delete Project (requires confirmation)
+        if (
+            lower.startswith("delete project ")
+            or lower.startswith("remove project ")
+            or "delete workspace project" in lower
+        ):
+            proj_id = re.sub(r"(?i)^(?:delete\s+(?:workspace\s+)?project|remove\s+(?:workspace\s+)?project)\s*", "", text).strip().strip("'\"")
+            tool_id = (
+                "workspace_delete_project"
+                if "workspace_delete_project" in tools or self._tool_registry.get("workspace_delete_project")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Permanently delete workspace project '{proj_id}' (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {"project_id": proj_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - Create Task
+        if (
+            lower.startswith("create task ")
+            or lower.startswith("add task ")
+            or lower.startswith("new task ")
+            or "add a task" in lower
+            or "create a task" in lower
+        ):
+            proj_match = re.search(r"(?i)(?:in|to|for)\s+project\s+([a-zA-Z0-9_\-]+)", text)
+            proj_id = proj_match.group(1) if proj_match else (ctx_dict.get("project_id", "default_proj"))
+            clean_title = re.sub(r"(?i)^(?:create|add|new)\s+(?:a\s+)?task\s*", "", text)
+            clean_title = re.sub(r"(?i)\s+(?:in|to|for)\s+project\s+[a-zA-Z0-9_\-]+.*$", "", clean_title).strip().strip("'\"")
+            if not clean_title:
+                clean_title = "New Task"
+            tool_id = (
+                "workspace_create_task"
+                if "workspace_create_task" in tools or self._tool_registry.get("workspace_create_task")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Create task '{clean_title}' in project '{proj_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"project_id": proj_id, "title": clean_title, "status": "todo", "priority": "medium"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - Update Task / Complete Task
+        if (
+            lower.startswith("update task ")
+            or lower.startswith("complete task ")
+            or lower.startswith("mark task ")
+            or "mark task done" in lower
+            or "mark task complete" in lower
+        ):
+            proj_match = re.search(r"(?i)(?:in|for)\s+project\s+([a-zA-Z0-9_\-]+)", text)
+            proj_id = proj_match.group(1) if proj_match else (ctx_dict.get("project_id", "default_proj"))
+            task_match = re.search(r"(?:task[-_][a-zA-Z0-9]+|[a-zA-Z0-9_\-]+)", re.sub(r"(?i)^(?:update|complete|mark)\s+task\s*", "", text).strip())
+            task_id = task_match.group(0) if task_match else "task_1"
+            new_status = "done" if ("done" in lower or "complete" in lower or "finish" in lower) else ("in_progress" if "in progress" in lower else "todo")
+            tool_id = (
+                "workspace_update_task"
+                if "workspace_update_task" in tools or self._tool_registry.get("workspace_update_task")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Update task '{task_id}' in project '{proj_id}' to status '{new_status}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"project_id": proj_id, "task_id": task_id, "status": new_status},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - Link Document
+        if (
+            lower.startswith("link document ")
+            or lower.startswith("attach document ")
+            or "link document to project" in lower
+            or "attach document to project" in lower
+        ):
+            proj_match = re.search(r"(?i)(?:to|in)\s+project\s+([a-zA-Z0-9_\-]+)", text)
+            proj_id = proj_match.group(1) if proj_match else (ctx_dict.get("project_id", "default_proj"))
+            doc_match = re.search(r"(?:doc[-_][a-zA-Z0-9]+|[a-zA-Z0-9_\-]+)", re.sub(r"(?i)^(?:link|attach)\s+document\s*", "", text).strip())
+            doc_id = doc_match.group(0) if doc_match else "doc_1"
+            tool_id = (
+                "workspace_link_document"
+                if "workspace_link_document" in tools or self._tool_registry.get("workspace_link_document")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Link document '{doc_id}' to project '{proj_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"project_id": proj_id, "document_id": doc_id, "title": f"Document {doc_id}"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - Create Project
+        if (
+            lower.startswith("create project ")
+            or lower.startswith("new project ")
+            or lower.startswith("add project ")
+            or "create a project" in lower
+            or "create new project" in lower
+        ):
+            name = re.sub(r"(?i)^(?:create\s+(?:a\s+)?(?:new\s+)?project|new\s+project|add\s+project)\s*", "", text).strip().strip("'\"")
+            if not name:
+                name = "New Workspace Project"
+            tool_id = (
+                "workspace_create_project"
+                if "workspace_create_project" in tools or self._tool_registry.get("workspace_create_project")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Create new workspace project '{name}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"name": name, "description": "", "status": "active"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - Project Details
+        if (
+            lower.startswith("project details for ")
+            or lower.startswith("view project ")
+            or lower.startswith("get project ")
+            or lower.startswith("inspect project ")
+            or "project details" in lower
+        ):
+            proj_id = re.sub(r"(?i)^(?:project\s+details(?:\s+for)?|view\s+project|get\s+project|inspect\s+project)\s*", "", text).strip().strip("'\"")
+            if not proj_id or proj_id.lower() == "project details":
+                proj_id = ctx_dict.get("project_id", "default_proj")
+            tool_id = (
+                "workspace_get_project"
+                if "workspace_get_project" in tools or self._tool_registry.get("workspace_get_project")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Retrieve details for project '{proj_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"project_id": proj_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Workspace Hub - List Projects / Overview
+        if (
+            "list projects" in lower
+            or "my workspace projects" in lower
+            or "show projects" in lower
+            or "show my projects" in lower
+            or "view projects" in lower
+            or "workspace projects" in lower
+            or "workspace overview" in lower
+            or "workspace summary" in lower
+            or lower.startswith("projects")
+        ):
+            tool_id = (
+                "workspace_list_projects"
+                if "workspace_list_projects" in tools or self._tool_registry.get("workspace_list_projects")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "List all workspace projects and summary metrics",
                     "tool_id": tool_id,
                     "tool_input": {},
                     "depends_on": [],
