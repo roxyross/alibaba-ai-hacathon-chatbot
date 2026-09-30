@@ -111,6 +111,7 @@ class ToolRegistry:
             "memory": ["remember", "memory", "recall", "store", "save fact", "fact"],
             "document": ["pdf", "document", "docx", "file", "vault", "knowledge", "read doc"],
             "code": ["code", "python", "script", "program", "execute", "run"],
+            "browser": ["browse", "browser", "navigate", "website", "web page", "scrape", "extract", "form", "fill", "screenshot"],
         }
 
         for tool in self._tools.values():

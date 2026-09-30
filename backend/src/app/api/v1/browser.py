@@ -155,7 +155,7 @@ async def navigate_inspect_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> BrowserNavigateResponse:
     """Navigate to target URL, inspect DOM structure, and return semantic components."""
-    service = BrowserService()
+    service = BrowserService.get_instance()
     res = await service.navigate_and_inspect(
         url=payload.url,
         wait_for=payload.wait_for,
@@ -182,7 +182,7 @@ async def extract_data_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> BrowserExtractResponse:
     """Extract structured tables, links, headings, or text from web HTML."""
-    service = BrowserService()
+    service = BrowserService.get_instance()
     res = await service.extract_data(
         url=payload.url,
         extract_type=payload.extract_type,
@@ -207,7 +207,7 @@ async def screenshot_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> BrowserScreenshotResponse:
     """Capture a visual snapshot representation of a web page."""
-    service = BrowserService()
+    service = BrowserService.get_instance()
     res = await service.capture_screenshot(
         url=payload.url, width=payload.width, height=payload.height
     )
@@ -229,7 +229,7 @@ async def execute_browser_flow_endpoint(
 ) -> BrowserExecuteFlowResponse:
     """Execute an autonomous multi-step browser flow and optionally persist the task."""
     user_id = str(current_user.id)
-    service = BrowserService()
+    service = BrowserService.get_instance()
     res = await service.execute_browser_flow(
         user_id=user_id,
         url=payload.url,

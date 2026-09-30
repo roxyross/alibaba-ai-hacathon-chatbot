@@ -19,6 +19,8 @@ from app.browser.repository import BrowserRepository
 from app.skills.browser_fill_form import BrowserFillFormSkill
 from app.skills.browser_navigate import BrowserNavigateSkill
 from app.skills.schemas import BrowserFillFormRequest, BrowserNavigateRequest, FormField
+from app.tools.registry import ToolRegistry
+from app.tools.schemas import AgentTool, RiskLevel, ToolSource
 
 log = structlog.get_logger()
 
@@ -55,10 +57,20 @@ def _clean_text(html_fragment: str) -> str:
 class BrowserService:
     """Autonomous browser execution engine for ROXY-AI."""
 
+    _instance: BrowserService | None = None
+
     def __init__(self, repo: BrowserRepository | None = None) -> None:
         self.repo = repo or BrowserRepository()
         self.nav_skill = BrowserNavigateSkill()
         self.fill_skill = BrowserFillFormSkill()
+
+    @classmethod
+    def get_instance(cls) -> BrowserService:
+        """Singleton accessor ensuring tools are registered in the Central ToolRegistry."""
+        if cls._instance is None:
+            cls._instance = cls()
+            cls._instance.register_browser_tools()
+        return cls._instance
 
     async def fetch_html(self, url: str, timeout_seconds: int = 15) -> tuple[str, str, int]:
         """Fetch raw HTML from target URL, returning (html, final_url, status_code)."""
@@ -91,21 +103,33 @@ class BrowserService:
             clean_url = f"https://{clean_url}"
 
         try:
-            # First attempt navigation skill
-            req = BrowserNavigateRequest(
-                url=clean_url,
-                wait_for=wait_for,
-                timeout_seconds=timeout_seconds,
-                js_enabled=js_enabled,
-            )
-            res = await self.nav_skill.execute(req)
-
-            # Also fetch raw html to parse rich headings, links, forms, and metadata
-            try:
-                html, final_url, _ = await self.fetch_html(clean_url, timeout_seconds=min(timeout_seconds, 15))
-            except Exception:
+            if js_enabled:
+                req = BrowserNavigateRequest(
+                    url=clean_url,
+                    wait_for=wait_for,
+                    timeout_seconds=timeout_seconds,
+                    js_enabled=True,
+                )
+                res = await self.nav_skill.execute(req)
+                if not res.success:
+                    return {
+                        "url": clean_url,
+                        "title": f"Web Page ({clean_url})",
+                        "final_url": clean_url,
+                        "status": "error",
+                        "content_preview": "",
+                        "headings": [],
+                        "links": [],
+                        "forms": [],
+                        "meta": {},
+                        "error": res.error or "Playwright navigation failed",
+                    }
                 html = res.content_preview or ""
                 final_url = res.final_url or clean_url
+            else:
+                html, final_url, _ = await self.fetch_html(
+                    clean_url, timeout_seconds=min(timeout_seconds, 15)
+                )
 
             parsed_url = urllib.parse.urlparse(final_url)
 
@@ -114,7 +138,7 @@ class BrowserService:
             title = (
                 _clean_text(title_match.group(1))
                 if title_match
-                else (res.title or f"Page on {parsed_url.netloc}")
+                else f"Page on {parsed_url.netloc}"
             )
 
             # Headings
@@ -166,7 +190,7 @@ class BrowserService:
                 if meta_name in ("description", "keywords", "og:title", "og:description", "author"):
                     meta[meta_name] = meta_content[:200]
 
-            preview = res.content_preview or _clean_text(html)[:2000]
+            preview = _clean_text(html)[:2000]
 
             return {
                 "url": clean_url,
@@ -429,6 +453,23 @@ class BrowserService:
                     step_record["details"] = {"screenshot_url": shot_res.get("screenshot_url")}
                     result_data["screenshot_url"] = shot_res.get("screenshot_url")
 
+                elif act_type == "click":
+                    selector = str(act.get("selector", "")).strip()
+                    step_record["details"] = {
+                        "clicked_selector": selector,
+                        "message": f"Simulated interactive click on element '{selector}'",
+                    }
+                    result_data["last_clicked"] = selector
+
+                elif act_type == "scroll":
+                    direction = str(act.get("direction", "down")).strip().lower()
+                    amount = int(act.get("amount", 500))
+                    step_record["details"] = {
+                        "scrolled_direction": direction,
+                        "scrolled_amount": amount,
+                        "message": f"Scrolled {direction} by {amount}px",
+                    }
+
                 elif act_type == "wait":
                     wait_sec = min(float(act.get("seconds", 0.5)), 5.0)
                     await asyncio.sleep(wait_sec)
@@ -477,3 +518,261 @@ class BrowserService:
             "result_data": result_data,
             "error": error_msg,
         }
+
+    # -------------------------------------------------------------------------
+    # Central Tool Registry Integration
+    # -------------------------------------------------------------------------
+
+    def register_browser_tools(self) -> None:
+        """Register Browser Automation tools into the Central Tool Registry."""
+        reg = ToolRegistry.get_instance()
+        empty_actions: list[dict[str, Any]] = []
+
+        async def _tool_browser_navigate(
+            url: str,
+            wait_for: str | None = None,
+            timeout_seconds: int = 30,
+            js_enabled: bool = False,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            return await self.navigate_and_inspect(
+                url=url,
+                wait_for=wait_for,
+                timeout_seconds=timeout_seconds,
+                js_enabled=js_enabled,
+            )
+
+        async def _tool_browser_extract(
+            url: str,
+            extract_type: str = "all",
+            selectors: list[str] | None = None,
+            max_items: int = 50,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            return await self.extract_data(
+                url=url,
+                extract_type=extract_type,
+                selectors=selectors,
+                max_items=max_items,
+            )
+
+        async def _tool_browser_screenshot(
+            url: str,
+            width: int = 1280,
+            height: int = 800,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            return await self.capture_screenshot(url=url, width=width, height=height)
+
+        async def _tool_browser_execute_flow(
+            url: str,
+            actions: list[dict[str, Any]] | None = None,
+            title: str | None = None,
+            save_task: bool = True,
+            tags: list[str] | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            return await self.execute_browser_flow(
+                user_id=uid,
+                url=url,
+                actions=actions or empty_actions,
+                title=title,
+                save_task=save_task,
+                tags=tags,
+            )
+
+        async def _tool_browser_list_tasks(
+            limit: int = 50,
+            search: str | None = None,
+            status: str | None = None,
+            action_type: str | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            items = await self.repo.list_tasks(
+                user_id=uid,
+                limit=limit,
+                search=search,
+                status=status,
+                action_type=action_type,
+            )
+            return {"total": len(items), "tasks": items}
+
+        async def _tool_browser_delete_task(
+            task_id: str,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            deleted = await self.repo.delete_task(user_id=uid, task_id=task_id)
+            return {"task_id": task_id, "deleted": deleted}
+
+        # 1. Browser Navigate
+        reg.register(
+            AgentTool(
+                id="browser_navigate",
+                name="Headless Browser Navigation & DOM Inspector",
+                description=(
+                    "Navigate to a web URL, inspect page title, headings, links, forms, and DOM content preview."
+                ),
+                source=ToolSource.SYSTEM,
+                capabilities=["browser", "navigation", "inspect", "web", "dom"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "Target webpage URL to visit"},
+                        "wait_for": {"type": "string", "description": "Optional CSS selector to wait for"},
+                        "timeout_seconds": {"type": "integer", "default": 30, "description": "Page load timeout"},
+                        "js_enabled": {"type": "boolean", "default": False, "description": "Whether to render JS via headless browser"},
+                    },
+                    "required": ["url"],
+                },
+                permissions=["browser:navigate"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_browser_navigate,
+        )
+
+        # 2. Browser Extract
+        reg.register(
+            AgentTool(
+                id="browser_extract",
+                name="Web Structured Data Extractor",
+                description=(
+                    "Extract structured tables, links, headings, or text content from web page HTML."
+                ),
+                source=ToolSource.SYSTEM,
+                capabilities=["browser", "extraction", "tables", "links", "scraping"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "Target webpage URL to scrape"},
+                        "extract_type": {
+                            "type": "string",
+                            "enum": ["all", "tables", "links", "headings", "text"],
+                            "default": "all",
+                            "description": "Category of web content to extract",
+                        },
+                        "selectors": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional CSS selectors to target",
+                        },
+                        "max_items": {"type": "integer", "default": 50, "description": "Maximum records to retrieve"},
+                    },
+                    "required": ["url"],
+                },
+                permissions=["browser:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_browser_extract,
+        )
+
+        # 3. Browser Screenshot
+        reg.register(
+            AgentTool(
+                id="browser_screenshot",
+                name="Web Page Screenshot Snapshot",
+                description="Capture a visual snapshot representation or preview of a web page URL.",
+                source=ToolSource.SYSTEM,
+                capabilities=["browser", "screenshot", "visual", "preview"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "Target webpage URL"},
+                        "width": {"type": "integer", "default": 1280, "description": "Viewport width in pixels"},
+                        "height": {"type": "integer", "default": 800, "description": "Viewport height in pixels"},
+                    },
+                    "required": ["url"],
+                },
+                permissions=["browser:screenshot"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_browser_screenshot,
+        )
+
+        # 4. Browser Execute Flow
+        reg.register(
+            AgentTool(
+                id="browser_execute_flow",
+                name="Autonomous Browser Flow Runner",
+                description=(
+                    "Execute multi-step browser actions (navigate, extract, fill_form, click, scroll, wait) "
+                    "with interactive simulation and optional task persistence."
+                ),
+                source=ToolSource.SYSTEM,
+                capabilities=["browser", "automation", "interactive", "workflow", "forms"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "Target initial webpage URL"},
+                        "actions": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "Sequential list of browser actions to execute",
+                        },
+                        "title": {"type": "string", "description": "Optional automation task title"},
+                        "save_task": {"type": "boolean", "default": True, "description": "Whether to persist task record"},
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional categorization tags",
+                        },
+                    },
+                    "required": ["url"],
+                },
+                permissions=["browser:execute"],
+                risk_level=RiskLevel.MEDIUM,
+                requires_confirmation=False,
+            ),
+            _tool_browser_execute_flow,
+        )
+
+        # 5. Browser List Tasks
+        reg.register(
+            AgentTool(
+                id="browser_list_tasks",
+                name="List Browser Automation Tasks",
+                description="List saved browser automation tasks for the authenticated user with search and filtering.",
+                source=ToolSource.SYSTEM,
+                capabilities=["browser", "tasks", "history", "management"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "default": 50, "description": "Maximum tasks to return"},
+                        "search": {"type": "string", "description": "Search keyword in title, URL, or tags"},
+                        "status": {"type": "string", "description": "Filter by task status"},
+                        "action_type": {"type": "string", "description": "Filter by action type"},
+                    },
+                },
+                permissions=["browser:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_browser_list_tasks,
+        )
+
+        # 6. Browser Delete Task
+        reg.register(
+            AgentTool(
+                id="browser_delete_task",
+                name="Delete Browser Automation Task",
+                description="Permanently delete a saved browser automation task with tenant isolation.",
+                source=ToolSource.SYSTEM,
+                capabilities=["browser", "tasks", "deletion"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "task_id": {"type": "string", "description": "UUID of the task to delete"},
+                    },
+                    "required": ["task_id"],
+                },
+                permissions=["browser:write"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_browser_delete_task,
+        )

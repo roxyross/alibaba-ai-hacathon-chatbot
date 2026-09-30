@@ -200,6 +200,8 @@ async def on_startup() -> None:
         DeviceService.get_instance().register_device_tools()
         from app.research.service import ResearchService
         ResearchService.get_instance().register_research_tools()
+        from app.browser.service import BrowserService
+        BrowserService.get_instance().register_browser_tools()
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))

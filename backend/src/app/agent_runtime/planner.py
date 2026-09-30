@@ -45,10 +45,11 @@ class AgentPlanner:
     def _deterministic_decomposition(
         self,
         objective: str,
-        available_tools: dict[str, AgentTool],
-        ctx: dict[str, Any],
+        available_tools: dict[str, AgentTool] | None = None,
+        ctx: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]] | None:
         """Parse structured goals using pattern matching for math, search, email, schedule, and multi-step combinations."""
+        tools = available_tools or {}
         text = objective.strip()
         lower = text.lower()
 
@@ -128,7 +129,7 @@ class AgentPlanner:
         # Single-intent: Calculator / Math
         if lower.startswith("calculate ") or lower.startswith("what is ") and any(op in text for op in ["+", "-", "*", "/", "^"]):
             expr = re.sub(r"(?i)^(?:calculate|what is|compute)\s+", "", text).replace("?", "").strip()
-            if "system_calculator" in available_tools or self._tool_registry.get("system_calculator"):
+            if "system_calculator" in tools or self._tool_registry.get("system_calculator"):
                 return [
                     {
                         "step_number": 1,
@@ -194,7 +195,7 @@ class AgentPlanner:
                 q = text
             tool_id = (
                 "vault_search"
-                if "vault_search" in available_tools or self._tool_registry.get("vault_search")
+                if "vault_search" in tools or self._tool_registry.get("vault_search")
                 else "system_document_query"
             )
             return [
@@ -225,7 +226,7 @@ class AgentPlanner:
                 q = text
             research_tool_id = (
                 "research_deep_investigate"
-                if "research_deep_investigate" in available_tools
+                if "research_deep_investigate" in tools
                 or self._tool_registry.get("research_deep_investigate")
                 else "system_web_search"
             )
@@ -235,6 +236,134 @@ class AgentPlanner:
                     "description": f"Conduct autonomous deep research on '{q}'",
                     "tool_id": research_tool_id,
                     "tool_input": {"query": q, "depth": "deep", "save_report": True},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Browser screenshot
+        if (
+            lower.startswith("take screenshot of ")
+            or lower.startswith("take a screenshot of ")
+            or lower.startswith("screenshot ")
+            or lower.startswith("capture screenshot of ")
+            or lower.startswith("capture preview of ")
+        ):
+            target_url = re.sub(
+                r"(?i)^(?:take\s+(?:a\s+)?screenshot\s+of|screenshot|capture\s+(?:a\s+)?(?:screenshot|preview)\s+of)\s*",
+                "",
+                text,
+            ).strip()
+            if not target_url.startswith(("http://", "https://")):
+                target_url = f"https://{target_url}"
+            tool_id = (
+                "browser_screenshot"
+                if "browser_screenshot" in tools or self._tool_registry.get("browser_screenshot")
+                else "browser_navigate"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Capture screenshot preview of '{target_url}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"url": target_url, "width": 1280, "height": 800},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Browser extract data / tables / links
+        if (
+            lower.startswith("extract tables from ")
+            or lower.startswith("extract table from ")
+            or lower.startswith("extract links from ")
+            or lower.startswith("extract data from ")
+            or lower.startswith("scrape tables from ")
+            or lower.startswith("scrape table from ")
+            or lower.startswith("scrape ")
+        ):
+            target_url = re.sub(
+                r"(?i)^(?:extract\s+(?:tables?|links?|data)\s+from|scrape\s+(?:tables?|links?|data\s+from)?)\s*",
+                "",
+                text,
+            ).strip()
+            if not target_url.startswith(("http://", "https://")):
+                target_url = f"https://{target_url}"
+            extract_type = "tables" if "table" in lower else ("links" if "link" in lower else "all")
+            tool_id = (
+                "browser_extract"
+                if "browser_extract" in tools or self._tool_registry.get("browser_extract")
+                else "browser_navigate"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Extract {extract_type} from '{target_url}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"url": target_url, "extract_type": extract_type, "max_items": 50},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Browser fill form / automated flow
+        if (
+            lower.startswith("fill form on ")
+            or lower.startswith("fill out form on ")
+            or lower.startswith("submit form on ")
+            or lower.startswith("automate flow on ")
+            or lower.startswith("automate browser on ")
+        ):
+            target_url = re.sub(
+                r"(?i)^(?:fill\s+(?:out\s+)?form\s+on|submit\s+form\s+on|automate\s+(?:flow|browser)\s+on)\s*",
+                "",
+                text,
+            ).strip()
+            if not target_url.startswith(("http://", "https://")):
+                target_url = f"https://{target_url}"
+            tool_id = (
+                "browser_execute_flow"
+                if "browser_execute_flow" in tools or self._tool_registry.get("browser_execute_flow")
+                else "browser_navigate"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Execute automated browser workflow on '{target_url}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "url": target_url,
+                        "actions": [{"type": "fill_form", "fields": {}}],
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Browser navigate & inspect DOM
+        if (
+            lower.startswith("navigate to ")
+            or lower.startswith("browse to ")
+            or lower.startswith("open website ")
+            or lower.startswith("visit website ")
+            or lower.startswith("visit ")
+            or lower.startswith("go to website ")
+            or lower.startswith("inspect website ")
+        ):
+            target_url = re.sub(
+                r"(?i)^(?:navigate\s+to|browse\s+to|open\s+website|visit\s+website|visit|go\s+to\s+website|inspect\s+website)\s*",
+                "",
+                text,
+            ).strip()
+            if not target_url.startswith(("http://", "https://")):
+                target_url = f"https://{target_url}"
+            tool_id = (
+                "browser_navigate"
+                if "browser_navigate" in tools or self._tool_registry.get("browser_navigate")
+                else "system_web_search"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Navigate to '{target_url}' and inspect DOM structure",
+                    "tool_id": tool_id,
+                    "tool_input": {"url": target_url, "timeout_seconds": 30},
                     "depends_on": [],
                 }
             ]

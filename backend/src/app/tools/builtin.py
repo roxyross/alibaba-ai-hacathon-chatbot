@@ -430,4 +430,12 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     except Exception as exc:
         log.warning("register_builtin_tools.research_failed", error=str(exc))
 
+    # 11. Register Browser Agent tools (browser_navigate, browser_extract, browser_screenshot, etc.)
+    try:
+        from app.browser.service import BrowserService
+
+        BrowserService.get_instance().register_browser_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.browser_failed", error=str(exc))
+
 
