@@ -142,14 +142,14 @@ class RecursiveChunker:
         if len(text) <= chunk_size:
             return [text]
 
-        sep = separators[0] if separators else ""
-        remaining_seps = separators[1:] if len(separators) > 1 else []
+        sep: str = separators[0] if separators else ""
+        remaining_seps: list[str] = separators[1:]
 
-        splits = text.split(sep) if sep else list(text)
+        splits: list[str] = text.split(sep) if sep else list(text)
 
         chunks: list[str] = []
         current_chunk: list[str] = []
-        current_len = 0
+        current_len: int = 0
 
         for s in splits:
             seg = s.strip()

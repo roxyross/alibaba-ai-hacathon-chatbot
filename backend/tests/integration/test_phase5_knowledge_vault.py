@@ -260,6 +260,7 @@ async def test_vault_tools_in_central_registry_and_deletion(authed_client: Async
     assert registry.get("vault_delete_document") is not None
 
     tool = registry.get("vault_search")
+    assert tool is not None
     assert tool.source == ToolSource.SYSTEM
     assert "query" in tool.input_schema["properties"]
 
