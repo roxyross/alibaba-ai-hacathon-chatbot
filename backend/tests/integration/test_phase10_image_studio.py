@@ -488,4 +488,309 @@ async def test_image_gallery_chat_stream_fallback(client: httpx.AsyncClient) -> 
     assert "saved image generation" in full_text.lower()
 
 
+# -----------------------------------------------------------------------------
+# 11. ImageStudioService Singleton & ToolRegistry Verification
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_image_studio_service_singleton_and_tool_registration() -> None:
+    """Verify ImageStudioService singleton identity and 7 native tools in ToolRegistry."""
+    from app.images.service import ImageStudioService
+    from app.tools.registry import ToolRegistry
+    from app.tools.schemas import RiskLevel
+
+    svc1 = ImageStudioService.get_instance()
+    svc2 = ImageStudioService.get_instance()
+    assert svc1 is svc2
+
+    svc1.register_image_tools()
+    reg = ToolRegistry.get_instance()
+
+    expected_tools = [
+        "image_generate",
+        "image_enhance_prompt",
+        "image_list_gallery",
+        "image_get_generation",
+        "image_toggle_favorite",
+        "image_export_to_vault",
+        "image_delete_generation",
+    ]
+    for tid in expected_tools:
+        tool = reg.get(tid)
+        assert tool is not None, f"Expected tool {tid} to be registered"
+        assert "image" in tool.capabilities
+
+    # High-risk confirmation gating
+    del_tool = reg.get("image_delete_generation")
+    assert del_tool is not None
+    assert del_tool.risk_level == RiskLevel.HIGH
+    assert del_tool.requires_confirmation is True
+
+
+# -----------------------------------------------------------------------------
+# 12. Image Studio Native Tools Direct Execution
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_image_studio_tools_direct_execution() -> None:
+    """Verify end-to-end execution of all 7 image tools via Central ToolRegistry."""
+    from app.images.service import ImageStudioService
+    from app.tools.registry import ToolRegistry
+    from app.tools.schemas import ToolExecutionRequest
+
+    svc = ImageStudioService.get_instance()
+    svc.register_image_tools()
+    reg = ToolRegistry.get_instance()
+
+    user_id = f"tool_exec_img_{uuid.uuid4().hex[:6]}"
+
+    # 1. image_list_gallery (empty)
+    res_list_empty = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_list_gallery",
+            arguments={},
+            user_id=user_id,
+        )
+    )
+    assert res_list_empty.success is True
+    assert res_list_empty.output["total_generations"] == 0
+
+    # 2. image_enhance_prompt
+    res_enhance = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_enhance_prompt",
+            arguments={"prompt": "sunset over cyber city", "style_preset": "cyberpunk"},
+            user_id=user_id,
+        )
+    )
+    assert res_enhance.success is True
+    assert "sunset over cyber city" in res_enhance.output["enhanced_prompt"]
+    assert "cyberpunk" in res_enhance.output["style_preset"]
+
+    # 3. image_generate
+    res_generate = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_generate",
+            arguments={
+                "prompt": "hyperrealistic neon koi fish in digital pond",
+                "style_preset": "cyberpunk",
+                "aspect_ratio": "16:9",
+            },
+            user_id=user_id,
+        )
+    )
+    assert res_generate.success is True
+    assert res_generate.output["status"] == "success"
+    gen = res_generate.output["generation"]
+    image_id = gen["id"]
+    assert "pollinations.ai" in res_generate.output["media_url"]
+    assert gen["width"] == 1344
+    assert gen["height"] == 768
+
+    # 4. image_get_generation
+    res_get = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_get_generation",
+            arguments={"image_id": image_id},
+            user_id=user_id,
+        )
+    )
+    assert res_get.success is True
+    assert res_get.output["generation"]["id"] == image_id
+
+    # 5. image_toggle_favorite
+    res_fav = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_toggle_favorite",
+            arguments={"image_id": image_id},
+            user_id=user_id,
+        )
+    )
+    assert res_fav.success is True
+    assert res_fav.output["favorite"] is True
+
+    # 6. image_export_to_vault
+    res_export = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_export_to_vault",
+            arguments={"image_id": image_id},
+            user_id=user_id,
+        )
+    )
+    assert res_export.success is True
+    assert res_export.output["vault_document_id"] is not None
+
+    # 7. image_list_gallery with favorite_only=True
+    res_gallery_fav = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_list_gallery",
+            arguments={"favorite_only": True},
+            user_id=user_id,
+        )
+    )
+    assert res_gallery_fav.success is True
+    assert res_gallery_fav.output["total_generations"] == 1
+    assert res_gallery_fav.output["generations"][0]["id"] == image_id
+
+    # 8. image_delete_generation (requires confirmation)
+    res_del = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_delete_generation",
+            arguments={"image_id": image_id},
+            user_id=user_id,
+        )
+    )
+    assert res_del.success is True
+    assert res_del.output["deleted"] is True
+
+    # 9. Verify artwork is gone
+    res_verify_gone = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_get_generation",
+            arguments={"image_id": image_id},
+            user_id=user_id,
+        )
+    )
+    assert res_verify_gone.output["status"] == "not_found"
+
+
+# -----------------------------------------------------------------------------
+# 13. AgentPlanner Image Studio Intent Routing
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_agent_planner_image_intent_routing() -> None:
+    """Verify AgentPlanner deterministic decomposition and routing to image studio tools."""
+    from app.agent_runtime.planner import AgentPlanner
+    from app.images.service import ImageStudioService
+
+    ImageStudioService.get_instance().register_image_tools()
+    planner = AgentPlanner()
+
+    # A. Generate image
+    plan_gen = await planner.create_plan("generate image of futuristic Tokyo in cyberpunk style")
+    assert len(plan_gen) == 1
+    assert plan_gen[0]["tool_id"] == "image_generate"
+    assert "futuristic Tokyo" in plan_gen[0]["tool_input"]["prompt"]
+    assert plan_gen[0]["tool_input"]["style_preset"] == "cyberpunk"
+
+    # B. Enhance prompt
+    plan_enh = await planner.create_plan("enhance image prompt a majestic eagle soaring above clouds")
+    assert len(plan_enh) == 1
+    assert plan_enh[0]["tool_id"] == "image_enhance_prompt"
+    assert "majestic eagle" in plan_enh[0]["tool_input"]["prompt"]
+
+    # C. Show gallery
+    plan_gal = await planner.create_plan("show my image gallery")
+    assert len(plan_gal) == 1
+    assert plan_gal[0]["tool_id"] == "image_list_gallery"
+
+    # D. View artwork
+    plan_view = await planner.create_plan("view image gen-artwork-777")
+    assert len(plan_view) == 1
+    assert plan_view[0]["tool_id"] == "image_get_generation"
+    assert plan_view[0]["tool_input"]["image_id"] == "gen-artwork-777"
+
+    # E. Favorite artwork
+    plan_fav = await planner.create_plan("favorite image gen-artwork-777")
+    assert len(plan_fav) == 1
+    assert plan_fav[0]["tool_id"] == "image_toggle_favorite"
+    assert plan_fav[0]["tool_input"]["image_id"] == "gen-artwork-777"
+
+    # F. Export artwork to vault
+    plan_export = await planner.create_plan("save image to vault gen-artwork-777")
+    assert len(plan_export) == 1
+    assert plan_export[0]["tool_id"] == "image_export_to_vault"
+    assert plan_export[0]["tool_input"]["image_id"] == "gen-artwork-777"
+
+    # G. Delete artwork (requires confirmation)
+    plan_del = await planner.create_plan("delete artwork gen-artwork-777")
+    assert len(plan_del) == 1
+    assert plan_del[0]["tool_id"] == "image_delete_generation"
+    assert plan_del[0]["tool_input"]["image_id"] == "gen-artwork-777"
+
+
+# -----------------------------------------------------------------------------
+# 14. Multi-Tenant Isolation via Tool Registry Execution
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_image_studio_tool_multitenant_isolation() -> None:
+    """Verify strict multi-tenant isolation across image generations via ToolRegistry."""
+    from app.images.service import ImageStudioService
+    from app.tools.registry import ToolRegistry
+    from app.tools.schemas import ToolExecutionRequest
+
+    svc = ImageStudioService.get_instance()
+    svc.register_image_tools()
+    reg = ToolRegistry.get_instance()
+
+    user_a = f"img_tenant_a_{uuid.uuid4().hex[:6]}"
+    user_b = f"img_tenant_b_{uuid.uuid4().hex[:6]}"
+
+    # User A generates an artwork
+    res_a = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_generate",
+            arguments={"prompt": "Confidential blueprint of starship engine"},
+            user_id=user_a,
+        )
+    )
+    assert res_a.success is True
+    img_a_id = res_a.output["generation"]["id"]
+
+    # User B lists gallery -> 0 artworks, zero cross-tenant leak
+    res_b_list = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_list_gallery",
+            arguments={},
+            user_id=user_b,
+        )
+    )
+    assert res_b_list.success is True
+    assert res_b_list.output["total_generations"] == 0
+
+    # User B tries to view User A's artwork -> not_found
+    res_b_get = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_get_generation",
+            arguments={"image_id": img_a_id},
+            user_id=user_b,
+        )
+    )
+    assert res_b_get.output["status"] == "not_found"
+
+    # User B tries to favorite User A's artwork -> not_found
+    res_b_fav = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_toggle_favorite",
+            arguments={"image_id": img_a_id},
+            user_id=user_b,
+        )
+    )
+    assert res_b_fav.output["status"] == "not_found"
+
+    # User B tries to delete User A's artwork -> deleted is False
+    res_b_del = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_delete_generation",
+            arguments={"image_id": img_a_id},
+            user_id=user_b,
+        )
+    )
+    assert res_b_del.output["deleted"] is False
+
+    # Confirm User A's artwork is untouched
+    res_a_verify = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_get_generation",
+            arguments={"image_id": img_a_id},
+            user_id=user_a,
+        )
+    )
+    assert res_a_verify.output["status"] == "success"
+    assert res_a_verify.output["generation"]["id"] == img_a_id
+
+
+
 

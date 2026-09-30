@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 import random
 import urllib.parse
-from typing import Any
+from typing import Any, ClassVar
 
 from app.images.repository import ImageStudioRepository
+from app.tools.registry import ToolRegistry
+from app.tools.schemas import AgentTool, RiskLevel, ToolSource
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +81,17 @@ SUPPORTED_MODELS: list[str] = [
 class ImageStudioService:
     """Service orchestrating neural synthesis, styling, prompt enhancement, and vault exports."""
 
+    _instance: ClassVar[ImageStudioService | None] = None
+
     def __init__(self, repo: ImageStudioRepository | None = None) -> None:
         self._repo = repo or ImageStudioRepository()
+
+    @classmethod
+    def get_instance(cls, repo: ImageStudioRepository | None = None) -> ImageStudioService:
+        """Get or initialize singleton instance of ImageStudioService."""
+        if cls._instance is None:
+            cls._instance = cls(repo=repo)
+        return cls._instance
 
     def get_style_presets(self) -> dict[str, dict[str, str]]:
         """Return available artistic style presets."""
@@ -198,3 +209,323 @@ class ImageStudioService:
         # Update image record with vault document ID
         updated = await self._repo.attach_vault_document(user_id, image_id, vault_doc_id)
         return updated or gen
+
+    def register_image_tools(self) -> None:
+        """Register Image Studio tools into the Central ToolRegistry."""
+        reg = ToolRegistry.get_instance()
+
+        async def _tool_image_generate(
+            prompt: str,
+            style_preset: str = "photorealistic",
+            aspect_ratio: str = "1:1",
+            model: str = "flux",
+            seed: int | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            media_url, revised_prompt, width, height, chosen_seed = self.synthesize_image_url(
+                prompt=prompt,
+                aspect_ratio=aspect_ratio,
+                style_preset=style_preset,
+                model=model,
+                seed=seed,
+            )
+            new_gen = await self._repo.create_generation(
+                user_id=uid,
+                prompt=prompt,
+                media_url=media_url,
+                revised_prompt=revised_prompt,
+                style_preset=style_preset,
+                media_type="image",
+                speed="Quality",
+                quality="Quality 2.0",
+                aspect_ratio=aspect_ratio,
+                width=width,
+                height=height,
+                model=model,
+                seed=chosen_seed,
+            )
+            return {
+                "status": "success",
+                "generation": new_gen,
+                "media_url": media_url,
+                "revised_prompt": revised_prompt,
+                "summary": f"Generated artwork '{new_gen['prompt']}' ({width}x{height}, style: {style_preset}).",
+            }
+
+        async def _tool_image_enhance_prompt(
+            prompt: str,
+            style_preset: str = "photorealistic",
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            enhanced = self.enhance_prompt(base_prompt=prompt, style_preset=style_preset)
+            return {
+                "original_prompt": prompt,
+                "enhanced_prompt": enhanced,
+                "style_preset": style_preset,
+                "summary": f"Enhanced image prompt: '{enhanced}'",
+            }
+
+        async def _tool_image_list_gallery(
+            favorite_only: bool = False,
+            limit: int = 20,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            items = await self._repo.list_generations(user_id=uid, favorite_only=favorite_only, limit=limit)
+            return {
+                "user_id": uid,
+                "total_generations": len(items),
+                "generations": items,
+                "summary": f"Found {len(items)} saved artwork(s) in Image Studio gallery.",
+            }
+
+        async def _tool_image_get_generation(
+            image_id: str,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            img = await self._repo.get_generation(user_id=uid, image_id=image_id)
+            if not img:
+                return {
+                    "image_id": image_id,
+                    "status": "not_found",
+                    "error": f"Image generation '{image_id}' not found.",
+                }
+            return {
+                "image_id": image_id,
+                "status": "success",
+                "generation": img,
+            }
+
+        async def _tool_image_toggle_favorite(
+            image_id: str,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            img = await self._repo.toggle_favorite(user_id=uid, image_id=image_id)
+            if not img:
+                return {
+                    "image_id": image_id,
+                    "status": "not_found",
+                    "error": f"Image generation '{image_id}' not found.",
+                }
+            fav = bool(img.get("is_favorite", False))
+            return {
+                "image_id": image_id,
+                "status": "success",
+                "generation": img,
+                "favorite": fav,
+                "is_favorite": fav,
+                "summary": f"Image '{image_id}' favorite status updated to {fav}.",
+            }
+
+        async def _tool_image_export_to_vault(
+            image_id: str,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            exported = await self.export_to_knowledge_vault(user_id=uid, image_id=image_id)
+            if not exported:
+                return {
+                    "image_id": image_id,
+                    "status": "not_found",
+                    "error": f"Image generation '{image_id}' not found.",
+                }
+            return {
+                "image_id": image_id,
+                "status": "success",
+                "generation": exported,
+                "vault_document_id": exported.get("vault_document_id"),
+                "summary": f"Exported artwork '{image_id}' to Knowledge Vault.",
+            }
+
+        async def _tool_image_delete_generation(
+            image_id: str,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            deleted = await self._repo.delete_generation(user_id=uid, image_id=image_id)
+            return {
+                "image_id": image_id,
+                "deleted": deleted,
+                "status": "deleted" if deleted else "not_found",
+                "message": (
+                    f"Artwork '{image_id}' deleted from gallery."
+                    if deleted
+                    else f"Artwork '{image_id}' not found."
+                ),
+            }
+
+        # 1. image_generate
+        reg.register(
+            AgentTool(
+                id="image_generate",
+                name="Generate Neural Artwork",
+                description=(
+                    "Synthesize high-fidelity images using neural diffusion with style presets, "
+                    "custom aspect ratios, and automatic gallery persistence."
+                ),
+                source=ToolSource.SYSTEM,
+                capabilities=["image", "generate", "art", "creative", "multimodal"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string", "description": "Creative visual prompt describing the desired scene"},
+                        "style_preset": {
+                            "type": "string",
+                            "enum": ["photorealistic", "cinematic", "anime", "cyberpunk", "3d_render", "oil_painting", "minimalist", "watercolor"],
+                            "default": "photorealistic",
+                            "description": "Artistic style aesthetic",
+                        },
+                        "aspect_ratio": {
+                            "type": "string",
+                            "enum": ["1:1", "16:9", "9:16", "2:3", "3:2", "4:5"],
+                            "default": "1:1",
+                            "description": "Aspect ratio and pixel dimensions",
+                        },
+                        "model": {"type": "string", "default": "flux", "description": "Neural diffusion model"},
+                        "seed": {"type": "integer", "description": "Optional generation seed for reproducibility"},
+                    },
+                    "required": ["prompt"],
+                },
+                permissions=["images:write"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_image_generate,
+        )
+
+        # 2. image_enhance_prompt
+        reg.register(
+            AgentTool(
+                id="image_enhance_prompt",
+                name="Enhance Image Prompt",
+                description="Enrich visual prompt with volumetric lighting, atmospheric depth, texture, and style details.",
+                source=ToolSource.SYSTEM,
+                capabilities=["image", "prompt", "enhance", "creative"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string", "description": "Base visual concept to enhance"},
+                        "style_preset": {"type": "string", "default": "photorealistic"},
+                    },
+                    "required": ["prompt"],
+                },
+                permissions=["images:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_image_enhance_prompt,
+        )
+
+        # 3. image_list_gallery
+        reg.register(
+            AgentTool(
+                id="image_list_gallery",
+                name="List Image Studio Gallery",
+                description="List recent artwork creations, prompts, and media URLs from user's Image Studio gallery.",
+                source=ToolSource.SYSTEM,
+                capabilities=["image", "gallery", "list", "artworks"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "favorite_only": {"type": "boolean", "default": False, "description": "Filter for favorited artworks only"},
+                        "limit": {"type": "integer", "default": 20, "description": "Maximum artworks to return"},
+                    },
+                },
+                permissions=["images:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_image_list_gallery,
+        )
+
+        # 4. image_get_generation
+        reg.register(
+            AgentTool(
+                id="image_get_generation",
+                name="Get Image Artwork Details",
+                description="Retrieve media URL, prompt specs, aspect ratio, and metadata for a specific artwork.",
+                source=ToolSource.SYSTEM,
+                capabilities=["image", "get", "details", "artwork"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "image_id": {"type": "string", "description": "Generation ID of the artwork to inspect"},
+                    },
+                    "required": ["image_id"],
+                },
+                permissions=["images:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_image_get_generation,
+        )
+
+        # 5. image_toggle_favorite
+        reg.register(
+            AgentTool(
+                id="image_toggle_favorite",
+                name="Toggle Artwork Favorite",
+                description="Mark or unmark an artwork as favorite in the Image Studio gallery.",
+                source=ToolSource.SYSTEM,
+                capabilities=["image", "favorite", "star"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "image_id": {"type": "string", "description": "ID of the image to toggle favorite"},
+                    },
+                    "required": ["image_id"],
+                },
+                permissions=["images:write"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_image_toggle_favorite,
+        )
+
+        # 6. image_export_to_vault
+        reg.register(
+            AgentTool(
+                id="image_export_to_vault",
+                name="Export Artwork to Knowledge Vault",
+                description="Index generated artwork and its full prompt specifications into user's Knowledge Vault as searchable document.",
+                source=ToolSource.SYSTEM,
+                capabilities=["image", "vault", "export", "index"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "image_id": {"type": "string", "description": "ID of the artwork to export to Vault"},
+                    },
+                    "required": ["image_id"],
+                },
+                permissions=["images:write", "documents:write"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_image_export_to_vault,
+        )
+
+        # 7. image_delete_generation
+        reg.register(
+            AgentTool(
+                id="image_delete_generation",
+                name="Delete Artwork from Gallery",
+                description="Permanently delete a generated image from user's Image Studio gallery. Requires human confirmation.",
+                source=ToolSource.SYSTEM,
+                capabilities=["image", "delete", "remove"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "image_id": {"type": "string", "description": "ID of the image to delete"},
+                    },
+                    "required": ["image_id"],
+                },
+                permissions=["images:write"],
+                risk_level=RiskLevel.HIGH,
+                requires_confirmation=True,
+            ),
+            _tool_image_delete_generation,
+        )
+

@@ -454,5 +454,13 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     except Exception as exc:
         log.warning("register_builtin_tools.workspace_failed", error=str(exc))
 
+    # 14. Register Image Studio tools (image_generate, image_list_gallery, etc.)
+    try:
+        from app.images.service import ImageStudioService
+
+        ImageStudioService.get_instance().register_image_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.images_failed", error=str(exc))
+
 
 

@@ -206,6 +206,8 @@ async def on_startup() -> None:
         PaymentService.get_instance().register_billing_tools()
         from app.projects.service import ProjectService
         ProjectService.get_instance().register_workspace_tools()
+        from app.images.service import ImageStudioService
+        ImageStudioService.get_instance().register_image_tools()
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))

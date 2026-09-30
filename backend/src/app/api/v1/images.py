@@ -9,12 +9,11 @@ from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
-from app.images.repository import ImageStudioRepository
 from app.images.service import ImageStudioService
 
 router = APIRouter(prefix="/images", tags=["images"])
-_repo = ImageStudioRepository()
-_service = ImageStudioService(_repo)
+_service = ImageStudioService.get_instance()
+_repo = _service._repo
 
 
 # -----------------------------------------------------------------------------

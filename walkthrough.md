@@ -2129,6 +2129,62 @@
 - Full Regression Suite across Phases 1–9: **78/78 passed in 368.77s (100% green, 0 regressions)**
 - Code Quality: `ruff check` (0 errors), `mypy` (0 errors)
 
+---
+
+## Phase 10: Image Studio, Multimodal Creative Engine & Central Tool Registry Integration
+
+### Status: Complete & Verified (Exit Gate Passed)
+
+### Summary of Changes
+1. **`ImageStudioService.get_instance()` Singleton Pattern (`backend/src/app/images/service.py`)**:
+   - Implemented thread-safe `_instance: ClassVar[ImageStudioService | None]` and `get_instance(cls)` singleton to guarantee unified state across repositories, tool registries, and FastAPI endpoints.
+   - Updated `backend/src/app/api/v1/images.py` to bind directly to the singleton instance (`_service = ImageStudioService.get_instance()`, `_repo = _service._repo`).
+2. **Central Tool Registry Integration with 7 Native Image Studio Tools (`register_image_tools`)**:
+   - `image_generate`: Generates high-fidelity AI artwork with prompt, negative prompt, aspect ratio (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`), style preset (`photorealistic`, `anime`, `cinematic`, `digital_art`, `concept_art`, `fantasy`, `minimalist`), seed, and quality settings.
+   - `image_enhance_prompt`: Enhances and expands raw image generation prompts with artistic detail, lighting, composition, and style descriptors using AI copilot logic.
+   - `image_list_gallery`: Lists all generated images for the authenticated user with filtering options (`favorites_only`, `style`, `limit`, `offset`).
+   - `image_get_generation`: Retrieves full details, metadata, dimensions, prompt, and download URLs for a specific generated image.
+   - `image_toggle_favorite`: Toggles the favorite status of a generated image for curated gallery collections.
+   - `image_export_to_vault`: Indexes and exports a generated image along with prompt metadata to the user's Knowledge Vault for cross-modal search and grounding.
+   - `image_delete_generation`: Permanently deletes an image generation record and associated reference metadata from the gallery, gated by high-risk human confirmation (`requires_confirmation=True`, `RiskLevel.HIGH`).
+3. **Agent Planner Deterministic Intent Decomposition (`backend/src/app/agent_runtime/planner.py`)**:
+   - Added pattern matching for natural language multimodal image generation and gallery management queries:
+     - Image generation ("generate image of a cybernetic tiger", "create artwork cyberpunk city", "draw a sunset", "paint a portrait") → routes to `image_generate` with style and aspect ratio auto-detection.
+     - Prompt enhancement ("enhance prompt cyberpunk cat", "improve prompt portrait of astronaut") → routes to `image_enhance_prompt`.
+     - Gallery listing ("show gallery", "image gallery", "show my artworks", "list generated images") → routes to `image_list_gallery`.
+     - Image detail inspection ("view image img-123", "image details for img-123") → routes to `image_get_generation`.
+     - Favorite toggling ("favorite image img-123", "star image img-123") → routes to `image_toggle_favorite`.
+     - Knowledge Vault export ("save image img-123 to vault", "export artwork img-123 to vault") → routes to `image_export_to_vault`.
+     - Image deletion ("delete image img-123", "delete artwork img-123") → routes to `image_delete_generation` with confirmation gating.
+4. **Startup Tool Registration Hooks (`backend/src/app/tools/builtin.py` & `backend/src/app/main.py`)**:
+   - Wired `ImageStudioService.get_instance().register_image_tools()` into `register_builtin_tools()` and FastAPI `on_startup` lifecycle.
+5. **Multi-Tenant Isolation & Confirmation Gating**:
+   - Enforced strict multi-tenant isolation across all 7 image studio tools in ToolRegistry: User B cannot view, favorite, export, or delete User A's generated images.
+   - Sensitive image deletions enforce high-risk confirmation gating (`RiskLevel.HIGH`, `requires_confirmation=True`).
+
+### Tests Executed
+- `pytest backend/tests/integration/test_phase10_image_studio.py -v`: **17 passed in 73.85s**
+  - Section 1: `test_image_studio_empty_state` (empty gallery and uploads state)
+  - Section 2: `test_image_studio_config` (available models, styles, and aspect ratios)
+  - Section 3: `test_image_generation_and_dimensions` (generation lifecycle and dimensional verification)
+  - Section 4: `test_prompt_enhancer` (AI prompt enhancement and style suggestion)
+  - Section 5: `test_favorites_and_filtering` (favorite toggling and gallery filtering)
+  - Section 6: `test_save_to_knowledge_vault` (exporting artwork to Knowledge Vault)
+  - Section 7: `test_upload_reference_assets` (reference image upload and gallery attachment)
+  - Section 8: `test_image_studio_multitenant_isolation` (REST endpoint anti-IDOR isolation)
+  - Section 9: `test_chat_image_generation_persistence` (chat-triggered image generation and persistence)
+  - Section 10: `test_chat_streaming_image_generation_persistence` (streaming chat generation and persistence)
+  - Section 11: `test_image_gallery_chat_grounding` (multi-agent coordinator context injection)
+  - Section 12: `test_image_gallery_chat_offline_fallback` (offline fallback parity with live telemetry)
+  - Section 13: `test_image_gallery_chat_stream_fallback` (streaming offline fallback parity)
+  - Section 14: `test_image_studio_service_singleton_and_tool_registration` (singleton identity, 7 tools in ToolRegistry, confirmation gating)
+  - Section 15: `test_image_studio_tools_direct_execution` (direct execution of all 7 tools via ToolRegistry)
+  - Section 16: `test_agent_planner_image_intent_routing` (planner deterministic decomposition to image tools)
+  - Section 17: `test_image_studio_tool_multitenant_isolation` (multi-tenant boundary enforcement via ToolRegistry execution)
+- Full Regression Suite across Phases 1–10: **95/95 passed (100% green, 0 regressions)**
+- Code Quality: `ruff check` (0 errors), `mypy` (0 errors)
+
+
 
 
 

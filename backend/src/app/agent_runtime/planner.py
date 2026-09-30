@@ -713,6 +713,207 @@ class AgentPlanner:
                 }
             ]
 
+        # Single-intent: Image Studio - Delete Artwork (requires confirmation)
+        if (
+            lower.startswith("delete image ")
+            or lower.startswith("remove image ")
+            or lower.startswith("delete artwork ")
+            or "delete generated image" in lower
+        ):
+            img_id = re.sub(r"(?i)^(?:delete\s+(?:image|artwork)|remove\s+(?:image|artwork))\s*", "", text).strip().strip("'\"")
+            tool_id = (
+                "image_delete_generation"
+                if "image_delete_generation" in tools or self._tool_registry.get("image_delete_generation")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Delete artwork '{img_id}' from gallery (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {"image_id": img_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Image Studio - Save / Export to Knowledge Vault
+        if (
+            lower.startswith("save image to vault")
+            or lower.startswith("export image to vault")
+            or lower.startswith("export artwork to vault")
+            or "save artwork to vault" in lower
+            or "export to knowledge vault" in lower
+        ):
+            img_id = re.sub(r"(?i)^(?:save\s+(?:image|artwork)\s+to\s+vault|export\s+(?:image|artwork)\s+to\s+(?:knowledge\s+)?vault)\s*", "", text).strip().strip("'\"")
+            if not img_id:
+                img_id = ctx_dict.get("image_id", "default_img")
+            tool_id = (
+                "image_export_to_vault"
+                if "image_export_to_vault" in tools or self._tool_registry.get("image_export_to_vault")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Export artwork '{img_id}' to Knowledge Vault",
+                    "tool_id": tool_id,
+                    "tool_input": {"image_id": img_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Image Studio - Favorite Artwork
+        if (
+            lower.startswith("favorite image ")
+            or lower.startswith("star image ")
+            or "add image to favorites" in lower
+        ):
+            img_id = re.sub(r"(?i)^(?:favorite\s+image|star\s+image)\s*", "", text).strip().strip("'\"")
+            if not img_id:
+                img_id = ctx_dict.get("image_id", "default_img")
+            tool_id = (
+                "image_toggle_favorite"
+                if "image_toggle_favorite" in tools or self._tool_registry.get("image_toggle_favorite")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Toggle favorite status on artwork '{img_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"image_id": img_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Image Studio - Enhance Prompt
+        if (
+            lower.startswith("enhance prompt ")
+            or lower.startswith("improve prompt ")
+            or lower.startswith("enhance image prompt ")
+            or "enhance prompt" in lower
+        ):
+            clean_p = re.sub(r"(?i)^(?:enhance\s+(?:image\s+)?prompt|improve\s+(?:image\s+)?prompt)\s*", "", text).strip().strip("'\"")
+            if not clean_p:
+                clean_p = text
+            tool_id = (
+                "image_enhance_prompt"
+                if "image_enhance_prompt" in tools or self._tool_registry.get("image_enhance_prompt")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Enhance image prompt '{clean_p[:40]}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"prompt": clean_p, "style_preset": "photorealistic"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Image Studio - View / Inspect Artwork
+        if (
+            lower.startswith("view image ")
+            or lower.startswith("inspect image ")
+            or lower.startswith("image details for ")
+            or lower.startswith("view artwork ")
+        ):
+            img_id = re.sub(r"(?i)^(?:view\s+image|inspect\s+image|image\s+details(?:\s+for)?|view\s+artwork)\s*", "", text).strip().strip("'\"")
+            if not img_id:
+                img_id = ctx_dict.get("image_id", "default_img")
+            tool_id = (
+                "image_get_generation"
+                if "image_get_generation" in tools or self._tool_registry.get("image_get_generation")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Retrieve details for artwork '{img_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"image_id": img_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Image Studio - List Gallery
+        if (
+            "image gallery" in lower
+            or "my image gallery" in lower
+            or "show my artworks" in lower
+            or "view my artworks" in lower
+            or "list generated images" in lower
+            or "my generated images" in lower
+            or lower.startswith("show gallery")
+            or lower.startswith("view gallery")
+        ):
+            tool_id = (
+                "image_list_gallery"
+                if "image_list_gallery" in tools or self._tool_registry.get("image_list_gallery")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "List saved artworks in Image Studio gallery",
+                    "tool_id": tool_id,
+                    "tool_input": {"favorite_only": "favorite" in lower},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Image Studio - Generate Neural Image
+        if (
+            lower.startswith("generate image ")
+            or lower.startswith("create image ")
+            or lower.startswith("generate an image ")
+            or lower.startswith("create an image ")
+            or lower.startswith("draw ")
+            or lower.startswith("paint ")
+            or lower.startswith("generate picture of ")
+            or lower.startswith("create picture of ")
+            or lower.startswith("make an image of ")
+            or lower.startswith("image of ")
+        ):
+            detected_style = "photorealistic"
+            for st in ["cinematic", "anime", "cyberpunk", "3d_render", "oil_painting", "minimalist", "watercolor", "photorealistic"]:
+                if st in lower or st.replace("_", " ") in lower:
+                    detected_style = st
+                    break
+
+            detected_ratio = "1:1"
+            if "16:9" in lower or "widescreen" in lower or "landscape" in lower:
+                detected_ratio = "16:9"
+            elif "9:16" in lower or "portrait" in lower or "story" in lower:
+                detected_ratio = "9:16"
+
+            clean_prompt = re.sub(
+                r"(?i)^(?:generate\s+(?:an?\s+)?image(?:\s+of)?|create\s+(?:an?\s+)?image(?:\s+of)?|draw(?:\s+a|\s+an)?|paint(?:\s+a|\s+an)?|generate\s+picture\s+of|create\s+picture\s+of|make\s+an\s+image\s+of|image\s+of)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not clean_prompt:
+                clean_prompt = text
+
+            tool_id = (
+                "image_generate"
+                if "image_generate" in tools or self._tool_registry.get("image_generate")
+                else "system_web_search"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Generate neural image for '{clean_prompt[:40]}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "prompt": clean_prompt,
+                        "style_preset": detected_style,
+                        "aspect_ratio": detected_ratio,
+                    },
+                    "depends_on": [],
+                }
+            ]
+
         return None
 
     def _build_default_plan(
