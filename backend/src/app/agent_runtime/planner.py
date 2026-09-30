@@ -177,6 +177,36 @@ class AgentPlanner:
                 }
             ]
 
+        # Single-intent: Vault / Knowledge search
+        if (
+            lower.startswith("vault search")
+            or lower.startswith("search vault")
+            or "in my vault" in lower
+            or "in knowledge base" in lower
+            or "search documents" in lower
+        ):
+            q = re.sub(
+                r"(?i)^(?:vault search|search vault|search documents(?: for)?|find in vault)\s*",
+                "",
+                text,
+            ).strip()
+            if not q:
+                q = text
+            tool_id = (
+                "vault_search"
+                if "vault_search" in available_tools or self._tool_registry.get("vault_search")
+                else "system_document_query"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Search Knowledge Vault for '{q}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"query": q, "top_k": 5},
+                    "depends_on": [],
+                }
+            ]
+
         return None
 
     def _build_default_plan(

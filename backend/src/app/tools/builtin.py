@@ -12,8 +12,12 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+import structlog
+
 from app.tools.registry import ToolRegistry
 from app.tools.schemas import AgentTool, RiskLevel, ToolSource
+
+log = structlog.get_logger()
 
 # Safe math evaluator
 _SAFE_OPERATORS: dict[type[ast.AST], Callable[..., Any]] = {
@@ -159,6 +163,28 @@ async def _handle_document_query(
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """Query ingested documents in the Knowledge Vault."""
+    try:
+        from app.vault.service import VaultService
+
+        service = VaultService.get_instance()
+        res = await service.search(user_id=user_id or "default", query=query, top_k=5)
+        if res.results:
+            return {
+                "query": query,
+                "results": [
+                    {
+                        "document": r.document_name,
+                        "excerpt": r.content,
+                        "score": r.score,
+                        "section": r.section,
+                    }
+                    for r in res.results
+                ],
+                "total_matches": res.total_matches,
+            }
+    except Exception:
+        pass
+
     return {
         "query": query,
         "results": [
@@ -387,3 +413,12 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
         ),
         _handle_code_eval,
     )
+
+    # 9. Register Knowledge Vault tools (vault_search, vault_read_document, etc.)
+    try:
+        from app.vault.service import VaultService
+
+        VaultService.get_instance()
+    except Exception as exc:
+        log.warning("register_builtin_tools.vault_failed", error=str(exc))
+

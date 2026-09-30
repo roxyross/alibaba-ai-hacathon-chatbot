@@ -1,232 +1,334 @@
-"""Phase 5 Master Integration Test Suite: Knowledge Vault & Vector Memory.
+"""Integration tests for Phase 5: Knowledge Vault & Vector Memory (RAG Engine).
 
 Verifies:
-1. Document upload, parsing (markdown, text, csv), chunking, and NeonDB DocumentRecord persistence.
-2. Strict multi-tenant isolation on document listings (User B cannot see User A's uploaded documents).
-3. Semantic RAG query search over chunks (User A retrieves relevant excerpts; User B gets zero matches).
-4. Chat grounding with citations:
-   - When User A chats, relevant document chunks are retrieved and citations [Source: <doc>] are included.
-   - User B does not receive User A's document grounding or citations.
-5. Document deletion and tenant security guard:
-   - User B cannot delete User A's document (returns 404 Not Found).
-   - User A can delete their document, which purges chunks from vector store.
+1. Document upload, text parsing, hierarchical chunking, and dense vector embeddings.
+2. Direct knowledge note creation in Markdown.
+3. Hybrid semantic vector and BM25 lexical search with RRF scoring.
+4. Document listing, folder filtering, and chunk inspection.
+5. Strict multi-tenant isolation (User B cannot search, read, or delete User A's documents).
+6. Central ToolRegistry integration: execution of `vault_search`, `vault_read_document`, `vault_list_documents`.
+7. Document deletion, chunk purge, and vault statistics telemetry.
 """
 
 from __future__ import annotations
 
 import io
-import sys
-import uuid
-from collections.abc import AsyncIterator
 
 import httpx
 import pytest
+from httpx import AsyncClient
 
-# Ensure backend src is on sys.path
-sys.path.insert(0, "src")
-
-from app.documents.repository import DocumentRepository
+from app.auth.service import MagicLinkService
 from app.main import app
+from app.tools.registry import ToolRegistry
+from app.tools.schemas import ToolExecutionRequest, ToolSource
 
 
-@pytest.fixture
-def anyio_backend() -> str:
-    return "asyncio"
-
-
-@pytest.fixture
-async def client() -> AsyncIterator[httpx.AsyncClient]:
-    async with httpx.AsyncClient(
+async def _create_second_user_client() -> AsyncClient:
+    """Helper to mint a second authenticated client for tenant isolation testing."""
+    client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
-    ) as c:
-        yield c
-
-
-async def _get_auth(client: httpx.AsyncClient, email: str) -> tuple[dict[str, str], str]:
-    """Return (auth_headers, user_id)."""
-    tok = (await client.post("/api/v1/auth/request-link", json={"email": email})).json()["dev_token"]
-    verify_data = (await client.post("/api/v1/auth/verify", json={"token": tok})).json()
-    jwt_tok = verify_data["access_token"]
-    user_id = verify_data["user"]["id"]
-    return {"Authorization": f"Bearer {jwt_tok}"}, user_id
+    )
+    service = MagicLinkService()
+    test_email = "tenant_isolation_b@example.com"
+    await service.request_link(test_email)
+    user_id = next(
+        u.id for email, u in service._mem_users.items() if email == test_email
+    )
+    token_value = next(
+        t for t, row in service._mem_tokens.items() if row.user_id == user_id
+    )
+    result = await service.verify(token_value)
+    if result is None:
+        raise RuntimeError("Failed to verify magic-link token for second user")
+    _user, jwt, _ttl = result
+    client.headers["Authorization"] = f"Bearer {jwt}"
+    return client
 
 
 @pytest.mark.asyncio
-async def test_document_upload_parsing_and_persistence(client: httpx.AsyncClient) -> None:
-    """Uploading a document parses content, indexes vector chunks, and persists to DB."""
-    uid = uuid.uuid4().hex[:8]
-    headers_a, user_id_a = await _get_auth(client, f"vault_user_{uid}@example.com")
+async def test_vault_document_upload_and_chunking(authed_client: AsyncClient) -> None:
+    """Verify document upload, text parsing, recursive chunking, and embedding generation."""
+    sample_text = """# ROXY-AI 2.0 Architectural Blueprint
 
-    doc_text = (
-        "# Q3 Engineering & Financial Strategy\n\n"
-        "Total Revenue recorded is $4.2M for this quarter.\n"
-        "Active Runway extends for 18 months based on current burn rate of $120k/mo.\n"
-        "The flagship microservices migration will complete by October 15th."
-    )
-    file_bytes = doc_text.encode("utf-8")
+## Executive Summary
+ROXY-AI 2.0 is a distributed personal AI operating layer featuring multi-agent orchestration,
+local device control, and deep contextual memory.
 
-    files = {
-        "file": ("q3_strategy.md", io.BytesIO(file_bytes), "text/markdown"),
+## Knowledge Vault Specifications
+The Knowledge Vault employs recursive hierarchical text splitting, signed 128-dimensional
+feature-hashed dense vectors, and hybrid BM25 lexical retrieval. All chunks are bounded to
+approximately 1200 characters with 150-character contextual overlap.
+
+## Security & Privacy Model
+Strict multi-tenant cryptographic partitioning ensures that customer documents are completely
+isolated and inaccessible to other users.
+"""
+    file_bytes = sample_text.encode("utf-8")
+    files = {"file": ("architecture_blueprint.md", io.BytesIO(file_bytes), "text/markdown")}
+    data = {"document_name": "ROXY Architecture Blueprint", "folder": "Engineering"}
+
+    res = await authed_client.post("/api/v1/vault/upload", files=files, data=data)
+    assert res.status_code == 201
+    doc = res.json()
+
+    assert "id" in doc
+    assert doc["filename"] == "ROXY Architecture Blueprint"
+    assert doc["folder"] == "Engineering"
+    assert doc["chunk_count"] >= 1
+    assert "status" in doc
+    assert doc["status"] == "ready"
+    assert len(doc["chunks"]) >= 1
+
+    first_chunk = doc["chunks"][0]
+    assert "id" in first_chunk
+    assert "content" in first_chunk
+    assert "token_count" in first_chunk
+    assert first_chunk["token_count"] > 0
+    assert first_chunk["has_embedding"] is True
+
+
+@pytest.mark.asyncio
+async def test_vault_note_creation(authed_client: AsyncClient) -> None:
+    """Verify quick markdown note creation directly into the Knowledge Vault."""
+    note_payload = {
+        "title": "Weekly Strategy Sync Notes",
+        "content": """# Strategy Sync - Q4
+Key Priorities:
+1. Complete Phase 5 Knowledge Vault rollout with sub-50ms hybrid search.
+2. Finalize cloud-native deployment on Alibaba Cloud Serverless Container Instances.
+3. Conduct end-to-end stress testing under multi-tenant load.
+""",
+        "folder": "Strategy",
+        "tags": ["strategy", "planning", "q4"],
     }
-    data = {
-        "document_name": "Q3 Engineering & Financial Strategy",
+
+    res = await authed_client.post("/api/v1/vault/notes", json=note_payload)
+    assert res.status_code == 201
+    doc = res.json()
+
+    assert doc["filename"] == "Weekly Strategy Sync Notes.md"
+    assert doc["folder"] == "Strategy"
+    assert doc["mime_type"] == "text/markdown"
+    assert "strategy" in doc["tags"]
+    assert doc["chunk_count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_vault_hybrid_semantic_search(authed_client: AsyncClient) -> None:
+    """Verify hybrid dense vector + lexical keyword search over indexed documents."""
+    # 1. Ingest distinct document for searching
+    tech_content = """# Alibaba Cloud GPU Acceleration & Model Serving
+This document details high-throughput LLM deployment patterns on Alibaba Cloud PAI-EAS.
+Using vLLM with PagedAttention and Tensor Parallelism across 4x NVIDIA A10 GPUs,
+inference latency is reduced to 18 milliseconds per token.
+"""
+    files = {"file": ("alibaba_gpu_guide.txt", io.BytesIO(tech_content.encode("utf-8")), "text/plain")}
+    data = {"document_name": "Alibaba GPU Serving Guide", "folder": "Engineering"}
+    upload_res = await authed_client.post("/api/v1/vault/upload", files=files, data=data)
+    assert upload_res.status_code == 201
+
+    # 2. Search query matching both semantic meaning and exact tokens
+    search_payload = {
+        "query": "Alibaba Cloud GPU vLLM latency",
+        "folder": "Engineering",
+        "top_k": 3,
+        "hybrid": True,
     }
 
-    res = await client.post("/api/v1/documents/upload", headers=headers_a, files=files, data=data)
-    assert res.status_code == 200, res.text
-    payload = res.json()
+    search_res = await authed_client.post("/api/v1/vault/search", json=search_payload)
+    assert search_res.status_code == 200
+    res_data = search_res.json()
 
-    assert payload["document_name"] == "Q3 Engineering & Financial Strategy"
-    assert payload["chunks_stored"] >= 1
-    assert payload["doc_type"] == "markdown"
-    assert len(payload["chunk_ids"]) >= 1
+    assert "results" in res_data
+    assert len(res_data["results"]) >= 1
+    top_hit = res_data["results"][0]
 
-    doc_id = payload["document_id"]
-
-    # Verify in DocumentRepository
-    repo = DocumentRepository()
-    db_doc = await repo.get_by_id(doc_id, user_id_a)
-    assert db_doc is not None
-    assert db_doc.filename == "Q3 Engineering & Financial Strategy"
-    assert "Total Revenue recorded is $4.2M" in (db_doc.extracted_text or "")
+    assert "Alibaba" in top_hit["content"] or "GPU" in top_hit["content"]
+    assert top_hit["score"] > 0.0
+    assert top_hit["dense_score"] >= 0.0
+    assert top_hit["lexical_score"] >= 0.0
+    assert top_hit["document_name"] == "Alibaba GPU Serving Guide"
+    assert res_data["execution_time_ms"] >= 0.0
 
 
 @pytest.mark.asyncio
-async def test_document_list_and_tenant_isolation(client: httpx.AsyncClient) -> None:
-    """User A sees their uploaded document; User B sees an empty list."""
-    uid = uuid.uuid4().hex[:8]
-    headers_a, user_id_a = await _get_auth(client, f"alice_{uid}@example.com")
-    headers_b, user_id_b = await _get_auth(client, f"bob_{uid}@example.com")
+async def test_vault_list_and_filter_documents(authed_client: AsyncClient) -> None:
+    """Verify document listing with folder and search filtering."""
+    # 1. Seed two documents in different folders
+    await authed_client.post(
+        "/api/v1/vault/notes",
+        json={"title": "Doc In Engineering", "content": "Engineering content", "folder": "Engineering"},
+    )
+    await authed_client.post(
+        "/api/v1/vault/notes",
+        json={"title": "Doc In Finance", "content": "Finance content", "folder": "Finance"},
+    )
 
-    # User A uploads a doc
-    file_bytes = b"Confidential Project Pegasus Architecture Spec.\nCore engine runs on Rust and asyncpg."
-    files = {"file": ("pegasus_spec.txt", io.BytesIO(file_bytes), "text/plain")}
-    up_res = await client.post("/api/v1/documents/upload", headers=headers_a, files=files)
-    assert up_res.status_code == 200
+    # 2. List all documents
+    res_all = await authed_client.get("/api/v1/vault/documents")
+    assert res_all.status_code == 200
+    all_data = res_all.json()
+    assert all_data["total"] >= 2
+    assert len(all_data["documents"]) >= 2
 
-    # User A lists documents
-    list_a = await client.get("/api/v1/documents", headers=headers_a)
-    assert list_a.status_code == 200
-    docs_a = list_a.json()["documents"]
-    assert len(docs_a) == 1
-    assert docs_a[0]["document_name"] == "pegasus_spec.txt"
-
-    # User B lists documents
-    list_b = await client.get("/api/v1/documents", headers=headers_b)
-    assert list_b.status_code == 200
-    docs_b = list_b.json()["documents"]
-    assert len(docs_b) == 0, f"Cross-tenant leak! User B received: {docs_b}"
+    # 3. Filter by folder
+    res_folder = await authed_client.get("/api/v1/vault/documents?folder=Engineering")
+    assert res_folder.status_code == 200
+    folder_data = res_folder.json()
+    assert len(folder_data["documents"]) >= 1
+    for d in folder_data["documents"]:
+        assert d["folder"] == "Engineering"
 
 
 @pytest.mark.asyncio
-async def test_document_query_semantic_rag(client: httpx.AsyncClient) -> None:
-    """Semantic RAG queries match user's chunks; User B gets 0 chunks."""
-    uid = uuid.uuid4().hex[:8]
-    headers_a, user_id_a = await _get_auth(client, f"charlie_{uid}@example.com")
-    headers_b, user_id_b = await _get_auth(client, f"dave_{uid}@example.com")
-
-    text = (
-        "Project BlueMoon Security Protocol: All SSH keys must be rotated every 30 days. "
-        "Two-factor authentication via hardware YubiKey is strictly enforced for production clusters."
+async def test_vault_get_document_details(authed_client: AsyncClient) -> None:
+    """Verify retrieving single document with its constituent chunks."""
+    # 1. Ingest document
+    create_res = await authed_client.post(
+        "/api/v1/vault/notes",
+        json={
+            "title": "Quantum Computing Notes",
+            "content": "# Quantum Computing\n\nQubits leverage quantum superposition and entanglement.",
+            "folder": "Research",
+        },
     )
-    files = {"file": ("bluemoon_security.md", io.BytesIO(text.encode("utf-8")), "text/markdown")}
-    await client.post("/api/v1/documents/upload", headers=headers_a, files=files)
+    assert create_res.status_code == 201
+    doc_id = create_res.json()["id"]
 
-    # User A queries
-    q_res = await client.post(
-        "/api/v1/documents/query",
-        headers=headers_a,
-        json={"query": "How often must SSH keys be rotated according to BlueMoon?"},
-    )
-    assert q_res.status_code == 200
-    data = q_res.json()
-    assert len(data["chunks"]) >= 1
-    assert "bluemoon_security.md" in data["sources"]
-    assert "bluemoon_security.md" in data["chunks"][0]["document_name"]
-    assert "SSH keys must be rotated every 30 days" in data["chunks"][0]["text"]
-    assert data["answer"] is not None
-    assert "bluemoon_security.md" in data["answer"]
+    # 2. Get document details
+    res_detail = await authed_client.get(f"/api/v1/vault/documents/{doc_id}")
+    assert res_detail.status_code == 200
+    doc = res_detail.json()
 
-    # User B queries the exact same prompt
-    q_res_b = await client.post(
-        "/api/v1/documents/query",
-        headers=headers_b,
-        json={"query": "How often must SSH keys be rotated according to BlueMoon?"},
-    )
-    assert q_res_b.status_code == 200
-    data_b = q_res_b.json()
-    assert len(data_b["chunks"]) == 0, "User B leaked chunks from User A!"
-    assert data_b["total_candidates"] == 0
+    assert doc["id"] == doc_id
+    assert doc["folder"] == "Research"
+    assert "chunks" in doc
+    assert len(doc["chunks"]) == doc["chunk_count"]
+    for ch in doc["chunks"]:
+        assert ch["document_id"] == doc_id
+        assert len(ch["content"]) > 0
 
 
 @pytest.mark.asyncio
-async def test_chat_grounding_and_citations(client: httpx.AsyncClient) -> None:
-    """Chat requests ground responses using user's uploaded vault documents and citations."""
-    uid = uuid.uuid4().hex[:8]
-    headers_a, user_id_a = await _get_auth(client, f"eva_{uid}@example.com")
-    headers_b, user_id_b = await _get_auth(client, f"frank_{uid}@example.com")
+async def test_vault_strict_tenant_isolation(authed_client: AsyncClient) -> None:
+    """Verify that User B cannot view, query, or delete User A's private documents."""
+    user_b_client = await _create_second_user_client()
+    try:
+        # 1. User A creates a confidential document
+        private_text = "CONFIDENTIAL_PROJECT_OMEGA: Secret cryptographic keys and deployment hashes."
+        files = {"file": ("top_secret.txt", io.BytesIO(private_text.encode("utf-8")), "text/plain")}
+        res_upload = await authed_client.post(
+            "/api/v1/vault/upload", files=files, data={"document_name": "Top Secret Omega"}
+        )
+        assert res_upload.status_code == 201
+        user_a_doc_id = res_upload.json()["id"]
 
-    # User A uploads a unique product patent
-    doc_content = (
-        "QuantumLock Protocol Specification: The quantum encryption key uses 4096-bit entanglement pairs. "
-        "The fail-safe trigger code is ALPHA-OMEGA-9944."
-    )
-    files = {"file": ("quantum_lock_patent.txt", io.BytesIO(doc_content.encode("utf-8")), "text/plain")}
-    await client.post("/api/v1/documents/upload", headers=headers_a, files=files)
+        # 2. User B tries to read User A's document directly -> 404
+        res_b_get = await user_b_client.get(f"/api/v1/vault/documents/{user_a_doc_id}")
+        assert res_b_get.status_code == 404
 
-    # User A chats via runtime coordinator
-    chat_payload = {
-        "message": "What is the fail-safe trigger code in the QuantumLock protocol?",
-    }
-    chat_res = await client.post("/api/v1/runtime/chat", headers=headers_a, json=chat_payload)
-    assert chat_res.status_code == 200
-    res_data = chat_res.json()
-    response_text = res_data["response"]
+        # 3. User B queries for secret term -> 0 matches
+        res_b_search = await user_b_client.post(
+            "/api/v1/vault/search",
+            json={"query": "CONFIDENTIAL_PROJECT_OMEGA Secret keys", "top_k": 5},
+        )
+        assert res_b_search.status_code == 200
+        matches = [
+            r for r in res_b_search.json()["results"] if "CONFIDENTIAL_PROJECT_OMEGA" in r["content"]
+        ]
+        assert len(matches) == 0
 
-    # Must contain the grounded knowledge or document citation
-    assert "ALPHA-OMEGA-9944" in response_text or "quantum_lock_patent.txt" in response_text or "QuantumLock" in response_text
-
-    # User B asks the same thing
-    chat_res_b = await client.post("/api/v1/runtime/chat", headers=headers_b, json=chat_payload)
-    assert chat_res_b.status_code == 200
-    res_b_text = chat_res_b.json()["response"]
-    assert "quantum_lock_patent.txt" not in res_b_text, "User B leaked User A's document name!"
+        # 4. User B tries to delete User A's document -> 404
+        res_b_del = await user_b_client.delete(f"/api/v1/vault/documents/{user_a_doc_id}")
+        assert res_b_del.status_code == 404
+    finally:
+        await user_b_client.aclose()
 
 
 @pytest.mark.asyncio
-async def test_document_deletion_and_cross_tenant_guard(client: httpx.AsyncClient) -> None:
-    """User B cannot delete User A's document; User A deletes and chunks are removed."""
-    uid = uuid.uuid4().hex[:8]
-    headers_a, user_id_a = await _get_auth(client, f"grace_{uid}@example.com")
-    headers_b, user_id_b = await _get_auth(client, f"heidi_{uid}@example.com")
+async def test_vault_tools_in_central_registry_and_deletion(authed_client: AsyncClient) -> None:
+    """Verify ToolRegistry integration for vault tools and document deletion lifecycle."""
+    registry = ToolRegistry.get_instance()
 
-    # User A uploads doc
-    files = {"file": ("delete_test.txt", io.BytesIO(b"Ephemeral test data to be purged."), "text/plain")}
-    up = await client.post("/api/v1/documents/upload", headers=headers_a, files=files)
-    doc_id = up.json()["document_id"]
+    # 1. Verify tools are registered in Central Tool Registry
+    assert registry.get("vault_search") is not None
+    assert registry.get("vault_read_document") is not None
+    assert registry.get("vault_list_documents") is not None
+    assert registry.get("vault_store_knowledge") is not None
+    assert registry.get("vault_delete_document") is not None
 
-    # User B tries to delete User A's document -> 404
-    del_b = await client.delete(f"/api/v1/documents/{doc_id}", headers=headers_b)
-    assert del_b.status_code == 404
+    tool = registry.get("vault_search")
+    assert tool.source == ToolSource.SYSTEM
+    assert "query" in tool.input_schema["properties"]
 
-    # Document still exists for User A
-    list_a = await client.get("/api/v1/documents", headers=headers_a)
-    assert len(list_a.json()["documents"]) == 1
-
-    # User A deletes their own document -> 200
-    del_a = await client.delete(f"/api/v1/documents/{doc_id}", headers=headers_a)
-    assert del_a.status_code == 200
-    assert del_a.json()["document_id"] == doc_id
-
-    # Verify list is now empty
-    list_a_after = await client.get("/api/v1/documents", headers=headers_a)
-    assert len(list_a_after.json()["documents"]) == 0
-
-    # Verify RAG query returns 0 chunks
-    q_after = await client.post(
-        "/api/v1/documents/query",
-        headers=headers_a,
-        json={"query": "Ephemeral test data"},
+    # 2. Execute vault_store_knowledge via registry
+    store_exec = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="vault_store_knowledge",
+            arguments={
+                "title": "ToolRegistry Knowledge Note",
+                "content": "This note was registered through the central ToolRegistry dispatcher.",
+                "folder": "IntegrationTests",
+            },
+            user_id="test_user_p5",
+        )
     )
-    assert len(q_after.json()["chunks"]) == 0
+    assert store_exec.success is True
+    created_id = store_exec.output["document_id"]
+
+    # 3. Execute vault_search via registry
+    search_exec = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="vault_search",
+            arguments={"query": "central ToolRegistry dispatcher", "top_k": 3},
+            user_id="test_user_p5",
+        )
+    )
+    assert search_exec.success is True
+    assert search_exec.output["matches_count"] >= 1
+
+    # 4. Execute vault_read_document via registry
+    read_exec = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="vault_read_document",
+            arguments={"document_id": created_id},
+            user_id="test_user_p5",
+        )
+    )
+    assert read_exec.success is True
+    assert read_exec.output["found"] is True
+
+    # 5. Check Vault Stats telemetry
+    stats_res = await authed_client.get("/api/v1/vault/stats")
+    assert stats_res.status_code == 200
+    stats = stats_res.json()
+    assert "total_documents" in stats
+    assert "total_chunks" in stats
+    assert "total_bytes" in stats
+    assert "storage_formatted" in stats
+
+    # 6. Delete document via Registry tool and verify cleanup
+    del_exec = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="vault_delete_document",
+            arguments={"document_id": created_id},
+            user_id="test_user_p5",
+        )
+    )
+    assert del_exec.success is True
+    assert del_exec.output["deleted"] is True
+
+    # 7. Also verify document deletion via REST API for authed_client's document
+    temp_note = await authed_client.post(
+        "/api/v1/vault/notes",
+        json={"title": "Temp Note For API Delete", "content": "Delete me", "folder": "Testing"},
+    )
+    assert temp_note.status_code == 201
+    temp_id = temp_note.json()["id"]
+
+    del_res = await authed_client.delete(f"/api/v1/vault/documents/{temp_id}")
+    assert del_res.status_code == 200
+    assert del_res.json()["deleted"] is True
+

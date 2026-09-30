@@ -55,6 +55,7 @@ from app.connectors.router import router as connectors_router
 from app.device.router import router as device_router
 from app.mcp.router import router as mcp_router
 from app.tools.builtin import register_builtin_tools
+from app.vault.router import router as vault_router
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(
@@ -124,6 +125,7 @@ app.include_router(tools_router, prefix="/api/v1")
 app.include_router(connectors_router, prefix="/api/v1")
 app.include_router(mcp_router, prefix="/api/v1")
 app.include_router(device_router, prefix="/api/v1")
+app.include_router(vault_router, prefix="/api/v1")
 
 _static_dir = Path(__file__).resolve().parents[2] / "static"
 try:
