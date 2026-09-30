@@ -486,6 +486,14 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     except Exception as exc:
         log.warning("register_builtin_tools.scheduler_failed", error=str(exc))
 
+    # 18. Register Personal Finance & Multi-Tenant Ledger tools (finance_list_accounts, finance_record_transaction, etc.)
+    try:
+        from app.finance.service import FinanceService
+
+        FinanceService.get_instance().register_finance_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.finance_failed", error=str(exc))
+
 
 
 

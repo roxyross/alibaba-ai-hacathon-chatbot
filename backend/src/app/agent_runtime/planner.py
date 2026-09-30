@@ -407,8 +407,13 @@ class AgentPlanner:
             or "check my wallet" in lower
             or "my wallet" in lower
             or "my ai credits" in lower
+            or "my credits" in lower
+            or "ai credits" in lower
             or "check credits" in lower
+            or "check my credits" in lower
             or "wallet balance" in lower
+            or "my token usage" in lower
+            or "token usage" in lower
             or lower.startswith("show wallet")
             or lower.startswith("view wallet")
         ):
@@ -559,6 +564,197 @@ class AgentPlanner:
                     "depends_on": [],
                 }
             ]
+
+        # Single-intent: Personal Finance - Financial Summary & Net Worth
+        if (
+            "financial summary" in lower
+            or "finance summary" in lower
+            or "my finances" in lower
+            or "show my finances" in lower
+            or "net worth" in lower
+            or "what is my net worth" in lower
+            or "how much money do i have" in lower
+            or "my spending summary" in lower
+            or "spending overview" in lower
+            or "spending burn rate" in lower
+            or lower.startswith("show finances")
+            or lower.startswith("view finances")
+        ):
+            tool_id = (
+                "finance_get_summary"
+                if "finance_get_summary" in tools or self._tool_registry.get("finance_get_summary")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Calculate total net worth, dual-currency balances, and monthly spending burn rate",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Personal Finance - List Accounts
+        if (
+            "my bank accounts" in lower
+            or "my accounts" in lower
+            or "list accounts" in lower
+            or "show accounts" in lower
+            or "bank accounts" in lower
+            or "connected accounts" in lower
+            or "list my bank accounts" in lower
+            or "list financial accounts" in lower
+            or lower.startswith("show bank accounts")
+            or lower.startswith("view bank accounts")
+        ):
+            tool_id = (
+                "finance_list_accounts"
+                if "finance_list_accounts" in tools or self._tool_registry.get("finance_list_accounts")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Retrieve list of all connected financial and bank accounts",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Personal Finance - Disconnect / Delete Account (requires confirmation)
+        if (
+            lower.startswith("delete account ")
+            or lower.startswith("remove account ")
+            or lower.startswith("disconnect account ")
+            or lower.startswith("delete bank account ")
+            or lower.startswith("disconnect bank account ")
+        ):
+            acc_id = re.sub(
+                r"(?i)^(?:delete|remove|disconnect)\s+(?:bank\s+)?account\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            tool_id = (
+                "finance_delete_account"
+                if "finance_delete_account" in tools or self._tool_registry.get("finance_delete_account")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Disconnect financial account '{acc_id}' and purge ledger (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {"account_id": acc_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Personal Finance - Get Account Details
+        if (
+            lower.startswith("get account ")
+            or lower.startswith("show account ")
+            or lower.startswith("view account ")
+            or "account details for " in lower
+            or "account details " in lower
+        ):
+            acc_id = re.sub(
+                r"(?i)^(?:get\s+account|show\s+account|view\s+account|account\s+details(?:\s+for)?)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if acc_id:
+                tool_id = (
+                    "finance_get_account"
+                    if "finance_get_account" in tools or self._tool_registry.get("finance_get_account")
+                    else "system_memory_retrieve"
+                )
+                return [
+                    {
+                        "step_number": 1,
+                        "description": f"Retrieve details and recent transactions for account '{acc_id}'",
+                        "tool_id": tool_id,
+                        "tool_input": {"account_id": acc_id},
+                        "depends_on": [],
+                    }
+                ]
+
+        # Single-intent: Personal Finance - Record / Log Transaction or Expense
+        if (
+            lower.startswith("record expense ")
+            or lower.startswith("record transaction ")
+            or lower.startswith("log expense ")
+            or lower.startswith("log transaction ")
+            or lower.startswith("add expense ")
+            or lower.startswith("add transaction ")
+            or lower.startswith("track expense ")
+        ):
+            clean_cmd = re.sub(r"(?i)^(?:record|log|add|track)\s+(?:expense|transaction)\s*", "", text).strip()
+            amt_match = re.search(r"(\$|rs\.?|pkr)?\s*([0-9]+(?:\.[0-9]+)?)\s*(usd|pkr|dollars|rupees)?", clean_cmd, re.I)
+            amount_val = 0.0
+            currency = "USD"
+            if amt_match:
+                amount_val = float(amt_match.group(2))
+                raw_curr = (amt_match.group(1) or amt_match.group(3) or "").lower()
+                if "rs" in raw_curr or "pkr" in raw_curr or "rupee" in raw_curr:
+                    currency = "PKR"
+
+            cat_match = re.search(r"(?:for|category|under)\s+([a-zA-Z0-9_\-]+)", clean_cmd, re.I)
+            category = cat_match.group(1).lower() if cat_match else "general"
+
+            tool_id = (
+                "finance_record_transaction"
+                if "finance_record_transaction" in tools or self._tool_registry.get("finance_record_transaction")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Record transaction of {amount_val} {currency} under '{category}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "account_id": "acc_default",
+                        "description": clean_cmd,
+                        "amount_usd": amount_val if currency == "USD" else round(amount_val / 280.0, 2),
+                        "amount_pkr": round(amount_val * 280.0, 2) if currency == "USD" else amount_val,
+                        "category": category,
+                        "transaction_type": "debit",
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Personal Finance - List Transactions / Expense History
+        if (
+            "list transactions" in lower
+            or "show transactions" in lower
+            or "recent transactions" in lower
+            or "my transactions" in lower
+            or "recent expenses" in lower
+            or "show spending" in lower
+            or "spending history" in lower
+            or "expense history" in lower
+            or "show expense ledger" in lower
+            or "transaction history" in lower
+            or lower.startswith("show transactions")
+            or lower.startswith("view transactions")
+        ):
+            tool_id = (
+                "finance_list_transactions"
+                if "finance_list_transactions" in tools or self._tool_registry.get("finance_list_transactions")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Retrieve financial transaction history and spending ledger",
+                    "tool_id": tool_id,
+                    "tool_input": {"limit": 50},
+                    "depends_on": [],
+                }
+            ]
+
 
         # Single-intent: Workspace Hub - Delete Project (requires confirmation)
         if (
