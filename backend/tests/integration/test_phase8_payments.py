@@ -26,8 +26,12 @@ import pytest
 
 sys.path.insert(0, "src")
 
+from app.agent_runtime.planner import AgentPlanner
 from app.billing.repository import clear_in_memory_stores
+from app.billing.service import PaymentService
 from app.main import app
+from app.tools.registry import ToolRegistry
+from app.tools.schemas import RiskLevel, ToolExecutionRequest, ToolSource
 
 
 @pytest.fixture
@@ -464,4 +468,226 @@ async def test_chat_streaming_billing_grounding(client: httpx.AsyncClient) -> No
     assert "data:" in pro_stream
     assert "Pro" in pro_stream
     assert "Remaining AI Credits:" in pro_stream
+
+
+# -----------------------------------------------------------------------------
+# 10. Central ToolRegistry Registration & High-Risk Confirmation Gating
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_payment_service_singleton_and_tool_registration() -> None:
+    """Verify PaymentService singleton and proper Central ToolRegistry registration."""
+    svc1 = PaymentService.get_instance()
+    svc2 = PaymentService.get_instance()
+    assert svc1 is svc2
+
+    svc1.register_billing_tools()
+    reg = ToolRegistry.get_instance()
+
+    billing_tool_ids = [
+        "billing_get_wallet",
+        "billing_list_plans",
+        "billing_create_checkout",
+        "billing_topup_credits",
+        "billing_get_invoices",
+        "billing_cancel_subscription",
+    ]
+    for tid in billing_tool_ids:
+        tool = reg.get(tid)
+        assert tool is not None, f"Tool {tid} not registered in ToolRegistry"
+        assert tool.source == ToolSource.SYSTEM
+        assert len(tool.capabilities) > 0
+
+    # Verify sensitive action gating on cancellation
+    cancel_tool = reg.get("billing_cancel_subscription")
+    assert cancel_tool is not None
+    assert cancel_tool.requires_confirmation is True
+    assert cancel_tool.risk_level == RiskLevel.HIGH
+
+
+# -----------------------------------------------------------------------------
+# 11. Direct Tool Execution via ToolRegistry for All 6 Billing Tools
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_billing_tools_direct_execution() -> None:
+    """Verify direct tool execution via ToolRegistry for all 6 billing tools."""
+    svc = PaymentService.get_instance()
+    svc.register_billing_tools()
+    reg = ToolRegistry.get_instance()
+    user_id = f"tool_exec_user_{uuid.uuid4().hex[:6]}"
+
+    # 1. billing_get_wallet
+    res_wallet = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="billing_get_wallet",
+            arguments={},
+            user_id=user_id,
+        )
+    )
+    assert res_wallet.success is True
+    assert res_wallet.output["user_id"] == user_id
+    assert res_wallet.output["remaining_credits"] == 100.0
+    assert "Free (BYOK)" in res_wallet.output["summary"]
+
+    # 2. billing_list_plans
+    res_plans = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="billing_list_plans",
+            arguments={},
+            user_id=user_id,
+        )
+    )
+    assert res_plans.success is True
+    assert len(res_plans.output["plans"]) >= 3
+    assert len(res_plans.output["top_up_packs"]) >= 3
+
+    # 3. billing_create_checkout (USD / Stripe)
+    res_checkout_usd = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="billing_create_checkout",
+            arguments={"plan_id": "pro", "currency": "usd"},
+            user_id=user_id,
+        )
+    )
+    assert res_checkout_usd.success is True
+    assert res_checkout_usd.output["provider"] == "stripe"
+    assert "checkout_url" in res_checkout_usd.output
+    assert res_checkout_usd.output["amount"] == 19.0
+
+    # 4. billing_create_checkout (PKR / Safepay)
+    res_checkout_pkr = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="billing_create_checkout",
+            arguments={"plan_id": "pro", "currency": "pkr"},
+            user_id=user_id,
+        )
+    )
+    assert res_checkout_pkr.success is True
+    assert res_checkout_pkr.output["provider"] == "safepay"
+    assert "safepay" in res_checkout_pkr.output["checkout_url"]
+    assert res_checkout_pkr.output["amount"] == 5700.0
+
+    # 5. billing_topup_credits
+    res_topup = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="billing_topup_credits",
+            arguments={"pack_id": "pack_10", "currency": "usd"},
+            user_id=user_id,
+        )
+    )
+    assert res_topup.success is True
+    assert "checkout_url" in res_topup.output
+
+    # 6. billing_get_invoices
+    res_inv = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="billing_get_invoices",
+            arguments={},
+            user_id=user_id,
+        )
+    )
+    assert res_inv.success is True
+    assert "invoices" in res_inv.output
+
+    # 7. billing_cancel_subscription
+    res_cancel = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="billing_cancel_subscription",
+            arguments={},
+            user_id=user_id,
+        )
+    )
+    assert res_cancel.success is True
+    assert res_cancel.output["status"] == "cancelled"
+
+
+# -----------------------------------------------------------------------------
+# 12. AgentPlanner Intent Decomposition & Routing to Billing Tools
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_agent_planner_billing_intent_routing() -> None:
+    """Verify AgentPlanner deterministic decomposition and routing to billing tools."""
+    PaymentService.get_instance().register_billing_tools()
+    planner = AgentPlanner()
+
+    # A. Check wallet balance
+    plan_wallet = await planner.create_plan("how many credits do I have left in my wallet?")
+    assert len(plan_wallet) == 1
+    assert plan_wallet[0]["tool_id"] == "billing_get_wallet"
+
+    # B. Show plans & pricing
+    plan_plans = await planner.create_plan("show me available subscription plans and pricing")
+    assert len(plan_plans) == 1
+    assert plan_plans[0]["tool_id"] == "billing_list_plans"
+
+    # C. Upgrade to Pro
+    plan_upgrade = await planner.create_plan("upgrade to pro plan")
+    assert len(plan_upgrade) == 1
+    assert plan_upgrade[0]["tool_id"] == "billing_create_checkout"
+    assert plan_upgrade[0]["tool_input"]["plan_id"] == "pro"
+
+    # D. Top up credits
+    plan_topup = await planner.create_plan("top up credits with power surge")
+    assert len(plan_topup) == 1
+    assert plan_topup[0]["tool_id"] == "billing_topup_credits"
+
+    # E. Invoices & history
+    plan_inv = await planner.create_plan("show my past invoices and billing history")
+    assert len(plan_inv) == 1
+    assert plan_inv[0]["tool_id"] == "billing_get_invoices"
+
+    # F. Cancel subscription
+    plan_cancel = await planner.create_plan("cancel my subscription")
+    assert len(plan_cancel) == 1
+    assert plan_cancel[0]["tool_id"] == "billing_cancel_subscription"
+
+
+# -----------------------------------------------------------------------------
+# 13. Multi-Tenant Isolation via Tool Execution
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_multitenant_tool_wallet_isolation() -> None:
+    """Verify strict multi-tenant isolation across wallet balances and invoice queries via ToolRegistry."""
+    svc = PaymentService.get_instance()
+    svc.register_billing_tools()
+    reg = ToolRegistry.get_instance()
+
+    user_a = f"tenant_tool_a_{uuid.uuid4().hex[:6]}"
+    user_b = f"tenant_tool_b_{uuid.uuid4().hex[:6]}"
+
+    # User A tops up credits and adds invoice
+    await svc.repo.credit_wallet(user_id=user_a, credits=500000.0, cost_usd=5.0)
+    await svc.repo.add_invoice(
+        user_id=user_a,
+        invoice_data={
+            "id": f"inv_a_{uuid.uuid4().hex[:4]}",
+            "date": "Oct 01, 2026",
+            "description": "User A Invoice",
+            "amount_usd": 5.0,
+            "status": "Paid",
+        },
+    )
+
+    # User A wallet check
+    res_a = await reg.execute(
+        ToolExecutionRequest(tool_id="billing_get_wallet", arguments={}, user_id=user_a)
+    )
+    assert res_a.output["remaining_credits"] == 500100.0
+
+    # User B wallet check (remains at default, completely unpolluted by User A)
+    res_b = await reg.execute(
+        ToolExecutionRequest(tool_id="billing_get_wallet", arguments={}, user_id=user_b)
+    )
+    assert res_b.output["remaining_credits"] == 100.0
+
+    # User B invoices (empty, zero cross-tenant leak)
+    inv_b = await reg.execute(
+        ToolExecutionRequest(tool_id="billing_get_invoices", arguments={}, user_id=user_b)
+    )
+    assert inv_b.output["total_invoices"] == 0
+    assert len(inv_b.output["invoices"]) == 0
+
 

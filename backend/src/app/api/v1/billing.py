@@ -7,7 +7,7 @@ provider-aware checkout, cryptographic webhook verification, and idempotent even
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,11 +15,10 @@ from pydantic import BaseModel
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
-from app.billing.repository import BillingRepository
 from app.billing.service import PLANS, TOP_UP_PACKS, PaymentService
 
 router = APIRouter(prefix="/billing", tags=["billing"])
-_service = PaymentService()
+_service = PaymentService.get_instance()
 _repo = _service.repo
 
 
@@ -115,9 +114,9 @@ async def create_checkout(
             "provider": session.provider,
         }
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Checkout creation failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Checkout creation failed: {exc}") from exc
 
 
 @router.post("/topup-checkout")
@@ -145,9 +144,9 @@ async def create_topup_checkout(
             "provider": session.provider,
         }
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Top-up checkout creation failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Top-up checkout creation failed: {exc}") from exc
 
 
 @router.get("/verify/{session_id}")

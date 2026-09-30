@@ -368,6 +368,166 @@ class AgentPlanner:
                 }
             ]
 
+        # Single-intent: Billing credit wallet / balance query
+        if (
+            "how many credits" in lower
+            or "credit balance" in lower
+            or "check my wallet" in lower
+            or "my wallet" in lower
+            or "my ai credits" in lower
+            or "check credits" in lower
+            or "wallet balance" in lower
+            or lower.startswith("show wallet")
+            or lower.startswith("view wallet")
+        ):
+            tool_id = (
+                "billing_get_wallet"
+                if "billing_get_wallet" in tools or self._tool_registry.get("billing_get_wallet")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Retrieve current AI credit wallet balance and subscription status",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Billing list plans / pricing
+        if (
+            "pricing plan" in lower
+            or "subscription plan" in lower
+            or "how much is pro" in lower
+            or "how much does pro cost" in lower
+            or "compare plans" in lower
+            or "list plans" in lower
+            or lower.startswith("show plans")
+            or lower.startswith("view plans")
+            or lower.startswith("what plans")
+        ):
+            tool_id = (
+                "billing_list_plans"
+                if "billing_list_plans" in tools or self._tool_registry.get("billing_list_plans")
+                else "system_web_search"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "List available Roxy-AI subscription plans and top-up packages",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Billing upgrade / subscribe checkout
+        if (
+            lower.startswith("upgrade to ")
+            or lower.startswith("subscribe to ")
+            or lower.startswith("buy subscription")
+            or lower.startswith("checkout plan")
+            or lower.startswith("checkout ")
+            or "upgrade my plan" in lower
+            or "upgrade to pro" in lower
+            or "subscribe to pro" in lower
+            or "upgrade to team" in lower
+            or "subscribe to team" in lower
+        ):
+            plan_id = "team" if "team" in lower else "pro"
+            curr = "pkr" if "pkr" in lower or "rupee" in lower else "usd"
+            tool_id = (
+                "billing_create_checkout"
+                if "billing_create_checkout" in tools or self._tool_registry.get("billing_create_checkout")
+                else "system_web_search"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Generate checkout session for {plan_id.title()} plan in {curr.upper()}",
+                    "tool_id": tool_id,
+                    "tool_input": {"plan_id": plan_id, "currency": curr},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Billing top up credits
+        if (
+            "top up credits" in lower
+            or "topup credits" in lower
+            or "buy credits" in lower
+            or "purchase credits" in lower
+            or "add credits" in lower
+            or "buy credit pack" in lower
+            or lower.startswith("top up ")
+            or lower.startswith("topup ")
+        ):
+            pack_id = "pack_20" if ("ultra" in lower or "20" in lower) else ("pack_5" if ("starter" in lower or "5" in lower) else "pack_10")
+            curr = "pkr" if "pkr" in lower or "rupee" in lower else "usd"
+            tool_id = (
+                "billing_topup_credits"
+                if "billing_topup_credits" in tools or self._tool_registry.get("billing_topup_credits")
+                else "system_web_search"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Generate credit top-up checkout for {pack_id} in {curr.upper()}",
+                    "tool_id": tool_id,
+                    "tool_input": {"pack_id": pack_id, "currency": curr},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Billing invoices & billing history
+        if (
+            "billing history" in lower
+            or "my invoices" in lower
+            or "show invoices" in lower
+            or "view invoices" in lower
+            or "payment history" in lower
+            or "my receipts" in lower
+            or "past payments" in lower
+        ):
+            tool_id = (
+                "billing_get_invoices"
+                if "billing_get_invoices" in tools or self._tool_registry.get("billing_get_invoices")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Retrieve billing invoices and payment transaction history",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Billing cancel subscription
+        if (
+            "cancel my subscription" in lower
+            or "cancel subscription" in lower
+            or "cancel pro" in lower
+            or "stop subscription" in lower
+            or "end subscription" in lower
+        ):
+            tool_id = (
+                "billing_cancel_subscription"
+                if "billing_cancel_subscription" in tools or self._tool_registry.get("billing_cancel_subscription")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Cancel active subscription at period end (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
         return None
 
     def _build_default_plan(

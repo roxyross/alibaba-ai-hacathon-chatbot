@@ -6,7 +6,7 @@ import logging
 import os
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 from app.billing.providers.base import (
     CheckoutSessionResult,
@@ -17,6 +17,8 @@ from app.billing.providers.base import (
 from app.billing.providers.safepay_provider import SafepayProvider
 from app.billing.providers.stripe_provider import StripeProvider
 from app.billing.repository import BillingRepository
+from app.tools.registry import ToolRegistry
+from app.tools.schemas import AgentTool, RiskLevel, ToolSource
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,8 @@ TOP_UP_PACKS: list[dict[str, Any]] = [
 class PaymentService:
     """Unified service for payment operations across Stripe and Safepay."""
 
+    _instance: ClassVar[PaymentService | None] = None
+
     def __init__(
         self,
         repository: BillingRepository | None = None,
@@ -92,6 +96,22 @@ class PaymentService:
         self.repo = repository or BillingRepository()
         self.stripe = stripe_provider or StripeProvider()
         self.safepay = safepay_provider or SafepayProvider()
+
+    @classmethod
+    def get_instance(
+        cls,
+        repository: BillingRepository | None = None,
+        stripe_provider: StripeProvider | None = None,
+        safepay_provider: SafepayProvider | None = None,
+    ) -> PaymentService:
+        """Get or initialize singleton instance of PaymentService."""
+        if cls._instance is None:
+            cls._instance = cls(
+                repository=repository,
+                stripe_provider=stripe_provider,
+                safepay_provider=safepay_provider,
+            )
+        return cls._instance
 
     @property
     def mode(self) -> str:
@@ -374,3 +394,245 @@ class PaymentService:
             "event_type": event.event_type,
             "provider": prov_name,
         }
+
+    def register_billing_tools(self) -> None:
+        """Register billing, wallet, and checkout tools into the Central ToolRegistry."""
+        reg = ToolRegistry.get_instance()
+
+        async def _tool_billing_get_wallet(user_id: str | None = None) -> dict[str, Any]:
+            uid = user_id or "default"
+            wallet = await self.repo.get_credit_wallet(uid)
+            sub = await self.repo.get_subscription(uid)
+            plan_name = sub.get("plan", {}).get("name", "Free (BYOK)")
+            plan_status = sub.get("plan", {}).get("status", "active")
+            remaining = float(wallet.get("remaining_credits", 100.0))
+            used = float(wallet.get("used_this_month", 0.0))
+            cost_usd = float(wallet.get("estimated_cost_usd", 0.0))
+            cost_pkr = float(wallet.get("estimated_cost_pkr", 0.0))
+
+            return {
+                "user_id": uid,
+                "remaining_credits": remaining,
+                "used_this_month": used,
+                "estimated_cost_usd": cost_usd,
+                "estimated_cost_pkr": cost_pkr,
+                "active_plan": plan_name,
+                "plan_status": plan_status,
+                "summary": (
+                    f"Wallet balance: {remaining:,.0f} credits remaining "
+                    f"({used:,.0f} consumed this month). Active plan: {plan_name}."
+                ),
+            }
+
+        async def _tool_billing_list_plans() -> dict[str, Any]:
+            return {
+                "plans": PLANS,
+                "top_up_packs": TOP_UP_PACKS,
+                "mode": self.mode,
+                "supported_currencies": ["USD", "PKR"],
+                "summary": f"{len(PLANS)} subscription plans and {len(TOP_UP_PACKS)} top-up packs available.",
+            }
+
+        async def _tool_billing_create_checkout(
+            plan_id: str = "pro",
+            currency: str = "usd",
+            provider: str | None = None,
+            return_url: str = "",
+            cancel_url: str = "",
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            email = f"{uid}@roxy.ai"
+            res = await self.create_checkout_session(
+                user_id=uid,
+                email=email,
+                plan_id=plan_id.lower().strip(),
+                currency=currency.upper().strip(),
+                provider_name=provider,
+                return_url=return_url,
+                cancel_url=cancel_url,
+            )
+            return {
+                "status": "success",
+                "checkout_url": res.checkout_url,
+                "session_id": res.session_id,
+                "provider": res.provider,
+                "plan_id": plan_id,
+                "currency": currency.upper().strip(),
+                "amount": res.amount,
+                "summary": f"Checkout session created for {plan_id.title()} plan via {res.provider.title()}.",
+            }
+
+        async def _tool_billing_topup_credits(
+            pack_id: str = "pack_10",
+            currency: str = "usd",
+            provider: str | None = None,
+            return_url: str = "",
+            cancel_url: str = "",
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            email = f"{uid}@roxy.ai"
+            res = await self.create_topup_checkout_session(
+                user_id=uid,
+                email=email,
+                pack_id=pack_id.lower().strip(),
+                currency=currency.upper().strip(),
+                provider_name=provider,
+                return_url=return_url,
+                cancel_url=cancel_url,
+            )
+            return {
+                "status": "success",
+                "checkout_url": res.checkout_url,
+                "session_id": res.session_id,
+                "provider": res.provider,
+                "pack_id": pack_id,
+                "currency": currency.upper().strip(),
+                "amount": res.amount,
+                "summary": f"Top-up checkout created for pack '{pack_id}' via {res.provider.title()}.",
+            }
+
+        async def _tool_billing_get_invoices(user_id: str | None = None) -> dict[str, Any]:
+            uid = user_id or "default"
+            invoices = await self.repo.list_invoices(uid)
+            return {
+                "user_id": uid,
+                "total_invoices": len(invoices),
+                "invoices": invoices,
+                "summary": f"Retrieved {len(invoices)} billing invoices for user.",
+            }
+
+        async def _tool_billing_cancel_subscription(user_id: str | None = None) -> dict[str, Any]:
+            uid = user_id or "default"
+            res = await self.repo.cancel_subscription(uid)
+            return {
+                "user_id": uid,
+                "status": "cancelled",
+                "message": res.get("message", "Subscription set to cancel at end of billing period."),
+                "active_until": res.get("active_until"),
+            }
+
+        # 1. Billing Get Wallet
+        reg.register(
+            AgentTool(
+                id="billing_get_wallet",
+                name="Get AI Credit Wallet & Balance",
+                description="Retrieve current AI credit wallet balance, consumed credits, and subscription status.",
+                source=ToolSource.SYSTEM,
+                capabilities=["billing", "wallet", "credits", "balance"],
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                },
+                permissions=["billing:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_billing_get_wallet,
+        )
+
+        # 2. Billing List Plans
+        reg.register(
+            AgentTool(
+                id="billing_list_plans",
+                name="List Subscription Plans & Top-Up Packs",
+                description="List available subscription tiers (Free, Pro, Team) and credit top-up packs with USD and PKR pricing.",
+                source=ToolSource.SYSTEM,
+                capabilities=["billing", "plans", "pricing", "subscriptions"],
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                },
+                permissions=["billing:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_billing_list_plans,
+        )
+
+        # 3. Billing Create Checkout
+        reg.register(
+            AgentTool(
+                id="billing_create_checkout",
+                name="Create Subscription Checkout Session",
+                description="Generate a secure checkout link for subscribing or upgrading to a plan (Pro, Team) with Stripe (USD) or Safepay (PKR).",
+                source=ToolSource.SYSTEM,
+                capabilities=["billing", "checkout", "subscribe", "upgrade"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "plan_id": {"type": "string", "enum": ["pro", "team"], "default": "pro", "description": "Subscription plan ID"},
+                        "currency": {"type": "string", "enum": ["usd", "pkr"], "default": "usd", "description": "Payment currency"},
+                        "provider": {"type": "string", "description": "Explicit payment provider (stripe or safepay)"},
+                    },
+                    "required": ["plan_id"],
+                },
+                permissions=["billing:checkout"],
+                risk_level=RiskLevel.MEDIUM,
+                requires_confirmation=False,
+            ),
+            _tool_billing_create_checkout,
+        )
+
+        # 4. Billing Top-Up Credits
+        reg.register(
+            AgentTool(
+                id="billing_topup_credits",
+                name="Create Credit Top-Up Checkout",
+                description="Generate a checkout link to purchase extra AI generation credits via top-up packs.",
+                source=ToolSource.SYSTEM,
+                capabilities=["billing", "topup", "credits", "wallet"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "pack_id": {"type": "string", "enum": ["pack_5", "pack_10", "pack_20"], "default": "pack_10", "description": "Top-up pack ID"},
+                        "currency": {"type": "string", "enum": ["usd", "pkr"], "default": "usd", "description": "Payment currency"},
+                        "provider": {"type": "string", "description": "Explicit payment provider (stripe or safepay)"},
+                    },
+                    "required": ["pack_id"],
+                },
+                permissions=["billing:checkout"],
+                risk_level=RiskLevel.MEDIUM,
+                requires_confirmation=False,
+            ),
+            _tool_billing_topup_credits,
+        )
+
+        # 5. Billing Get Invoices
+        reg.register(
+            AgentTool(
+                id="billing_get_invoices",
+                name="List Invoices & Billing History",
+                description="Retrieve past invoices, payment history, and receipts for the authenticated user.",
+                source=ToolSource.SYSTEM,
+                capabilities=["billing", "invoices", "history", "receipts"],
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                },
+                permissions=["billing:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_billing_get_invoices,
+        )
+
+        # 6. Billing Cancel Subscription
+        reg.register(
+            AgentTool(
+                id="billing_cancel_subscription",
+                name="Cancel Subscription Plan",
+                description="Cancel active paid subscription plan at the end of the current billing cycle. Requires user confirmation.",
+                source=ToolSource.SYSTEM,
+                capabilities=["billing", "subscription", "cancellation"],
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                },
+                permissions=["billing:write"],
+                risk_level=RiskLevel.HIGH,
+                requires_confirmation=True,
+            ),
+            _tool_billing_cancel_subscription,
+        )

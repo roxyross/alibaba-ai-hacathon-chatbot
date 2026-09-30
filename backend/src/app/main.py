@@ -202,6 +202,8 @@ async def on_startup() -> None:
         ResearchService.get_instance().register_research_tools()
         from app.browser.service import BrowserService
         BrowserService.get_instance().register_browser_tools()
+        from app.billing.service import PaymentService
+        PaymentService.get_instance().register_billing_tools()
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))

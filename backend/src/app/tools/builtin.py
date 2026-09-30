@@ -438,4 +438,13 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     except Exception as exc:
         log.warning("register_builtin_tools.browser_failed", error=str(exc))
 
+    # 12. Register Billing & Payment tools (billing_get_wallet, billing_create_checkout, etc.)
+    try:
+        from app.billing.service import PaymentService
+
+        PaymentService.get_instance().register_billing_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.billing_failed", error=str(exc))
+
+
 

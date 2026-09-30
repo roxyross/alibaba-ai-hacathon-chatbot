@@ -2040,6 +2040,44 @@
   - Verified HTTP Status: HTTP 200 OK.
   - Status: **● Ready (Production)**
 
+---
+
+## Phase 8: Dual Stripe + Safepay Billing, AI Credit Wallet & Central Tool Registry Integration
+
+### Status: Complete & Verified (Exit Gate Passed)
+
+### Summary of Changes
+1. **`PaymentService.get_instance()` Singleton Pattern (`backend/src/app/billing/service.py`)**:
+   - Implemented thread-safe `_instance: ClassVar[PaymentService | None]` and `get_instance(cls)` singleton to guarantee unified state across providers, repositories, tool registries, and FastAPI endpoints.
+   - Updated `backend/src/app/api/v1/billing.py` to bind directly to the singleton instance.
+2. **Central Tool Registry Integration with 6 Native Billing Tools (`register_billing_tools`)**:
+   - `billing_get_wallet`: Retrieves user's AI credit wallet balance, used credits this month, estimated cost in USD/PKR, and active subscription plan tier.
+   - `billing_list_plans`: Lists available subscription plans (Free, Pro, Team) and credit top-up packs with dual pricing (USD/PKR) and feature highlights.
+   - `billing_create_checkout`: Generates provider-aware checkout sessions (Stripe for USD/international, Safepay for PKR local currency) with secure redirect URLs.
+   - `billing_topup_credits`: Creates credit boost checkout sessions for instant top-up packs (Starter Boost, Power Surge, Studio Ultra).
+   - `billing_get_invoices`: Lists past billing invoices, payment history, amounts, dates, and payment statuses for the user.
+   - `billing_cancel_subscription`: Cancels active subscription at period end with high-risk confirmation gating (`requires_confirmation=True`, `RiskLevel.HIGH`).
+3. **Agent Planner Deterministic Intent Decomposition (`backend/src/app/agent_runtime/planner.py`)**:
+   - Added pattern matching for natural language billing inquiries:
+     - Credit checks ("how many credits do I have", "my wallet balance", "check credits") → routes to `billing_get_wallet`.
+     - Plan pricing queries ("show plans", "subscription pricing", "how much is pro") → routes to `billing_list_plans`.
+     - Upgrade & checkout requests ("upgrade to pro", "subscribe to team", "checkout plan") → routes to `billing_create_checkout`.
+     - Top-up intents ("top up credits", "buy credits", "purchase credits") → routes to `billing_topup_credits`.
+     - Invoice inquiries ("show my invoices", "billing history", "my receipts") → routes to `billing_get_invoices`.
+     - Cancellation intents ("cancel my subscription", "cancel pro plan") → routes to `billing_cancel_subscription`.
+4. **Startup Tool Registration Hooks (`backend/src/app/tools/builtin.py` & `backend/src/app/main.py`)**:
+   - Wired `PaymentService.get_instance().register_billing_tools()` into `register_builtin_tools()` and FastAPI `on_startup` lifecycle.
+5. **Multi-Tenant Isolation & Confirmation Gating**:
+   - Strict multi-tenant isolation ensures user credits, invoices, and payment sessions remain strictly partitioned.
+   - Sensitive cancellation actions require explicit human confirmation.
+
+### Tests Executed
+- `pytest backend/tests/integration/test_phase8_payments.py -v`: **16 passed**
+- `pytest backend/tests/integration/test_phase8_streaming_ux.py -v`: **3 passed**
+- Full Regression Suite across Phases 1–8: **69/69 passed**
+- Frontend Typecheck (`tsc --noEmit`): **Passed (exit 0)**
+- Code Quality: `ruff check` (0 errors), `mypy` (0 errors)
+
 
 
 
