@@ -942,7 +942,10 @@ class DeviceService:
                 name="device_list_apps",
                 description="List installed and running applications on the user's computer.",
                 source=ToolSource.DEVICE,
+                capabilities=["device", "apps", "list"],
+                permissions=["device:read"],
                 risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -959,7 +962,10 @@ class DeviceService:
                 name="device_open_app",
                 description="Launch or open an installed desktop application (e.g., Chrome, VS Code, Notion).",
                 source=ToolSource.DEVICE,
+                capabilities=["device", "apps", "launch"],
+                permissions=["device:execute"],
                 risk_level=RiskLevel.MEDIUM,
+                requires_confirmation=False,
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -978,7 +984,10 @@ class DeviceService:
                 name="device_close_app",
                 description="Terminate or close a running application or process on the user's computer.",
                 source=ToolSource.DEVICE,
+                capabilities=["device", "apps", "terminate", "destructive"],
+                permissions=["device:execute"],
                 risk_level=RiskLevel.HIGH,
+                requires_confirmation=True,
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -997,7 +1006,10 @@ class DeviceService:
                 name="device_focus_app",
                 description="Bring a running application window to the foreground.",
                 source=ToolSource.DEVICE,
+                capabilities=["device", "apps", "window"],
+                permissions=["device:execute"],
                 risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -1016,7 +1028,10 @@ class DeviceService:
                 name="device_capture_screen",
                 description="Capture a live screenshot of the user's desktop display.",
                 source=ToolSource.DEVICE,
+                capabilities=["device", "screen", "capture"],
+                permissions=["device:read"],
                 risk_level=RiskLevel.MEDIUM,
+                requires_confirmation=False,
                 input_schema={"type": "object", "properties": empty_capture_props},
             ),
             _tool_capture_screen,

@@ -257,11 +257,14 @@ class AgentPlanner:
 
         # Single-intent: Browser screenshot
         if (
-            lower.startswith("take screenshot of ")
-            or lower.startswith("take a screenshot of ")
-            or lower.startswith("screenshot ")
-            or lower.startswith("capture screenshot of ")
-            or lower.startswith("capture preview of ")
+            (
+                lower.startswith("take screenshot of ")
+                or lower.startswith("take a screenshot of ")
+                or lower.startswith("screenshot ")
+                or lower.startswith("capture screenshot of ")
+                or lower.startswith("capture preview of ")
+            )
+            and not any(w in lower for w in ["desktop", "my screen", "my desktop", "computer", "display", "pc"])
         ):
             target_url = re.sub(
                 r"(?i)^(?:take\s+(?:a\s+)?screenshot\s+of|screenshot|capture\s+(?:a\s+)?(?:screenshot|preview)\s+of)\s*",
@@ -1359,6 +1362,161 @@ class AgentPlanner:
                     "depends_on": [],
                 }
             ]
+
+        # Single-intent: Device Agent - Close / Terminate Application (destructive - requires confirmation)
+        if (
+            lower.startswith("close app ")
+            or lower.startswith("kill app ")
+            or lower.startswith("terminate app ")
+            or lower.startswith("close application ")
+            or lower.startswith("kill process ")
+            or lower.startswith("terminate process ")
+            or lower.startswith("stop app ")
+            or "terminate running application" in lower
+        ):
+            target_app = re.sub(
+                r"(?i)^(?:close\s+(?:app|application)?|kill\s+(?:app|application|process)?|terminate\s+(?:app|application|process)?|stop\s+app)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not target_app:
+                target_app = ctx_dict.get("app_name", "app")
+            tool_id = (
+                "device_close_app"
+                if "device_close_app" in tools or self._tool_registry.get("device_close_app")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Terminate application '{target_app}' (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {"app_name": target_app, "force": "force" in lower or "kill" in lower},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Device Agent - Capture Screen / Screenshot
+        if (
+            "screenshot" in lower
+            or "screen capture" in lower
+            or "capture screen" in lower
+            or "grab screen" in lower
+            or "capture desktop" in lower
+            or "take a screenshot" in lower
+            or "take screenshot" in lower
+        ):
+            tool_id = (
+                "device_capture_screen"
+                if "device_capture_screen" in tools or self._tool_registry.get("device_capture_screen")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Capture a live screenshot of the user's desktop display",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Device Agent - Focus Application Window
+        if (
+            lower.startswith("focus app ")
+            or lower.startswith("focus window ")
+            or lower.startswith("focus ")
+            or "bring to front" in lower
+            or "switch to window" in lower
+        ):
+            target_app = re.sub(
+                r"(?i)^(?:focus\s+(?:app|window)?|switch\s+to\s+window)\s*",
+                "",
+                text,
+            )
+            target_app = re.sub(r"(?i)\s+to\s+(?:the\s+)?front.*$", "", target_app).strip().strip("'\"")
+            if not target_app:
+                target_app = ctx_dict.get("app_name", "app")
+            tool_id = (
+                "device_focus_app"
+                if "device_focus_app" in tools or self._tool_registry.get("device_focus_app")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Bring window for '{target_app}' to the foreground",
+                    "tool_id": tool_id,
+                    "tool_input": {"app_name": target_app},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Device Agent - List Installed & Running Apps
+        if (
+            "list apps" in lower
+            or "list installed apps" in lower
+            or "show my apps" in lower
+            or "what apps are installed" in lower
+            or "running applications" in lower
+            or "installed applications" in lower
+            or "show installed applications" in lower
+            or lower.startswith("apps on my computer")
+        ):
+            detected_category = "all"
+            for cat in ["browser", "development", "productivity", "media", "utilities"]:
+                if cat in lower:
+                    detected_category = cat
+                    break
+            tool_id = (
+                "device_list_apps"
+                if "device_list_apps" in tools or self._tool_registry.get("device_list_apps")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"List installed and running applications (category: {detected_category})",
+                    "tool_id": tool_id,
+                    "tool_input": {"category": detected_category},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Device Agent - Open / Launch Application
+        if (
+            lower.startswith("open app ")
+            or lower.startswith("launch app ")
+            or lower.startswith("start app ")
+            or lower.startswith("open application ")
+            or lower.startswith("launch application ")
+            or lower.startswith("start application ")
+            or lower.startswith("open ")
+            or lower.startswith("launch ")
+            or lower.startswith("start ")
+        ):
+            target_app = re.sub(
+                r"(?i)^(?:open\s+(?:app|application)?|launch\s+(?:app|application)?|start\s+(?:app|application)?)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            # Filter out non-app phrases
+            non_app_words = ["project", "task", "file", "diagram", "artifact", "document", "report", "calendar", "meeting", "event", "session", "chat"]
+            if target_app and not any(target_app.lower().startswith(w) for w in non_app_words):
+                tool_id = (
+                    "device_open_app"
+                    if "device_open_app" in tools or self._tool_registry.get("device_open_app")
+                    else "system_memory_store"
+                )
+                return [
+                    {
+                        "step_number": 1,
+                        "description": f"Launch desktop application '{target_app}'",
+                        "tool_id": tool_id,
+                        "tool_input": {"app_name": target_app, "arguments": []},
+                        "depends_on": [],
+                    }
+                ]
 
         return None
 
