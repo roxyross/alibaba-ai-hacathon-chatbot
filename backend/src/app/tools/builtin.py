@@ -470,6 +470,15 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     except Exception as exc:
         log.warning("register_builtin_tools.calendar_failed", error=str(exc))
 
+    # 16. Register Cowork Task Workspace tools (cowork_create_artifact, cowork_refine_artifact, etc.)
+    try:
+        from app.artifacts.service import CoworkService
+
+        CoworkService.get_instance().register_cowork_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.cowork_failed", error=str(exc))
+
+
 
 
 

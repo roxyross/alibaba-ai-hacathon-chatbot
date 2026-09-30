@@ -56,6 +56,7 @@ from app.device.router import router as device_router
 from app.mcp.router import router as mcp_router
 from app.tools.builtin import register_builtin_tools
 from app.vault.router import router as vault_router
+from app.artifacts.router import router as artifacts_router
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(
@@ -126,6 +127,7 @@ app.include_router(connectors_router, prefix="/api/v1")
 app.include_router(mcp_router, prefix="/api/v1")
 app.include_router(device_router, prefix="/api/v1")
 app.include_router(vault_router, prefix="/api/v1")
+app.include_router(artifacts_router, prefix="/api/v1")
 
 _static_dir = Path(__file__).resolve().parents[2] / "static"
 try:
@@ -210,6 +212,8 @@ async def on_startup() -> None:
         ImageStudioService.get_instance().register_image_tools()
         from app.calendar.service import CalendarService
         CalendarService.get_instance().register_calendar_tools()
+        from app.artifacts.service import CoworkService
+        CoworkService.get_instance().register_cowork_tools()
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))

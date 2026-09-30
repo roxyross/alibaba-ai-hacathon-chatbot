@@ -1138,6 +1138,228 @@ class AgentPlanner:
                 }
             ]
 
+        # Single-intent: Cowork Workspace - Delete Artifact (requires confirmation)
+        if (
+            lower.startswith("delete artifact ")
+            or lower.startswith("remove artifact ")
+            or "delete cowork artifact" in lower
+        ):
+            artifact_id = re.sub(
+                r"(?i)^(?:delete\s+(?:cowork\s+)?artifact|remove\s+(?:cowork\s+)?artifact)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not artifact_id:
+                artifact_id = ctx_dict.get("artifact_id", "art_1")
+            tool_id = (
+                "cowork_delete_artifact"
+                if "cowork_delete_artifact" in tools or self._tool_registry.get("cowork_delete_artifact")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Delete artifact '{artifact_id}' from workspace (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {"artifact_id": artifact_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Cowork Workspace - Render Diagram
+        if (
+            lower.startswith("render diagram ")
+            or lower.startswith("create diagram ")
+            or lower.startswith("generate diagram ")
+            or lower.startswith("generate mermaid diagram ")
+            or lower.startswith("draw architecture diagram ")
+            or "render architecture diagram" in lower
+            or "render mermaid diagram" in lower
+        ):
+            clean_title = re.sub(
+                r"(?i)^(?:render\s+(?:architecture\s+|mermaid\s+)?diagram|create\s+(?:architecture\s+|mermaid\s+)?diagram|generate\s+(?:architecture\s+|mermaid\s+)?diagram|draw\s+architecture\s+diagram)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not clean_title:
+                clean_title = "System Architecture Diagram"
+            diag_type = "svg" if ("svg" in lower or "vector" in lower) else "mermaid"
+            tool_id = (
+                "cowork_render_diagram"
+                if "cowork_render_diagram" in tools or self._tool_registry.get("cowork_render_diagram")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Generate {diag_type} diagram '{clean_title[:40]}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "title": clean_title,
+                        "diagram_type": diag_type,
+                        "description": text,
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Cowork Workspace - Refine Artifact with AI
+        if (
+            lower.startswith("refine artifact ")
+            or lower.startswith("revise artifact ")
+            or lower.startswith("improve artifact ")
+            or lower.startswith("refine document ")
+            or lower.startswith("revise document ")
+            or "refine artifact with ai" in lower
+        ):
+            target_match = re.search(r"(?:art[-_][a-zA-Z0-9]+|[a-zA-Z0-9_\-]+)", re.sub(r"(?i)^(?:refine|revise|improve)\s+(?:artifact|document)\s*", "", text).strip())
+            art_id = target_match.group(0) if target_match else (ctx_dict.get("artifact_id", "art_1"))
+            instruction = text
+            tool_id = (
+                "cowork_refine_artifact"
+                if "cowork_refine_artifact" in tools or self._tool_registry.get("cowork_refine_artifact")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Refine artifact '{art_id}' using AI iterative assistant",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "artifact_id": art_id,
+                        "instruction": instruction,
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Cowork Workspace - Update Artifact
+        if (
+            lower.startswith("update artifact ")
+            or lower.startswith("edit artifact ")
+            or lower.startswith("modify artifact ")
+        ):
+            target_match = re.search(r"(?:art[-_][a-zA-Z0-9]+|[a-zA-Z0-9_\-]+)", re.sub(r"(?i)^(?:update|edit|modify)\s+artifact\s*", "", text).strip())
+            art_id = target_match.group(0) if target_match else (ctx_dict.get("artifact_id", "art_1"))
+            tool_id = (
+                "cowork_update_artifact"
+                if "cowork_update_artifact" in tools or self._tool_registry.get("cowork_update_artifact")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Update content and metadata for artifact '{art_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "artifact_id": art_id,
+                        "change_summary": text,
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Cowork Workspace - View / Inspect Artifact
+        if (
+            lower.startswith("view artifact ")
+            or lower.startswith("get artifact ")
+            or lower.startswith("inspect artifact ")
+            or lower.startswith("artifact details for ")
+            or "artifact details" in lower
+        ):
+            art_id = re.sub(
+                r"(?i)^(?:view\s+artifact|get\s+artifact|inspect\s+artifact|artifact\s+details(?:\s+for)?)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not art_id or art_id.lower() == "artifact details":
+                art_id = ctx_dict.get("artifact_id", "art_1")
+            tool_id = (
+                "cowork_get_artifact"
+                if "cowork_get_artifact" in tools or self._tool_registry.get("cowork_get_artifact")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Retrieve details and versions for artifact '{art_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"artifact_id": art_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Cowork Workspace - List Artifacts
+        if (
+            "list artifacts" in lower
+            or "show artifacts" in lower
+            or "view artifacts" in lower
+            or "my artifacts" in lower
+            or "workspace artifacts" in lower
+            or "cowork artifacts" in lower
+            or "all artifacts" in lower
+            or lower.startswith("artifacts")
+        ):
+            tool_id = (
+                "cowork_list_artifacts"
+                if "cowork_list_artifacts" in tools or self._tool_registry.get("cowork_list_artifacts")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "List all cowork workspace artifacts and current versions",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Cowork Workspace - Create Artifact / Document / Report
+        if (
+            lower.startswith("create artifact ")
+            or lower.startswith("new artifact ")
+            or lower.startswith("create document ")
+            or lower.startswith("draft document ")
+            or lower.startswith("generate report ")
+            or lower.startswith("create code artifact ")
+            or "create a new artifact" in lower
+            or "generate document" in lower
+        ):
+            clean_title = re.sub(
+                r"(?i)^(?:create\s+(?:a\s+)?(?:new\s+)?artifact|new\s+artifact|create\s+(?:a\s+)?document|draft\s+document|generate\s+report|create\s+code\s+artifact|generate\s+document)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not clean_title:
+                clean_title = "Workspace Artifact"
+            art_type = "markdown"
+            if "code" in lower or "python" in lower or "script" in lower:
+                art_type = "code"
+            elif "diagram" in lower or "mermaid" in lower:
+                art_type = "mermaid"
+            elif "svg" in lower:
+                art_type = "svg"
+
+            tool_id = (
+                "cowork_create_artifact"
+                if "cowork_create_artifact" in tools or self._tool_registry.get("cowork_create_artifact")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Create {art_type} artifact '{clean_title[:40]}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "title": clean_title,
+                        "artifact_type": art_type,
+                        "content": f"# {clean_title}\n\nGenerated by Cowork Task Workspace.",
+                    },
+                    "depends_on": [],
+                }
+            ]
+
         return None
 
     def _build_default_plan(
