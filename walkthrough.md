@@ -2184,6 +2184,61 @@
 - Full Regression Suite across Phases 1–10: **95/95 passed (100% green, 0 regressions)**
 - Code Quality: `ruff check` (0 errors), `mypy` (0 errors)
 
+---
+
+## Phase 11: Calendar & Event Scheduling Engine, Central Tool Registry & Planner Integration
+
+### Status: Complete & Verified (Exit Gate Passed)
+
+### Summary of Changes
+1. **`CalendarService.get_instance()` Singleton Pattern (`backend/src/app/calendar/service.py`)**:
+   - Implemented thread-safe `_instance: ClassVar[CalendarService | None]` and `get_instance(cls, repo=None)` singleton pattern to guarantee unified state across repository instances, tools, and REST API controllers.
+   - Updated `backend/src/app/api/v1/calendar.py` to bind directly to the singleton instance (`_service = CalendarService.get_instance()`, `_repo = _service._repo`).
+2. **Central Tool Registry Integration with 7 Native Calendar Tools (`register_calendar_tools`)**:
+   - `calendar_list_events`: Lists scheduled calendar events with optional start/end window and category filters (`meeting`, `hackathon`, `deadline`, `personal`, `reminder`).
+   - `calendar_get_event`: Retrieves detailed specifications, locations, descriptions, and reminder offsets for a specific event ID.
+   - `calendar_create_event`: Creates new calendar events with automatic conflict detection alerting when meetings overlap in the user's schedule.
+   - `calendar_update_event`: Modifies event title, timing, description, category, or reminder preferences.
+   - `calendar_parse_prompt`: Parses natural language event scheduling requests into structured RFC-compliant event objects.
+   - `calendar_get_upcoming`: Queries upcoming calendar events scheduled within an N-day rolling forward window.
+   - `calendar_delete_event`: Permanently removes an event from the calendar, protected by human confirmation gating (`requires_confirmation=True`, `RiskLevel.HIGH`).
+3. **Agent Planner Deterministic Intent Decomposition (`backend/src/app/agent_runtime/planner.py`)**:
+   - Added pattern matching for natural language calendar operations:
+     - Event deletion ("delete calendar event evt-123", "cancel meeting", "remove event") → routes to `calendar_delete_event`.
+     - Upcoming schedule query ("what's next on my calendar", "upcoming events", "upcoming schedule") → routes to `calendar_get_upcoming`.
+     - Natural language scheduling parser ("parse event Lunch with Sarah on Friday at 1pm") → routes to `calendar_parse_prompt`.
+     - Event inspection ("event details for evt-123", "view event evt-123") → routes to `calendar_get_event`.
+     - Rescheduling & updating ("update event evt-123", "reschedule event evt-123") → routes to `calendar_update_event`.
+     - Calendar listing ("show calendar", "list events", "what is on my calendar", "my schedule today") → routes to `calendar_list_events`.
+     - Meeting scheduling ("schedule meeting Quantum Sync", "book meeting", "create event") → routes to `calendar_create_event`.
+4. **Startup Tool Registration Hooks (`backend/src/app/tools/builtin.py` & `backend/src/app/main.py`)**:
+   - Wired `CalendarService.get_instance().register_calendar_tools()` into `register_builtin_tools()` and FastAPI `on_startup` lifecycle.
+5. **Multi-Tenant Isolation & Confirmation Gating**:
+   - Enforced strict multi-tenant isolation across all 7 calendar tools in ToolRegistry: User B cannot view, edit, list, or delete User A's calendar events.
+   - Sensitive event deletions enforce high-risk confirmation gating (`RiskLevel.HIGH`, `requires_confirmation=True`).
+
+### Tests Executed
+- `pytest backend/tests/integration/test_phase11_calendar.py -v`: **16 passed in 134.66s**
+  - Section 1: `test_calendar_empty_state` (empty calendar state)
+  - Section 2: `test_create_and_list_events` (event creation and category filtering)
+  - Section 3: `test_update_event` (event patching and mutation)
+  - Section 4: `test_delete_event` (event deletion lifecycle)
+  - Section 5: `test_calendar_multi_tenant_isolation` (anti-IDOR REST endpoint tenant boundaries)
+  - Section 6: `test_ai_event_prompt_parser` (natural language prompt to structured event parsing)
+  - Section 7: `test_ics_export_and_import` (RFC 5545 iCalendar .ics export/import roundtrip)
+  - Section 8: `test_upcoming_events` (upcoming events rolling window retrieval)
+  - Section 9: `test_calendar_chat_grounding` (multi-agent coordinator context injection)
+  - Section 10: `test_calendar_streaming_chat_grounding` (SSE streaming context injection)
+  - Section 11: `test_calendar_chat_grounding_without_override` (default coordinator routing grounding)
+  - Section 12: `test_calendar_chat_offline_fallback` (offline fallback parity with live telemetry)
+  - Section 13: `test_calendar_service_singleton_and_tool_registration` (singleton identity, 7 tools in ToolRegistry, confirmation gating)
+  - Section 14: `test_calendar_tools_direct_execution` (direct execution of all 7 tools via ToolRegistry)
+  - Section 15: `test_agent_planner_calendar_intent_routing` (planner deterministic decomposition to calendar tools)
+  - Section 16: `test_calendar_tool_multitenant_isolation` (multi-tenant boundary enforcement via ToolRegistry execution)
+- Full Master Regression Suite across Phases 1–11: **111/111 passed in 638.58s (100% green, 0 regressions)**
+- Code Quality: `ruff check` (0 errors), `mypy` (0 errors)
+
+
 
 
 

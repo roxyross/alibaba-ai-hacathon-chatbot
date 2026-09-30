@@ -14,13 +14,12 @@ from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
-from app.calendar.repository import CalendarRepository
 from app.calendar.service import CalendarService
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
-_repo = CalendarRepository()
-_service = CalendarService(_repo)
+_service = CalendarService.get_instance()
+_repo = _service._repo
 
 
 # ---------------------------------------------------------------------------

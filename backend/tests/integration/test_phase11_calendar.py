@@ -28,8 +28,12 @@ import pytest
 # Ensure backend src is on sys.path
 sys.path.insert(0, "src")
 
+from app.agent_runtime.planner import AgentPlanner
 from app.calendar.repository import clear_in_memory_stores
+from app.calendar.service import CalendarService
 from app.main import app
+from app.tools.registry import ToolRegistry
+from app.tools.schemas import RiskLevel, ToolExecutionRequest, ToolSource
 
 
 @pytest.fixture(autouse=True)
@@ -501,5 +505,307 @@ async def test_calendar_chat_offline_fallback(client: httpx.AsyncClient) -> None
         assert data["agent_slug"] == "calendar"
         assert "Deep Learning Architecture Review" in data["response"]
         assert "event(s) on your calendar" in data["response"]
+
+
+# -----------------------------------------------------------------------------
+# 10. CalendarService Singleton & ToolRegistry Integration
+# -----------------------------------------------------------------------------
+
+def test_calendar_service_singleton_and_tool_registration() -> None:
+    """Verify CalendarService singleton pattern and central ToolRegistry registration."""
+    srv1 = CalendarService.get_instance()
+    srv2 = CalendarService.get_instance()
+    assert srv1 is srv2
+
+    # Register tools
+    srv1.register_calendar_tools()
+    registry = ToolRegistry.get_instance()
+
+    expected_tools = [
+        "calendar_list_events",
+        "calendar_get_event",
+        "calendar_create_event",
+        "calendar_update_event",
+        "calendar_parse_prompt",
+        "calendar_get_upcoming",
+        "calendar_delete_event",
+    ]
+    for tool_id in expected_tools:
+        tool_def = registry.get(tool_id)
+        assert tool_def is not None, f"Tool '{tool_id}' must be registered in ToolRegistry"
+        assert tool_def.source in (ToolSource.SYSTEM, ToolSource.SKILL)
+        assert "calendar" in tool_def.capabilities
+
+    # Verify confirmation gating on high-risk deletion
+    delete_def = registry.get("calendar_delete_event")
+    assert delete_def is not None
+    assert delete_def.requires_confirmation is True
+    assert delete_def.risk_level == RiskLevel.HIGH
+
+    # Verify low-risk tools
+    list_def = registry.get("calendar_list_events")
+    assert list_def is not None
+    assert list_def.requires_confirmation is False
+    assert list_def.risk_level == RiskLevel.LOW
+
+
+# -----------------------------------------------------------------------------
+# 11. Direct ToolRegistry Execution Lifecycle
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_calendar_tools_direct_execution() -> None:
+    """Execute all 7 calendar tools directly via ToolRegistry."""
+    CalendarService.get_instance().register_calendar_tools()
+    registry = ToolRegistry.get_instance()
+
+    user_id = f"user_cal_tools_{uuid.uuid4().hex[:6]}"
+    now = datetime.now(UTC)
+    start_time = (now + timedelta(days=1)).replace(hour=10, minute=0, second=0).isoformat()
+    end_time = (now + timedelta(days=1)).replace(hour=11, minute=0, second=0).isoformat()
+
+    # 1. Create Event
+    create_req = ToolExecutionRequest(
+        tool_id="calendar_create_event",
+        arguments={
+            "title": "AI Architecture Sync",
+            "start_time": start_time,
+            "end_time": end_time,
+            "description": "Discuss model serving & orchestration architecture",
+            "location": "Google Meet",
+            "category": "meeting",
+            "remind_minutes_before": 15,
+        },
+        user_id=user_id,
+    )
+    create_res = await registry.execute(create_req)
+    assert create_res.success is True
+    assert create_res.output["success"] is True
+    event_id = create_res.output["event"]["id"]
+    assert create_res.output["has_conflicts"] is False
+
+    # 2. Create Overlapping Event to verify conflict detection
+    conflict_req = ToolExecutionRequest(
+        tool_id="calendar_create_event",
+        arguments={
+            "title": "Double Booked Meeting",
+            "start_time": (now + timedelta(days=1)).replace(hour=10, minute=30, second=0).isoformat(),
+            "end_time": (now + timedelta(days=1)).replace(hour=11, minute=30, second=0).isoformat(),
+            "category": "meeting",
+        },
+        user_id=user_id,
+    )
+    conflict_res = await registry.execute(conflict_req)
+    assert conflict_res.success is True
+    assert conflict_res.output["has_conflicts"] is True
+    assert len(conflict_res.output["conflicts"]) >= 1
+
+    # 3. Get Event Details
+    get_req = ToolExecutionRequest(
+        tool_id="calendar_get_event",
+        arguments={"event_id": event_id},
+        user_id=user_id,
+    )
+    get_res = await registry.execute(get_req)
+    assert get_res.success is True
+    assert get_res.output["found"] is True
+    assert get_res.output["event"]["title"] == "AI Architecture Sync"
+    assert get_res.output["event"]["location"] == "Google Meet"
+
+    # 4. Update Event
+    update_req = ToolExecutionRequest(
+        tool_id="calendar_update_event",
+        arguments={
+            "event_id": event_id,
+            "title": "Executive AI Architecture Sync",
+            "remind_minutes_before": 30,
+        },
+        user_id=user_id,
+    )
+    update_res = await registry.execute(update_req)
+    assert update_res.success is True
+    assert update_res.output["success"] is True
+    assert update_res.output["event"]["title"] == "Executive AI Architecture Sync"
+    assert update_res.output["event"]["remind_minutes_before"] == 30
+
+    # 5. List Events
+    list_req = ToolExecutionRequest(
+        tool_id="calendar_list_events",
+        arguments={"category": "meeting"},
+        user_id=user_id,
+    )
+    list_res = await registry.execute(list_req)
+    assert list_res.success is True
+    assert list_res.output["total"] >= 2
+    assert any(e["id"] == event_id for e in list_res.output["events"])
+
+    # 6. Upcoming Events
+    up_req = ToolExecutionRequest(
+        tool_id="calendar_get_upcoming",
+        arguments={"days_ahead": 7},
+        user_id=user_id,
+    )
+    up_res = await registry.execute(up_req)
+    assert up_res.success is True
+    assert up_res.output["count"] >= 2
+    assert up_res.output["window_days"] == 7
+
+    # 7. Parse Prompt
+    parse_req = ToolExecutionRequest(
+        tool_id="calendar_parse_prompt",
+        arguments={"prompt": "Schedule hackathon presentation tomorrow at 3pm for 45 minutes on Google Meet"},
+        user_id=user_id,
+    )
+    parse_res = await registry.execute(parse_req)
+    assert parse_res.success is True
+    parsed = parse_res.output["parsed_event"]
+    assert "Hackathon Presentation" in parsed["title"]
+    assert parsed["category"] == "hackathon"
+    assert parsed["location"] == "Google Meet"
+
+    # 8. Delete Event
+    del_req = ToolExecutionRequest(
+        tool_id="calendar_delete_event",
+        arguments={"event_id": event_id},
+        user_id=user_id,
+    )
+    del_res = await registry.execute(del_req)
+    assert del_res.success is True
+    assert del_res.output["deleted"] is True
+
+    # Confirm deletion
+    get_res2 = await registry.execute(get_req)
+    assert get_res2.output["found"] is False
+
+
+# -----------------------------------------------------------------------------
+# 12. Agent Planner Calendar Intent Routing
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_agent_planner_calendar_intent_routing() -> None:
+    """Verify AgentPlanner decomposes natural language calendar queries deterministically."""
+    CalendarService.get_instance().register_calendar_tools()
+    planner = AgentPlanner()
+
+    # 1. Delete Event
+    plan_del = await planner.create_plan("delete calendar event evt-999")
+    assert len(plan_del) == 1
+    assert plan_del[0]["tool_id"] == "calendar_delete_event"
+    assert plan_del[0]["tool_input"]["event_id"] == "evt-999"
+
+    # 2. Upcoming Events
+    plan_up = await planner.create_plan("what's next on my calendar?")
+    assert len(plan_up) == 1
+    assert plan_up[0]["tool_id"] == "calendar_get_upcoming"
+
+    # 3. Parse Prompt
+    plan_parse = await planner.create_plan("parse event Lunch with Sarah on Friday at 1pm")
+    assert len(plan_parse) == 1
+    assert plan_parse[0]["tool_id"] == "calendar_parse_prompt"
+    assert "Lunch with Sarah" in plan_parse[0]["tool_input"]["prompt"]
+
+    # 4. View Event Details
+    plan_view = await planner.create_plan("event details for evt-777")
+    assert len(plan_view) == 1
+    assert plan_view[0]["tool_id"] == "calendar_get_event"
+    assert plan_view[0]["tool_input"]["event_id"] == "evt-777"
+
+    # 5. Update Event
+    plan_upd = await planner.create_plan("update event evt-888")
+    assert len(plan_upd) == 1
+    assert plan_upd[0]["tool_id"] == "calendar_update_event"
+    assert plan_upd[0]["tool_input"]["event_id"] == "evt-888"
+
+    # 6. List Calendar
+    plan_list = await planner.create_plan("show calendar events")
+    assert len(plan_list) == 1
+    assert plan_list[0]["tool_id"] == "calendar_list_events"
+
+    # 7. Schedule Event
+    plan_create = await planner.create_plan("schedule meeting Quantum Computing Sync")
+    assert len(plan_create) == 1
+    assert plan_create[0]["tool_id"] == "calendar_create_event"
+    assert "Quantum Computing Sync" in plan_create[0]["tool_input"]["title"]
+
+
+# -----------------------------------------------------------------------------
+# 13. Multi-Tenant Tool Isolation
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_calendar_tool_multitenant_isolation() -> None:
+    """Verify strict multi-tenant boundary when calendar tools execute via ToolRegistry."""
+    CalendarService.get_instance().register_calendar_tools()
+    registry = ToolRegistry.get_instance()
+
+    user_a = f"tenant_a_{uuid.uuid4().hex[:6]}"
+    user_b = f"tenant_b_{uuid.uuid4().hex[:6]}"
+
+    now = datetime.now(UTC)
+    start_time = (now + timedelta(days=2)).isoformat()
+
+    # User A creates an event
+    create_res = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="calendar_create_event",
+            arguments={"title": "Confidential Board Strategy", "start_time": start_time},
+            user_id=user_a,
+        )
+    )
+    event_id = create_res.output["event"]["id"]
+
+    # User B attempts to inspect User A's event
+    get_b = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="calendar_get_event",
+            arguments={"event_id": event_id},
+            user_id=user_b,
+        )
+    )
+    assert get_b.output["found"] is False
+
+    # User B attempts to update User A's event
+    upd_b = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="calendar_update_event",
+            arguments={"event_id": event_id, "title": "Tampered Event"},
+            user_id=user_b,
+        )
+    )
+    assert upd_b.output["success"] is False
+
+    # User B attempts to delete User A's event
+    del_b = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="calendar_delete_event",
+            arguments={"event_id": event_id},
+            user_id=user_b,
+        )
+    )
+    assert del_b.output["deleted"] is False
+
+    # User B lists events - should be empty
+    list_b = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="calendar_list_events",
+            arguments={},
+            user_id=user_b,
+        )
+    )
+    assert list_b.output["total"] == 0
+
+    # User A can still retrieve the event intact
+    get_a = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="calendar_get_event",
+            arguments={"event_id": event_id},
+            user_id=user_a,
+        )
+    )
+    assert get_a.output["found"] is True
+    assert get_a.output["event"]["title"] == "Confidential Board Strategy"
+
+
 
 

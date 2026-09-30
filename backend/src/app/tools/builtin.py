@@ -462,5 +462,14 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     except Exception as exc:
         log.warning("register_builtin_tools.images_failed", error=str(exc))
 
+    # 15. Register Calendar & Event Scheduling tools (calendar_list_events, calendar_create_event, etc.)
+    try:
+        from app.calendar.service import CalendarService
+
+        CalendarService.get_instance().register_calendar_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.calendar_failed", error=str(exc))
+
+
 
 

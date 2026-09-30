@@ -7,6 +7,7 @@ with dynamic tool discovery from the Central Tool Registry.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -155,7 +156,20 @@ class AgentPlanner:
             ]
 
         # Single-intent: Schedule job / reminder
-        if lower.startswith("schedule ") or lower.startswith("remind me ") or "set a reminder" in lower:
+        if (
+            (
+                lower.startswith("schedule ")
+                and not (
+                    lower.startswith("schedule meeting")
+                    or lower.startswith("schedule event")
+                    or lower.startswith("schedule a meeting")
+                    or lower.startswith("schedule an event")
+                    or lower.startswith("schedule call")
+                )
+            )
+            or lower.startswith("remind me ")
+            or "set a reminder" in lower
+        ):
             return [
                 {
                     "step_number": 1,
@@ -909,6 +923,216 @@ class AgentPlanner:
                         "prompt": clean_prompt,
                         "style_preset": detected_style,
                         "aspect_ratio": detected_ratio,
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - Delete Event (requires confirmation)
+        if (
+            lower.startswith("delete calendar event ")
+            or lower.startswith("delete event ")
+            or lower.startswith("cancel calendar event ")
+            or lower.startswith("cancel event ")
+            or lower.startswith("remove calendar event ")
+            or lower.startswith("remove event ")
+            or "delete event" in lower
+        ):
+            event_id = re.sub(
+                r"(?i)^(?:delete|cancel|remove)\s+(?:calendar\s+)?event\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not event_id:
+                event_id = ctx_dict.get("event_id", "default_event")
+            tool_id = (
+                "calendar_delete_event"
+                if "calendar_delete_event" in tools or self._tool_registry.get("calendar_delete_event")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Permanently delete calendar event '{event_id}' (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {"event_id": event_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - Upcoming Events
+        if (
+            "upcoming events" in lower
+            or "upcoming meetings" in lower
+            or "upcoming schedule" in lower
+            or "what's next on my calendar" in lower
+            or "what is next on my calendar" in lower
+            or lower.startswith("upcoming events")
+        ):
+            tool_id = (
+                "calendar_get_upcoming"
+                if "calendar_get_upcoming" in tools or self._tool_registry.get("calendar_get_upcoming")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Retrieve upcoming calendar events and meetings",
+                    "tool_id": tool_id,
+                    "tool_input": {"days_ahead": 7},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - Parse Prompt
+        if (
+            lower.startswith("parse event ")
+            or lower.startswith("parse schedule ")
+            or lower.startswith("parse calendar prompt ")
+        ):
+            raw_prompt = re.sub(
+                r"(?i)^parse\s+(?:event|schedule|calendar\s+prompt)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            tool_id = (
+                "calendar_parse_prompt"
+                if "calendar_parse_prompt" in tools or self._tool_registry.get("calendar_parse_prompt")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Parse natural language event prompt '{raw_prompt[:40]}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"prompt": raw_prompt},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - View Event Details
+        if (
+            lower.startswith("view event ")
+            or lower.startswith("inspect event ")
+            or lower.startswith("event details for ")
+            or lower.startswith("get event ")
+        ):
+            event_id = re.sub(
+                r"(?i)^(?:view|inspect|get)\s+event\s*|(?:event\s+details\s+(?:for\s+)?)",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not event_id:
+                event_id = ctx_dict.get("event_id", "default_event")
+            tool_id = (
+                "calendar_get_event"
+                if "calendar_get_event" in tools or self._tool_registry.get("calendar_get_event")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Retrieve details for calendar event '{event_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"event_id": event_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - Update Event
+        if (
+            lower.startswith("update event ")
+            or lower.startswith("reschedule event ")
+            or lower.startswith("edit event ")
+            or lower.startswith("update calendar event ")
+        ):
+            event_id = re.sub(
+                r"(?i)^(?:update|reschedule|edit)\s+(?:calendar\s+)?event\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not event_id:
+                event_id = ctx_dict.get("event_id", "evt-1")
+            tool_id = (
+                "calendar_update_event"
+                if "calendar_update_event" in tools or self._tool_registry.get("calendar_update_event")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Update calendar event '{event_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"event_id": event_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - List Calendar Events
+        if (
+            "show calendar" in lower
+            or "view calendar" in lower
+            or "my calendar" in lower
+            or "list calendar events" in lower
+            or "list events" in lower
+            or "what is on my calendar" in lower
+            or "what's on my calendar" in lower
+            or "my schedule today" in lower
+        ):
+            detected_cat = None
+            for cat in ["meeting", "hackathon", "deadline", "personal", "reminder"]:
+                if cat in lower:
+                    detected_cat = cat
+                    break
+            tool_id = (
+                "calendar_list_events"
+                if "calendar_list_events" in tools or self._tool_registry.get("calendar_list_events")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "List events on user calendar",
+                    "tool_id": tool_id,
+                    "tool_input": {"category": detected_cat},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Calendar - Create / Schedule Event
+        if (
+            lower.startswith("schedule meeting ")
+            or lower.startswith("schedule event ")
+            or lower.startswith("schedule a meeting ")
+            or lower.startswith("schedule an event ")
+            or lower.startswith("schedule ")
+            or lower.startswith("book meeting ")
+            or lower.startswith("create event ")
+            or lower.startswith("add event ")
+            or lower.startswith("create calendar event ")
+        ):
+            clean_title = re.sub(
+                r"(?i)^(?:schedule\s+(?:a\s+|an\s+)?(?:meeting|event)?|book\s+meeting|create\s+(?:calendar\s+)?event|add\s+event)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not clean_title:
+                clean_title = "Scheduled Meeting"
+            tool_id = (
+                "calendar_create_event"
+                if "calendar_create_event" in tools or self._tool_registry.get("calendar_create_event")
+                else "system_memory_store"
+            )
+            start_iso = (datetime.now(UTC) + timedelta(days=1)).replace(hour=14, minute=0, second=0).isoformat()
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Schedule calendar event '{clean_title[:40]}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "title": clean_title,
+                        "start_time": start_iso,
+                        "category": "meeting",
                     },
                     "depends_on": [],
                 }

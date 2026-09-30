@@ -208,6 +208,8 @@ async def on_startup() -> None:
         ProjectService.get_instance().register_workspace_tools()
         from app.images.service import ImageStudioService
         ImageStudioService.get_instance().register_image_tools()
+        from app.calendar.service import CalendarService
+        CalendarService.get_instance().register_calendar_tools()
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))
