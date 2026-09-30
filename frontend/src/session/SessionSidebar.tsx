@@ -37,6 +37,7 @@ import {
   Share2,
   CreditCard,
   Film,
+  Monitor,
 } from 'lucide-react';
 import { useSessions, ChatSession } from './useSessions';
 import './SessionSidebar.css';
@@ -64,9 +65,11 @@ export type AppView =
   | 'coding'
   | 'memory'
   | 'audit'
-  | 'connectors';
+  | 'connectors'
+  | 'device_hub';
 
 export const SECONDARY_VIEWS: AppView[] = [
+  'device_hub',
   'connectors',
   'finance',
   'jobs',
@@ -1193,7 +1196,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             <div className="session-sidebar__tools-toggle-left">
               <Layers size={14} strokeWidth={1.8} className="session-sidebar__tools-icon" />
               <span className="session-sidebar__tools-title">Tools</span>
-              <span className="session-sidebar__tools-count">13</span>
+              <span className="session-sidebar__tools-count">14</span>
             </div>
             <ChevronDown
               size={14}
@@ -1308,6 +1311,14 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                 >
                   <Layers size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
                   <span className="session-sidebar__nav-text">Connectors & MCP</span>
+                </button>
+                <button
+                  type="button"
+                  className={`session-sidebar__nav-link ${activeView === 'device_hub' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('device_hub')}
+                >
+                  <Monitor size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">Device & Apps</span>
                 </button>
                 <button
                   type="button"

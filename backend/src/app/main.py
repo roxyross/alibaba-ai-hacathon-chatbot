@@ -52,6 +52,7 @@ from app.permissions.router import router as permissions_router
 from app.actions.router import router as actions_router
 from app.agent_runtime.router import router as agents_router, tools_router
 from app.connectors.router import router as connectors_router
+from app.device.router import router as device_router
 from app.mcp.router import router as mcp_router
 from app.tools.builtin import register_builtin_tools
 from fastapi.staticfiles import StaticFiles
@@ -122,6 +123,7 @@ app.include_router(agents_router, prefix="/api/v1")
 app.include_router(tools_router, prefix="/api/v1")
 app.include_router(connectors_router, prefix="/api/v1")
 app.include_router(mcp_router, prefix="/api/v1")
+app.include_router(device_router, prefix="/api/v1")
 
 _static_dir = Path(__file__).resolve().parents[2] / "static"
 try:
@@ -154,6 +156,7 @@ async def on_startup() -> None:
         import app.models.code_snippet  # noqa: F401
         import app.models.connector  # noqa: F401
         import app.models.custom_skill  # noqa: F401
+        import app.models.device  # noqa: F401
         import app.models.document_vault  # noqa: F401
         import app.models.email_message  # noqa: F401
         import app.models.finance_account  # noqa: F401
@@ -191,6 +194,8 @@ async def on_startup() -> None:
 
     try:
         register_builtin_tools()
+        from app.device.service import DeviceService
+        DeviceService.get_instance().register_device_tools()
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))

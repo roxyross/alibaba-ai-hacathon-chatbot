@@ -44,6 +44,7 @@ from app.models.media_job import MediaAsset, MediaGenerationJob
 from app.models.agent_runtime import AgentAction, AgentStep, AgentTask, PermissionGrant
 from app.models.connector import ConnectorInstance
 from app.models.custom_skill import CustomSkill
+from app.models.device import DeviceActionLog, DeviceRegistration, DiscoveredApp
 from app.models.mcp import MCPServerConfig
 
 __all__ = [
@@ -63,6 +64,9 @@ __all__ = [
     "CreditWallet",
     "CuratorRunReport",
     "CustomSkill",
+    "DeviceActionLog",
+    "DeviceRegistration",
+    "DiscoveredApp",
     "DocumentRecord",
     "EmailMessage",
     "FinanceAccount",

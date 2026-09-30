@@ -1,0 +1,862 @@
+/* =========================================================================
+   Device & App Control Hub (ROXY-AI 2.0 Phase 4)
+   ========================================================================= */
+
+.device-hub {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  padding: 1.5rem 2rem;
+  background: var(--bg-primary, #090d16);
+  color: var(--text-primary, #f1f5f9);
+  overflow-y: auto;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* 1. Header Toolbar */
+.device-hub__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  gap: 1rem;
+}
+
+.device-hub__header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.device-hub__back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary, #94a3b8);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.device-hub__back-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #ffffff);
+}
+
+.device-hub__title-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.device-hub__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.02em;
+  color: #f8fafc;
+}
+
+.device-hub__title-icon {
+  color: #38bdf8;
+}
+
+.device-hub__subtitle {
+  font-size: 0.825rem;
+  color: #94a3b8;
+  margin: 0.2rem 0 0 0;
+}
+
+.device-hub__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.device-hub__action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.device-hub__action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.device-hub__action-btn--primary {
+  background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #ffffff;
+}
+
+.device-hub__action-btn--primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0369a1 0%, #1d4ed8 100%);
+}
+
+.device-hub__action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Toast */
+.device-hub__toast {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 1rem;
+  border-radius: 6px;
+  font-size: 0.825rem;
+  margin-bottom: 1.25rem;
+  animation: slideDown 0.2s ease-out;
+}
+
+.device-hub__toast--success {
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #4ade80;
+}
+
+.device-hub__toast--error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.device-hub__toast--info {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 2. Host Overview Banner */
+.device-hub__device-card {
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem 1.5rem;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 1.5rem;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .device-hub__device-card {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.device-hub__device-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.device-hub__device-avatar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+}
+
+.device-hub__status-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #0f172a;
+}
+
+.device-hub__status-dot--online {
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+}
+
+.device-hub__device-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.device-hub__device-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.device-hub__device-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.device-hub__device-details-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.775rem;
+  color: #94a3b8;
+}
+
+/* Badges */
+.device-hub__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.device-hub__badge--host {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.device-hub__badge--os {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+}
+
+.device-hub__badge--running {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.device-hub__badge--cat {
+  background: rgba(255, 255, 255, 0.05);
+  color: #94a3b8;
+  text-transform: capitalize;
+  font-weight: 500;
+}
+
+.device-hub__badge--action {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+
+.device-hub__badge--success {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.device-hub__badge--error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+/* Telemetry Grid */
+.device-hub__telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+}
+
+.device-hub__telemetry-item {
+  display: flex;
+  flex-direction: column;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  min-width: 120px;
+}
+
+.device-hub__telemetry-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.725rem;
+  color: #94a3b8;
+  margin-bottom: 0.25rem;
+}
+
+.device-hub__telemetry-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.device-hub__telemetry-sub {
+  font-size: 0.68rem;
+  color: #64748b;
+  margin-top: 0.15rem;
+}
+
+.device-hub__progress-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  margin-top: 0.4rem;
+  overflow: hidden;
+}
+
+.device-hub__progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.device-hub__progress-fill--cpu {
+  background: linear-gradient(90deg, #38bdf8, #2563eb);
+}
+
+.device-hub__progress-fill--ram {
+  background: linear-gradient(90deg, #a855f7, #6366f1);
+}
+
+/* 3. Navigation Tabs */
+.device-hub__tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.device-hub__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.95rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.device-hub__tab:hover {
+  color: #f1f5f9;
+}
+
+.device-hub__tab--active {
+  color: #38bdf8;
+  border-bottom-color: #38bdf8;
+  font-weight: 600;
+}
+
+.device-hub__tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #cbd5e1;
+}
+
+/* 4. Controls Bar & Categories */
+.device-hub__controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.device-hub__search-box {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+}
+
+.device-hub__search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #64748b;
+}
+
+.device-hub__search-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem 0.5rem 2.2rem;
+  font-size: 0.825rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.5);
+  color: #f1f5f9;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.device-hub__search-input:focus {
+  border-color: #38bdf8;
+}
+
+.device-hub__filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.device-hub__toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  cursor: pointer;
+  user-select: none;
+}
+
+.device-hub__scan-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  background: rgba(56, 189, 248, 0.08);
+  color: #38bdf8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.device-hub__scan-btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.15);
+}
+
+.device-hub__categories {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.device-hub__cat-chip {
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.device-hub__cat-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f5f9;
+}
+
+.device-hub__cat-chip--active {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+/* 5. Applications Grid */
+.device-hub__apps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.device-hub__app-card {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.device-hub__app-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.device-hub__app-card--running {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.04);
+}
+
+.device-hub__app-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.device-hub__app-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.device-hub__app-icon-img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.device-hub__app-fallback-icon {
+  color: #94a3b8;
+}
+
+.device-hub__app-title-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  overflow: hidden;
+}
+
+.device-hub__app-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.device-hub__app-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-hub__app-body {
+  margin-bottom: 0.75rem;
+}
+
+.device-hub__app-path {
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #64748b;
+  margin: 0 0 0.35rem 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-hub__app-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.device-hub__app-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+
+.device-hub__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.76rem;
+  font-weight: 500;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  flex: 1;
+  transition: all 0.15s ease;
+}
+
+.device-hub__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.device-hub__btn--launch {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: #4ade80;
+}
+
+.device-hub__btn--launch:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.25);
+}
+
+.device-hub__btn--focus {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+}
+
+.device-hub__btn--focus:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.2);
+}
+
+.device-hub__btn--terminate {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+}
+
+.device-hub__btn--terminate:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* 6. Screen Capture Pane */
+.device-hub__screen-pane {
+  display: flex;
+  flex-direction: column;
+}
+
+.device-hub__screen-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+  gap: 1rem;
+}
+
+.device-hub__screen-toolbar h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+  color: #f8fafc;
+}
+
+.device-hub__screen-toolbar p {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin: 0.2rem 0 0 0;
+}
+
+.device-hub__screen-viewer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 440px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  padding: 1.25rem;
+}
+
+.device-hub__screenshot-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 0.75rem;
+}
+
+.device-hub__screenshot-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.device-hub__screenshot-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.device-hub__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.device-hub__icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.device-hub__screenshot-preview-wrap {
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #000;
+}
+
+.device-hub__screenshot-img {
+  width: 100%;
+  max-height: 580px;
+  object-fit: contain;
+  display: block;
+}
+
+.device-hub__screen-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  color: #64748b;
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.device-hub__screen-empty h3 {
+  font-size: 1rem;
+  color: #cbd5e1;
+  margin: 0;
+}
+
+.device-hub__screen-empty p {
+  font-size: 0.8rem;
+  margin: 0 0 0.5rem 0;
+}
+
+/* 7. Action Audit Logs */
+.device-hub__logs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.device-hub__logs-header h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+  color: #f8fafc;
+}
+
+.device-hub__table-wrap {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow-x: auto;
+}
+
+.device-hub__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.device-hub__table th {
+  padding: 0.75rem 1rem;
+  background: rgba(30, 41, 59, 0.6);
+  color: #94a3b8;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.device-hub__table td {
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+}
+
+.device-hub__table-time {
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.device-hub__table-target code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  color: #38bdf8;
+}
+
+.device-hub__text-danger {
+  color: #f87171;
+}
+
+/* Common State */
+.device-hub__empty-box,
+.device-hub__loading-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3.5rem 1rem;
+  text-align: center;
+  color: #64748b;
+  gap: 0.75rem;
+}
+
+.device-hub__empty-box h3 {
+  font-size: 1.05rem;
+  color: #cbd5e1;
+  margin: 0;
+}
+
+.device-hub__empty-box p {
+  font-size: 0.825rem;
+  max-width: 440px;
+  margin: 0 0 0.5rem 0;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

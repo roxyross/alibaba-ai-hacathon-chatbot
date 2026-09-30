@@ -34,6 +34,7 @@ import { CodingStudio } from './components/CodingStudio/CodingStudio';
 import { MemoryStudio } from './components/MemoryStudio/MemoryStudio';
 import { AuditStudio } from './components/AuditStudio/AuditStudio';
 import { ConnectorsHub } from './components/ConnectorsHub/ConnectorsHub';
+import { DeviceHub } from './components/DeviceHub';
 import './App.css';
 import './components/DocumentUpload/DocumentUpload.css';
 
@@ -585,6 +586,7 @@ export function ChatScreen() {
               memory: 'Memory Studio',
               audit: 'Audit & Security Studio',
               connectors: 'Connectors & MCP Hub',
+              device_hub: 'Device & App Control',
             };
             openAuth('signin', `Please sign in to access ${viewLabels[view] || 'this feature'}.`);
             return;
@@ -922,6 +924,12 @@ export function ChatScreen() {
           />
         ) : activeView === 'connectors' ? (
           <ConnectorsHub
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onSendToChat={(text) => handleSend(text)}
+          />
+        ) : activeView === 'device_hub' ? (
+          <DeviceHub
             accessToken={accessToken}
             onBack={() => setActiveView('chat')}
             onSendToChat={(text) => handleSend(text)}
