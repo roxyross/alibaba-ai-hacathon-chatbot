@@ -143,7 +143,21 @@ class AgentPlanner:
                 ]
 
         # Single-intent: Web search
-        if lower.startswith("search ") or lower.startswith("search for ") or lower.startswith("google ") or lower.startswith("find out "):
+        if (
+            (
+                lower.startswith("search ")
+                or lower.startswith("search for ")
+                or lower.startswith("google ")
+                or lower.startswith("find out ")
+            )
+            and not (
+                lower.startswith("search vault")
+                or lower.startswith("search knowledge vault")
+                or lower.startswith("search in vault")
+                or lower.startswith("search in knowledge vault")
+                or lower.startswith("search my vault")
+            )
+        ):
             q = re.sub(r"(?i)^(?:search(?:\s+for)?|google|find out)\s+", "", text).strip()
             return [
                 {
@@ -1517,6 +1531,152 @@ class AgentPlanner:
                         "depends_on": [],
                     }
                 ]
+
+        # Single-intent: Knowledge Vault - Delete Document (destructive - requires confirmation)
+        if (
+            lower.startswith("delete vault document ")
+            or lower.startswith("remove vault document ")
+            or lower.startswith("delete document from vault ")
+            or "delete from knowledge vault" in lower
+        ):
+            doc_id = re.sub(
+                r"(?i)^(?:delete\s+vault\s+document|remove\s+vault\s+document|delete\s+document\s+from\s+vault|delete\s+from\s+knowledge\s+vault)\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not doc_id:
+                doc_id = ctx_dict.get("document_id", "doc_1")
+            tool_id = (
+                "vault_delete_document"
+                if "vault_delete_document" in tools or self._tool_registry.get("vault_delete_document")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Delete document '{doc_id}' from Knowledge Vault (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {"document_id": doc_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Knowledge Vault - Store Knowledge / Save Note
+        if (
+            lower.startswith("save note in vault")
+            or lower.startswith("save note to vault")
+            or lower.startswith("store note in vault")
+            or lower.startswith("store in vault")
+            or lower.startswith("add to vault")
+            or lower.startswith("store knowledge")
+            or lower.startswith("save in knowledge vault")
+            or lower.startswith("save note in knowledge vault")
+        ):
+            clean_content = re.sub(
+                r"(?i)^(?:save\s+note\s+(?:in|to)\s+(?:knowledge\s+)?vault|store\s+(?:note\s+)?in\s+vault|add\s+to\s+vault|store\s+knowledge|save\s+in\s+knowledge\s+vault)[:\s]*",
+                "",
+                text,
+            ).strip()
+            title = clean_content[:30].strip() if clean_content else "Knowledge Note"
+            tool_id = (
+                "vault_store_knowledge"
+                if "vault_store_knowledge" in tools or self._tool_registry.get("vault_store_knowledge")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Store knowledge record '{title}' in Knowledge Vault",
+                    "tool_id": tool_id,
+                    "tool_input": {"title": title, "content": clean_content or text, "folder": "Notes"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Knowledge Vault - Read / Inspect Document
+        if (
+            lower.startswith("read vault document ")
+            or lower.startswith("inspect vault document ")
+            or lower.startswith("view vault document ")
+            or lower.startswith("get vault document ")
+        ):
+            doc_id = re.sub(
+                r"(?i)^(?:read|inspect|view|get)\s+vault\s+document\s*",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not doc_id:
+                doc_id = ctx_dict.get("document_id", "doc_1")
+            tool_id = (
+                "vault_read_document"
+                if "vault_read_document" in tools or self._tool_registry.get("vault_read_document")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Retrieve and read Knowledge Vault document '{doc_id}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"document_id": doc_id},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Knowledge Vault - List Documents
+        if (
+            "list vault documents" in lower
+            or "show vault documents" in lower
+            or "view vault documents" in lower
+            or "my knowledge vault" in lower
+            or "list knowledge vault" in lower
+            or "vault documents" in lower
+            or lower.startswith("list vault")
+            or lower.startswith("show vault")
+        ):
+            tool_id = (
+                "vault_list_documents"
+                if "vault_list_documents" in tools or self._tool_registry.get("vault_list_documents")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "List documents and folders indexed in the Knowledge Vault",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Knowledge Vault - Search / RAG
+        if (
+            lower.startswith("search vault for ")
+            or lower.startswith("search knowledge vault for ")
+            or lower.startswith("search vault ")
+            or lower.startswith("query vault ")
+            or lower.startswith("find in vault ")
+            or "search my vault" in lower
+            or "search in knowledge vault" in lower
+        ):
+            q = re.sub(
+                r"(?i)^(?:search\s+(?:knowledge\s+)?vault(?:\s+for)?|query\s+vault|find\s+in\s+vault)\s*",
+                "",
+                text,
+            ).strip()
+            tool_id = (
+                "vault_search"
+                if "vault_search" in tools or self._tool_registry.get("vault_search")
+                else "system_document_query"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Perform semantic vector search in Knowledge Vault for '{q}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"query": q, "top_k": 5},
+                    "depends_on": [],
+                }
+            ]
 
         return None
 

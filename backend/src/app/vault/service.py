@@ -672,7 +672,10 @@ class VaultService:
                 name="vault_search",
                 description="Search private Knowledge Vault documents and notes using hybrid semantic vector and keyword search.",
                 source=ToolSource.SYSTEM,
+                capabilities=["vault", "search", "rag"],
+                permissions=["vault:read"],
                 risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -693,7 +696,10 @@ class VaultService:
                 name="vault_read_document",
                 description="Retrieve full text and structural chunks of a specific document in the Knowledge Vault.",
                 source=ToolSource.SYSTEM,
+                capabilities=["vault", "document", "read"],
+                permissions=["vault:read"],
                 risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -712,7 +718,10 @@ class VaultService:
                 name="vault_list_documents",
                 description="List all indexed documents, folders, and notes in the user's Knowledge Vault.",
                 source=ToolSource.SYSTEM,
+                capabilities=["vault", "documents", "list"],
+                permissions=["vault:read"],
                 risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -730,7 +739,10 @@ class VaultService:
                 name="vault_store_knowledge",
                 description="Directly save a knowledge note or factual markdown record into the Knowledge Vault for long-term retrieval.",
                 source=ToolSource.SYSTEM,
+                capabilities=["vault", "knowledge", "write"],
+                permissions=["vault:write"],
                 risk_level=RiskLevel.MEDIUM,
+                requires_confirmation=False,
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -751,7 +763,10 @@ class VaultService:
                 name="vault_delete_document",
                 description="Permanently delete a document and its associated vector chunks from the Knowledge Vault.",
                 source=ToolSource.SYSTEM,
+                capabilities=["vault", "document", "delete", "destructive"],
+                permissions=["vault:write"],
                 risk_level=RiskLevel.HIGH,
+                requires_confirmation=True,
                 input_schema={
                     "type": "object",
                     "properties": {
