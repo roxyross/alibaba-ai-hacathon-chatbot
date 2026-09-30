@@ -551,15 +551,17 @@ class DeviceService:
                 a["is_running"] = status == "success"
                 a["process_id"] = pid
 
-        action_dict = {
+        launch_params: dict[str, Any] = {"arguments": args, "working_directory": working_directory}
+        launch_result: dict[str, Any] = {"pid": pid, "status": status}
+        action_dict: dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "device_id": device_id,
             "user_id": user_id,
             "action_type": "launch_app",
             "target": app_name_or_path,
-            "parameters": {"arguments": args, "working_directory": working_directory},
+            "parameters": launch_params,
             "status": status,
-            "result": {"pid": pid, "status": status},
+            "result": launch_result,
             "error_message": err_msg,
             "created_at": now_str,
         }
@@ -591,8 +593,8 @@ class DeviceService:
                         status=status,
                         error_message=err_msg,
                     )
-                    action_log.set_parameters({"arguments": args, "working_directory": working_directory})
-                    action_log.set_result({"pid": pid, "status": status})
+                    action_log.set_parameters(launch_params)
+                    action_log.set_result(launch_result)
                     session.add(action_log)
                     await session.commit()
             except Exception as exc:
@@ -651,15 +653,17 @@ class DeviceService:
                 a["is_running"] = False
                 a["process_id"] = None
 
-        action_dict = {
+        close_params: dict[str, Any] = {"force": force}
+        close_result: dict[str, Any] = {"status": status}
+        action_dict: dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "device_id": device_id,
             "user_id": user_id,
             "action_type": "close_app",
             "target": target_str,
-            "parameters": {"force": force},
+            "parameters": close_params,
             "status": status,
-            "result": {"status": status},
+            "result": close_result,
             "error_message": err_msg,
             "created_at": now_str,
         }
@@ -688,8 +692,8 @@ class DeviceService:
                         status=status,
                         error_message=err_msg,
                     )
-                    log_entry.set_parameters({"force": force})
-                    log_entry.set_result({"status": status})
+                    log_entry.set_parameters(close_params)
+                    log_entry.set_result(close_result)
                     session.add(log_entry)
                     await session.commit()
             except Exception as exc:
@@ -716,15 +720,17 @@ class DeviceService:
             status = "simulated"
 
         now_str = datetime.now(UTC).isoformat()
-        action_dict = {
+        empty_focus_params: dict[str, Any] = {}
+        focus_result: dict[str, Any] = {"status": status}
+        action_dict: dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "device_id": device_id,
             "user_id": user_id,
             "action_type": "focus_app",
             "target": app_name,
-            "parameters": {},
+            "parameters": empty_focus_params,
             "status": status,
-            "result": {"status": status},
+            "result": focus_result,
             "error_message": err_msg,
             "created_at": now_str,
         }
@@ -742,7 +748,8 @@ class DeviceService:
                         status=status,
                         error_message=err_msg,
                     )
-                    log_entry.set_result({"status": status})
+                    log_entry.set_parameters(empty_focus_params)
+                    log_entry.set_result(focus_result)
                     session.add(log_entry)
                     await session.commit()
             except Exception as exc:
@@ -765,17 +772,18 @@ class DeviceService:
 
         if platform.system().lower() == "windows":
             try:
-                ps_script = f"""
-                Add-Type -AssemblyName System.Windows.Forms;
-                Add-Type -AssemblyName System.Drawing;
-                $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds;
-                $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height;
-                $graphics = [System.Drawing.Graphics]::FromImage($bitmap);
-                $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size);
-                $bitmap.Save('{str(filepath).replace(chr(92), "/")}', [System.Drawing.Imaging.ImageFormat]::Png);
-                $graphics.Dispose();
-                $bitmap.Dispose();
-                """
+                clean_path = str(filepath).replace("\\", "/")
+                ps_script = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "Add-Type -AssemblyName System.Drawing; "
+                    "$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; "
+                    "$bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height; "
+                    "$graphics = [System.Drawing.Graphics]::FromImage($bitmap); "
+                    "$graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size); "
+                    f"$bitmap.Save('{clean_path}', [System.Drawing.Imaging.ImageFormat]::Png); "
+                    "$graphics.Dispose(); "
+                    "$bitmap.Dispose();"
+                )
                 await asyncio.to_thread(
                     lambda: subprocess.run(["powershell", "-Command", ps_script], timeout=8, capture_output=True)
                 )
@@ -788,6 +796,9 @@ class DeviceService:
 
         # Fallback SVG/PNG simulation generator if OS grab is headless or empty
         if not filepath.exists() or filepath.stat().st_size == 0:
+            formatted_time = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+            hostname = socket.gethostname()
+            os_info = f"{platform.system()} {platform.machine()}"
             mock_svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -798,8 +809,8 @@ class DeviceService:
   <rect width="1280" height="720" fill="url(#bg)" />
   <rect x="40" y="40" width="1200" height="640" rx="16" fill="#1e293b" stroke="#38bdf8" stroke-width="2" />
   <text x="80" y="100" fill="#38bdf8" font-family="system-ui" font-size="28" font-weight="bold">ROXY-AI 2.0 Desktop Operating Layer</text>
-  <text x="80" y="150" fill="#94a3b8" font-family="system-ui" font-size="16">Host: {socket.gethostname()} | Platform: {platform.system()} {platform.machine()}</text>
-  <text x="80" y="180" fill="#94a3b8" font-family="system-ui" font-size="16">Active Window: ROXY Desktop Studio | Time: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}</text>
+  <text x="80" y="150" fill="#94a3b8" font-family="system-ui" font-size="16">Host: {hostname} | Platform: {os_info}</text>
+  <text x="80" y="180" fill="#94a3b8" font-family="system-ui" font-size="16">Active Window: ROXY Desktop Studio | Time: {formatted_time}</text>
   <rect x="80" y="220" width="1120" height="420" rx="8" fill="#0f172a" />
   <text x="120" y="270" fill="#22c55e" font-family="monospace" font-size="16">$ roxy-device-agent --status active</text>
   <text x="120" y="310" fill="#38bdf8" font-family="monospace" font-size="16">[OK] App Discovery Engine Online: 11 Applications Ready</text>
@@ -814,16 +825,22 @@ class DeviceService:
 
         image_url = f"/static/screenshots/{filename}"
         now_str = datetime.now(UTC).isoformat()
+        empty_screen_params: dict[str, Any] = {}
+        screen_result: dict[str, Any] = {
+            "image_url": image_url,
+            "width": width,
+            "height": height,
+        }
 
-        action_dict = {
+        action_dict: dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "device_id": device_id,
             "user_id": user_id,
             "action_type": "screen_capture",
             "target": filename,
-            "parameters": {},
+            "parameters": empty_screen_params,
             "status": "success",
-            "result": {"image_url": image_url, "width": width, "height": height},
+            "result": screen_result,
             "error_message": None,
             "created_at": now_str,
         }
@@ -840,7 +857,8 @@ class DeviceService:
                         target=filename,
                         status="success",
                     )
-                    log_entry.set_result({"image_url": image_url, "width": width, "height": height})
+                    log_entry.set_parameters(empty_screen_params)
+                    log_entry.set_result(screen_result)
                     session.add(log_entry)
                     await session.commit()
             except Exception as exc:
@@ -991,6 +1009,7 @@ class DeviceService:
             _tool_focus_app,
         )
 
+        empty_capture_props: dict[str, Any] = {}
         self._tool_registry.register(
             AgentTool(
                 id="device_capture_screen",
@@ -998,7 +1017,7 @@ class DeviceService:
                 description="Capture a live screenshot of the user's desktop display.",
                 source=ToolSource.DEVICE,
                 risk_level=RiskLevel.MEDIUM,
-                input_schema={"type": "object", "properties": {}},
+                input_schema={"type": "object", "properties": empty_capture_props},
             ),
             _tool_capture_screen,
         )
