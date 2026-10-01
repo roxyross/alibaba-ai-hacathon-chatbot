@@ -78,7 +78,31 @@ roxy-personal-ai/
 
 ## 🚀 Getting Started
 
-### 1. Backend Setup
+### ⚡ Option A: One-Click Docker Compose (Recommended)
+
+Run the entire full-stack ecosystem (PostgreSQL 16 with pgvector, Redis, FastAPI Gateway with automated migrations, and Vite React 18 SPA) with a single command:
+
+```bash
+# 1. Start the complete stack with hot reload
+docker compose up --build
+
+# 2. Open the applications in your browser:
+#    - Frontend UI:   http://localhost:5173
+#    - Backend API:   http://localhost:8000
+#    - API Docs:      http://localhost:8000/docs
+#    - Health Check:  http://localhost:8000/health/live
+
+# Optional profiles:
+# Run production Nginx-served frontend on port 80:
+docker compose --profile prod up
+
+# Run Next.js 16 companion on port 3000:
+docker compose --profile nextjs up
+```
+
+### 💻 Option B: Bare-Metal Local Development
+
+#### 1. Backend Setup
 
 ```bash
 cd backend
@@ -90,7 +114,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 2. React Vite SPA Setup
+#### 2. React Vite SPA Setup
 
 ```bash
 cd frontend
@@ -100,7 +124,7 @@ npm run dev
 ```
 The React SPA runs at `http://localhost:5173` and proxies requests to `http://localhost:8000`.
 
-### 3. Next.js Companion App Setup
+#### 3. Next.js Companion App Setup
 
 ```bash
 cd nextjs-frontend

@@ -1,0 +1,30 @@
+# =============================================================================
+# ROXY AI — Docker Compose Local Developer Customization Override Template
+# Copy this file to `docker-compose.override.yml` to apply your personal settings.
+# `docker-compose.override.yml` is automatically merged by `docker compose up`.
+# =============================================================================
+
+services:
+  # Example: Custom port mappings to prevent port conflicts with local services
+  # db:
+  #   ports:
+  #     - "127.0.0.1:5433:5432"
+
+  # Example: Custom Redis port
+  # redis:
+  #   ports:
+  #     - "127.0.0.1:6380:6379"
+
+  # Example: Enable Python remote debugging (debugpy) on backend
+  # backend:
+  #   ports:
+  #     - "8000:8000"
+  #     - "5678:5678"
+  #   environment:
+  #     - DEBUG=1
+  #   command: python -m debugpy --listen 0.0.0.0:5678 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Example: Change frontend port to 3000
+  # frontend:
+  #   ports:
+  #     - "3000:5173"

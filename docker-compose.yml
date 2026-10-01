@@ -1,0 +1,179 @@
+services:
+  # ---------------------------------------------------------------------------
+  # Database — PostgreSQL 16 with pgvector extension
+  # ---------------------------------------------------------------------------
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: roxy-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-roxy_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - roxy_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-roxy_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - roxy_network
+
+  # ---------------------------------------------------------------------------
+  # Cache & Rate Limiting — Redis 7 Alpine
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: roxy-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - roxy_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 2s
+    networks:
+      - roxy_network
+
+  # ---------------------------------------------------------------------------
+  # Backend — FastAPI Gateway & Autonomous Engine
+  # ---------------------------------------------------------------------------
+  backend:
+    container_name: roxy-backend
+    restart: unless-stopped
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@db:5432/roxy_dev}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      APP_ENV: ${APP_ENV:-development}
+      HOST: 0.0.0.0
+      PORT: 8000
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
+      JWT_SECRET: ${JWT_SECRET:-roxy-insecure-dev-secret-key-change-in-production-123456789}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GROK_API_KEY: ${GROK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      PROVIDER_GEMINI_ENABLED: ${PROVIDER_GEMINI_ENABLED:-true}
+      PROVIDER_GROK_ENABLED: ${PROVIDER_GROK_ENABLED:-true}
+      PROVIDER_DEEPSEEK_ENABLED: ${PROVIDER_DEEPSEEK_ENABLED:-false}
+      PROVIDER_OPENAI_ENABLED: ${PROVIDER_OPENAI_ENABLED:-false}
+      CIRCUIT_BREAKER_FAILURES: ${CIRCUIT_BREAKER_FAILURES:-5}
+      CIRCUIT_BREAKER_RESET_SECONDS: ${CIRCUIT_BREAKER_RESET_SECONDS:-30}
+      RATE_LIMIT_TOKENS_PER_MINUTE: ${RATE_LIMIT_TOKENS_PER_MINUTE:-10000}
+      PAYMENT_PROVIDER_MODE: ${PAYMENT_PROVIDER_MODE:-automatic}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/alembic:/app/alembic
+      - ./backend/static:/app/static
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - roxy_network
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Vite React 18 SPA (Default Development Service)
+  # ---------------------------------------------------------------------------
+  frontend:
+    container_name: roxy-frontend
+    restart: unless-stopped
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      VITE_API_BASE: /api/v1
+      VITE_RUNTIME_URL: http://backend:8000
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - roxy_network
+
+  # ---------------------------------------------------------------------------
+  # Frontend Production — Nginx Reverse Proxy & Static Asset Server
+  # Run with: docker compose --profile prod up
+  # ---------------------------------------------------------------------------
+  frontend-prod:
+    container_name: roxy-frontend-prod
+    restart: unless-stopped
+    profiles:
+      - prod
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "${PROD_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - roxy_network
+
+  # ---------------------------------------------------------------------------
+  # Next.js Frontend — Alternate Next.js 16 Interface
+  # Run with: docker compose --profile nextjs up
+  # ---------------------------------------------------------------------------
+  nextjs-frontend:
+    container_name: roxy-nextjs-frontend
+    restart: unless-stopped
+    profiles:
+      - nextjs
+    build:
+      context: ./nextjs-frontend
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:8000
+    ports:
+      - "${NEXTJS_PORT:-3000}:3000"
+    volumes:
+      - ./nextjs-frontend/src:/app/src
+      - ./nextjs-frontend/public:/app/public
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - roxy_network
+
+# -----------------------------------------------------------------------------
+# Named Volumes & Networks
+# -----------------------------------------------------------------------------
+volumes:
+  roxy_pgdata:
+    name: roxy_pgdata
+  roxy_redisdata:
+    name: roxy_redisdata
+
+networks:
+  roxy_network:
+    name: roxy_network
+    driver: bridge

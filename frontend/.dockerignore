@@ -1,0 +1,9 @@
+node_modules
+dist
+.vercel
+.git
+.gitignore
+.env.local
+coverage
+playwright-report
+test-results

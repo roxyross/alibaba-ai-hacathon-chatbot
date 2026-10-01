@@ -86,6 +86,8 @@ app.add_middleware(
 
 @app.get("/api/v1/health")
 @app.get("/health")
+@app.get("/health/live")
+@app.get("/health/ready")
 async def health_check() -> dict[str, str]:
     return {"status": "ok", "service": "roxy-ai-gateway"}
 
@@ -259,10 +261,6 @@ async def email_send_alias(
     result = await executor.execute(model_req)
     return result
 
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "ai-gateway"}
 
 
 if __name__ == "__main__":
