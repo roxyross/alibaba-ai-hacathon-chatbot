@@ -1235,6 +1235,136 @@
   outline-offset: 1px;
 }
 
+/* Language Selector Dropdown Popover */
+.session-sidebar__lang-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.session-sidebar__lang-btn {
+  flex: none !important;
+  gap: 0.25rem !important;
+  padding: 0.32rem 0.45rem !important;
+}
+
+.session-sidebar__lang-label {
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+
+.session-sidebar__lang-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 175px;
+  background: var(--sidebar-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 8px;
+  padding: 0.35rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+}
+
+html[dir="rtl"] .session-sidebar__lang-popover {
+  left: auto;
+  right: 0;
+}
+
+.session-sidebar__lang-popover-header {
+  padding: 0.25rem 0.45rem 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sidebar-muted);
+  border-bottom: 1px solid var(--sidebar-border);
+  margin-bottom: 0.25rem;
+}
+
+.session-sidebar__lang-popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.session-sidebar__lang-popover-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.38rem 0.5rem;
+  border: none;
+  background: transparent;
+  color: var(--sidebar-text);
+  font: inherit;
+  font-size: 0.775rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: start;
+  transition: all 0.12s ease;
+}
+
+.session-sidebar__lang-popover-item:hover {
+  background: var(--sidebar-input-bg);
+  color: var(--sidebar-accent);
+}
+
+.session-sidebar__lang-popover-item--active {
+  background: rgba(13, 148, 136, 0.1) !important;
+  color: var(--sidebar-accent) !important;
+  font-weight: 600;
+}
+
+.session-sidebar__lang-flag {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.session-sidebar__lang-name {
+  font-weight: 600;
+}
+
+.session-sidebar__lang-sub {
+  font-size: 0.68rem;
+  color: var(--sidebar-muted);
+  margin-inline-start: auto;
+}
+
+/* RTL Layout Mirroring for SessionSidebar */
+html[dir="rtl"] .session-sidebar {
+  border-right: none;
+  border-left: 1px solid var(--sidebar-border);
+}
+
+html[dir="rtl"] .session-sidebar--collapsed [data-tooltip]::after {
+  left: auto;
+  right: calc(100% + 8px);
+  transform: translateY(-50%) translateX(4px) scale(0.96);
+}
+
+html[dir="rtl"] .session-sidebar--collapsed [data-tooltip]:hover::after,
+html[dir="rtl"] .session-sidebar--collapsed [data-tooltip]:focus-visible::after {
+  transform: translateY(-50%) translateX(0) scale(1);
+}
+
+@media (max-width: 768px) {
+  html[dir="rtl"] .session-sidebar {
+    left: auto;
+    right: 0;
+    transform: translateX(100%);
+  }
+  html[dir="rtl"].app--sidebar-open .session-sidebar,
+  html[dir="rtl"] .app--sidebar-open .session-sidebar {
+    transform: translateX(0);
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2);
+  }
+}
+
 /* ==========================================================================
    5. Collapsed Sidebar State (64px / 4rem Rail)
    ========================================================================== */

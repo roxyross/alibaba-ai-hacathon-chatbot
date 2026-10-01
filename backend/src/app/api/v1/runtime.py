@@ -666,17 +666,58 @@ MULTILINGUAL_AGENT_HEADER = """# UNIVERSAL MULTILINGUAL MANDATE:
 """
 
 
-def detect_user_language_instruction(text: str) -> str:
-    """Detect language of user message and return an explicit high-priority directive."""
+def detect_user_language_instruction(text: str, preferred_language: str | None = None) -> str:
+    """Detect language of user message and return an explicit high-priority directive.
+
+    Respects explicit preferred_language (e.g. from i18n switcher) if provided.
+    Accurately distinguishes Urdu (اردو) and Arabic (العربية) scripts and vocabulary.
+    """
+    if preferred_language:
+        pref = preferred_language.lower().strip()
+        if pref.startswith("ur"):
+            return (
+                "[CRITICAL MULTILINGUAL MANDATE]: The user interface language is set to Urdu (اردو). "
+                "You MUST respond strictly, gracefully, and completely in fluent Urdu (اردو) script. Do NOT respond in English."
+            )
+        if pref.startswith("ar"):
+            return (
+                "[CRITICAL MULTILINGUAL MANDATE]: The user interface language is set to Arabic (العربية). "
+                "You MUST respond strictly, gracefully, and completely in fluent Arabic (العربية) script. Do NOT respond in English."
+            )
+        if pref.startswith("en"):
+            return (
+                "[CRITICAL MULTILINGUAL MANDATE]: The user interface language is set to English. "
+                "Respond in clear, professional English."
+            )
+
     if not text:
         return ""
 
-    # 1. Urdu / Arabic script
+    # 1. Distinguish Urdu vs Arabic script
     if re.search(r"[\u0600-\u06FF]", text):
-        return (
-            "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Urdu (اردو) / Arabic script. "
-            "You MUST respond strictly and completely in Urdu (اردو) script. Do NOT respond in English."
-        )
+        urdu_chars = re.search(r"[\u0679\u0688\u0691\u06BA\u06BE\u06D2\u0686\u067E\u06AF]", text)
+        urdu_words = {"کیا", "ہے", "ہیں", "آپ", "کا", "کی", "کے", "میں", "تھا", "تھی", "تھے", "کر", "نہیں", "ہوں", "ہو", "ہم", "بتاؤ", "بتائیں", "شکریہ"}
+        has_urdu_words = any(w in text for w in urdu_words)
+
+        arabic_chars = re.search(r"[\u0629\u0649\u064B-\u0652]", text)
+        arabic_words = {"السلام", "مرحبا", "شكرا", "كيف", "هذا", "هذه", "ماذا", "لماذا", "من فضلك", "نعم", "أنت", "في", "على", "من", "هل", "أريد"}
+        has_arabic_words = any(w in text for w in arabic_words)
+
+        if urdu_chars or has_urdu_words:
+            return (
+                "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Urdu (اردو) script. "
+                "You MUST respond strictly and completely in fluent Urdu (اردو) script. Do NOT respond in English."
+            )
+        elif arabic_chars or has_arabic_words:
+            return (
+                "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Arabic (العربية) script. "
+                "You MUST respond strictly and completely in fluent Arabic (العربية) script. Do NOT respond in English."
+            )
+        else:
+            return (
+                "[CRITICAL MULTILINGUAL MANDATE]: The user is communicating in Arabic / Urdu script. "
+                "Respond in the exact same script and dialect used by the user."
+            )
 
     # 2. Hindi / Devanagari script
     if re.search(r"[\u0900-\u097F]", text):
@@ -817,6 +858,7 @@ class RuntimeChatRequest(BaseModel):
     agent_override: str | None = Field(default=None)
     provider: str | None = Field(default=None)
     model: str | None = Field(default=None)
+    language: str | None = Field(default=None, description="Preferred language code e.g. en, ur, ar")
 
 
 class RuntimeChatResponse(BaseModel):
@@ -894,6 +936,7 @@ async def _call_ai_for_agent(
     session_id: str | None = None,
     provider: str | None = None,
     model: str | None = None,
+    language: str | None = None,
 ) -> tuple[str, str, str]:
     """Call the AI gateway with an agent-specific system prompt and history.
 
@@ -1553,7 +1596,7 @@ async def _call_ai_for_agent(
         except Exception as exc:
             log.warning("runtime.billing_grounding_failed", error=str(exc))
 
-    lang_directive = detect_user_language_instruction(user_message)
+    lang_directive = detect_user_language_instruction(user_message, preferred_language=language)
     if lang_directive:
         history_messages.append(Message(role=MessageRole.SYSTEM, content=lang_directive))
 
@@ -2123,6 +2166,7 @@ async def runtime_chat(
             session_id=body.session_id,
             provider=body.provider,
             model=body.model,
+            language=body.language,
         )
 
         final_agent_slug = agent_slug if agent_slug != "general" else (resolved_agent_slug or "general")
@@ -2803,7 +2847,7 @@ async def runtime_chat_stream(
                 except Exception as exc:
                     log.warning("runtime.stream_billing_grounding_failed", error=str(exc))
 
-            lang_directive = detect_user_language_instruction(body.message)
+            lang_directive = detect_user_language_instruction(body.message, preferred_language=body.language)
             if lang_directive:
                 history_messages.append(Message(role=MessageRole.SYSTEM, content=lang_directive))
 

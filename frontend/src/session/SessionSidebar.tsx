@@ -40,6 +40,7 @@ import {
   Monitor,
 } from 'lucide-react';
 import { useSessions, ChatSession } from './useSessions';
+import { useTranslation, LOCALES, Locale } from '../i18n';
 import './SessionSidebar.css';
 
 export type AppView =
@@ -180,6 +181,21 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const remove = propRemove || localHook.remove;
   const togglePinBackend = propTogglePin || localHook.togglePin;
   const toggleArchiveBackend = propToggleArchive || localHook.toggleArchive;
+
+  const { t, locale, setLocale, locales } = useTranslation();
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const langMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!langMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (langMenuRef.current && !langMenuRef.current.contains(e.target as Node)) {
+        setLangMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [langMenuOpen]);
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -967,10 +983,22 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         <div className="session-sidebar__rail-bottom">
           <button
             type="button"
+            className="session-sidebar__rail-btn"
+            onClick={() => {
+              const next: Locale = locale === 'en' ? 'ur' : locale === 'ur' ? 'ar' : 'en';
+              setLocale(next);
+            }}
+            aria-label={`Language: ${LOCALES[locale].nativeName}`}
+            data-tooltip={`Language: ${LOCALES[locale].nativeName}`}
+          >
+            <Globe size={16} strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
             className={`session-sidebar__rail-btn ${activeView === 'usage' ? 'session-sidebar__rail-btn--active' : ''}`}
             onClick={() => onViewChange?.('usage')}
-            aria-label="Usage"
-            data-tooltip="Usage"
+            aria-label={t('nav.usage')}
+            data-tooltip={t('nav.usage')}
           >
             <BarChart2 size={16} strokeWidth={1.8} />
           </button>
@@ -1029,21 +1057,21 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             type="button"
             className={`session-sidebar__new-chat-btn ${mode === 'chat' ? 'session-sidebar__new-chat-btn--primary' : ''}`}
             onClick={handleNewChatAction}
-            aria-label="New Chat"
-            title="Start a new conversation"
+            aria-label={t('common.new_chat')}
+            title={t('common.new_chat')}
           >
             <Plus size={15} strokeWidth={2.4} />
-            <span>New Chat</span>
+            <span>{t('common.new_chat')}</span>
           </button>
           <button
             type="button"
             className={`session-sidebar__new-task-btn ${mode === 'task' ? 'session-sidebar__new-task-btn--active' : ''}`}
             onClick={handleNewTaskAction}
-            aria-label="New Task"
-            title="Start a new task & coding project"
+            aria-label={t('common.new_task')}
+            title={t('common.new_task')}
           >
             <Zap size={14} strokeWidth={2.2} />
-            <span>New Task</span>
+            <span>{t('common.new_task')}</span>
           </button>
         </div>
 
@@ -1058,10 +1086,10 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               onModeChange?.('chat');
               if (mode !== 'chat') handleNewChatAction();
             }}
-            title="General chat & reasoning"
+            title={t('nav.chat')}
           >
             <MessageSquare size={13} strokeWidth={2} />
-            <span>Chat</span>
+            <span>{t('nav.chat')}</span>
           </button>
           <button
             type="button"
@@ -1072,10 +1100,10 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               onModeChange?.('task');
               if (mode !== 'task') handleNewTaskAction();
             }}
-            title="Autonomous task execution & code"
+            title={t('common.new_task')}
           >
             <Zap size={13} strokeWidth={2.2} />
-            <span>Task</span>
+            <span>{t('common.new_task')}</span>
           </button>
         </div>
 
@@ -1086,7 +1114,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             ref={searchInputRef}
             type="search"
             className="session-sidebar__search-input"
-            placeholder="Search chats..."
+            placeholder={t('sidebar.search_placeholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -1098,7 +1126,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                 }
               }
             }}
-            aria-label="Search chats"
+            aria-label={t('common.search')}
           />
           {searchQuery ? (
             <button
@@ -1129,7 +1157,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               }}
             >
               <MessageSquare size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">Chat</span>
+              <span className="session-sidebar__nav-text">{t('nav.chat')}</span>
             </button>
             <button
               type="button"
@@ -1137,7 +1165,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               onClick={handleNewTaskAction}
             >
               <Zap size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">New Task</span>
+              <span className="session-sidebar__nav-text">{t('common.new_task')}</span>
             </button>
             <button
               type="button"
@@ -1145,7 +1173,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               onClick={() => onViewChange('image_studio')}
             >
               <Sparkles size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">Images</span>
+              <span className="session-sidebar__nav-text">{t('nav.image_studio')}</span>
             </button>
             <button
               type="button"
@@ -1153,7 +1181,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               onClick={() => onViewChange('video_studio')}
             >
               <Film size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">Video Studio</span>
+              <span className="session-sidebar__nav-text">{t('nav.video_studio')}</span>
             </button>
             <button
               type="button"
@@ -1161,7 +1189,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               onClick={() => onViewChange('knowledge_vault')}
             >
               <Database size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">Knowledge Vault</span>
+              <span className="session-sidebar__nav-text">{t('nav.knowledge_vault')}</span>
             </button>
             <button
               type="button"
@@ -1169,7 +1197,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               onClick={() => onViewChange('calendar')}
             >
               <Calendar size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">Calendar</span>
+              <span className="session-sidebar__nav-text">{t('nav.calendar')}</span>
             </button>
             <button
               type="button"
@@ -1177,7 +1205,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               onClick={() => onViewChange('calculator')}
             >
               <Calculator size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">Calculator</span>
+              <span className="session-sidebar__nav-text">{t('nav.calculator')}</span>
             </button>
           </div>
         </div>
@@ -1195,7 +1223,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
           >
             <div className="session-sidebar__tools-toggle-left">
               <Layers size={14} strokeWidth={1.8} className="session-sidebar__tools-icon" />
-              <span className="session-sidebar__tools-title">Tools</span>
+              <span className="session-sidebar__tools-title">{t('sidebar.all_studios')}</span>
               <span className="session-sidebar__tools-count">14</span>
             </div>
             <ChevronDown
@@ -1214,7 +1242,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('voice')}
                 >
                   <Mic size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Voice</span>
+                  <span className="session-sidebar__nav-text">{t('nav.voice')}</span>
                 </button>
                 <button
                   type="button"
@@ -1222,7 +1250,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('documents')}
                 >
                   <FileText size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Documents</span>
+                  <span className="session-sidebar__nav-text">{t('nav.documents')}</span>
                 </button>
                 <button
                   type="button"
@@ -1230,7 +1258,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('finance')}
                 >
                   <Wallet size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Finance</span>
+                  <span className="session-sidebar__nav-text">{t('nav.finance')}</span>
                 </button>
                 <button
                   type="button"
@@ -1238,7 +1266,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('jobs')}
                 >
                   <Clock size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Scheduled Jobs</span>
+                  <span className="session-sidebar__nav-text">{t('nav.jobs')}</span>
                 </button>
                 <button
                   type="button"
@@ -1246,7 +1274,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('email')}
                 >
                   <Mail size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Email</span>
+                  <span className="session-sidebar__nav-text">{t('nav.email')}</span>
                 </button>
                 <button
                   type="button"
@@ -1254,7 +1282,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('workspace_hub')}
                 >
                   <LayoutGrid size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Workspace Hub</span>
+                  <span className="session-sidebar__nav-text">{t('nav.workspace_hub')}</span>
                 </button>
                 <button
                   type="button"
@@ -1262,7 +1290,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('research')}
                 >
                   <Globe size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Deep Research</span>
+                  <span className="session-sidebar__nav-text">{t('nav.research')}</span>
                 </button>
                 <button
                   type="button"
@@ -1270,7 +1298,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('browser')}
                 >
                   <Compass size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Browser Studio</span>
+                  <span className="session-sidebar__nav-text">{t('nav.browser')}</span>
                 </button>
                 <button
                   type="button"
@@ -1278,7 +1306,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('study')}
                 >
                   <BookOpen size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Study Studio</span>
+                  <span className="session-sidebar__nav-text">{t('nav.study')}</span>
                 </button>
                 <button
                   type="button"
@@ -1286,7 +1314,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('coding')}
                 >
                   <Code2 size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Coding Studio</span>
+                  <span className="session-sidebar__nav-text">{t('nav.coding')}</span>
                 </button>
                 <button
                   type="button"
@@ -1294,7 +1322,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('memory')}
                 >
                   <Brain size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Memory Studio</span>
+                  <span className="session-sidebar__nav-text">{t('nav.memory')}</span>
                 </button>
                 <button
                   type="button"
@@ -1302,7 +1330,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('audit')}
                 >
                   <ShieldCheck size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Audit & Security</span>
+                  <span className="session-sidebar__nav-text">{t('nav.audit')}</span>
                 </button>
                 <button
                   type="button"
@@ -1310,7 +1338,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('connectors')}
                 >
                   <Layers size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Connectors & MCP</span>
+                  <span className="session-sidebar__nav-text">{t('nav.connectors')}</span>
                 </button>
                 <button
                   type="button"
@@ -1318,7 +1346,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('device_hub')}
                 >
                   <Monitor size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Device & Apps</span>
+                  <span className="session-sidebar__nav-text">{t('nav.device_hub')}</span>
                 </button>
                 <button
                   type="button"
@@ -1326,7 +1354,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   onClick={() => onViewChange('payment_methods')}
                 >
                   <CreditCard size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">Payment Methods</span>
+                  <span className="session-sidebar__nav-text">{t('nav.payment_methods')}</span>
                 </button>
               </nav>
             </div>
@@ -1489,7 +1517,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                     onClick={handleNewChatAction}
                   >
                     <Plus size={13} strokeWidth={2.2} />
-                    <span>New Chat</span>
+                    <span>{t('common.new_chat')}</span>
                   </button>
                 </>
               )}
@@ -1498,35 +1526,75 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         </div>
       </div>
 
-      {/* 4. Footer: Account & Upgrade Row */}
+      {/* 4. Footer: Account, Language & Upgrade Row */}
       {onViewChange && (
         <div className="session-sidebar__account-row">
+          <div className="session-sidebar__lang-wrap" ref={langMenuRef}>
+            <button
+              type="button"
+              className={`session-sidebar__account-link session-sidebar__lang-btn ${langMenuOpen ? 'session-sidebar__account-link--active' : ''}`}
+              onClick={() => setLangMenuOpen((v) => !v)}
+              title={`${t('common.language')}: ${LOCALES[locale].nativeName}`}
+              aria-label={t('common.language')}
+              aria-expanded={langMenuOpen}
+            >
+              <Globe size={15} strokeWidth={1.8} />
+              <span className="session-sidebar__lang-label">{LOCALES[locale].nativeName}</span>
+            </button>
+
+            {langMenuOpen && (
+              <div className="session-sidebar__lang-popover" role="menu">
+                <div className="session-sidebar__lang-popover-header">
+                  <span>{t('common.language')}</span>
+                </div>
+                <div className="session-sidebar__lang-popover-list">
+                  {locales.map((loc) => (
+                    <button
+                      key={loc.code}
+                      type="button"
+                      className={`session-sidebar__lang-popover-item ${locale === loc.code ? 'session-sidebar__lang-popover-item--active' : ''}`}
+                      onClick={() => {
+                        setLocale(loc.code);
+                        setLangMenuOpen(false);
+                      }}
+                      role="menuitem"
+                    >
+                      <span className="session-sidebar__lang-flag">{loc.flag}</span>
+                      <span className="session-sidebar__lang-name">{loc.nativeName}</span>
+                      <span className="session-sidebar__lang-sub">({loc.name})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             className={`session-sidebar__account-link ${activeView === 'usage' ? 'session-sidebar__account-link--active' : ''}`}
             onClick={() => onViewChange('usage')}
-            title="Usage & Telemetry"
+            title={t('nav.usage')}
           >
             <BarChart2 size={15} strokeWidth={1.8} />
-            <span>Usage</span>
+            <span>{t('nav.usage')}</span>
           </button>
           <button
             type="button"
             className={`session-sidebar__account-link ${activeView === 'billing' ? 'session-sidebar__account-link--active' : ''}`}
             onClick={() => onViewChange('billing')}
-            title="Billing & Invoices"
+            title={t('nav.billing')}
           >
             <Receipt size={15} strokeWidth={1.8} />
-            <span>Billing</span>
+            <span>{t('nav.billing')}</span>
           </button>
           <button
             type="button"
             className={`session-sidebar__upgrade-pill ${activeView === 'pricing' ? 'session-sidebar__upgrade-pill--active' : ''}`}
             onClick={() => onViewChange('pricing')}
-            title="Upgrade Plans"
+            title={t('common.upgrade')}
           >
             <Zap size={13} strokeWidth={2.4} />
-            <span>Upgrade</span>
+            <span>{t('common.upgrade')}</span>
           </button>
         </div>
       )}

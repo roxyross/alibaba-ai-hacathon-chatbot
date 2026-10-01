@@ -76,6 +76,58 @@ body {
   height: 100%;
 }
 
+/* ==========================================================================
+   Phase 21: Full i18n & Localization (English, Urdu, Arabic RTL Layout Mirroring)
+   ========================================================================== */
+
+/* Urdu Typography & Metrics */
+html[lang="ur"],
+html[lang="ur"] body,
+html[lang="ur"] input,
+html[lang="ur"] textarea,
+html[lang="ur"] select,
+html[lang="ur"] button {
+  font-family: 'Noto Nastaliq Urdu', 'Urdu Typesetting', 'Jameel Noori Nastaleeq', 'Segoe UI', Tahoma, sans-serif;
+  line-height: 1.8;
+}
+
+/* Arabic Typography & Metrics */
+html[lang="ar"],
+html[lang="ar"] body,
+html[lang="ar"] input,
+html[lang="ar"] textarea,
+html[lang="ar"] select,
+html[lang="ar"] button {
+  font-family: 'Amiri', 'Noto Sans Arabic', 'Segoe UI', Tahoma, sans-serif;
+  line-height: 1.65;
+}
+
+/* RTL Global Adjustments */
+html[dir="rtl"] {
+  text-align: right;
+}
+
+html[dir="rtl"] .icon-flip-rtl {
+  transform: scaleX(-1);
+}
+
+/* Chat Input Bar in RTL */
+html[dir="rtl"] .chat-input-bar__input {
+  text-align: right;
+  direction: rtl;
+}
+
+/* Studio Header / View Header alignment */
+html[dir="rtl"] .view-header__title,
+html[dir="rtl"] .app__header-left {
+  text-align: right;
+}
+
+/* Mirrored Navigation & Indicators */
+html[dir="rtl"] .session-sidebar__nav-link {
+  text-align: right;
+}
+
 /* App layout */
 .app {
   display: flex;

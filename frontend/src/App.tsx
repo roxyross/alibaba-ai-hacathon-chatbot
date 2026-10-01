@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { I18nProvider } from './i18n';
 import { AuthProvider, AuthGate, useAuth } from './auth';
 import { ChatWindow } from './components/ChatWindow';
 import { SessionSidebar, type AppView } from './session';
@@ -1040,8 +1041,10 @@ export function ChatScreen() {
 
 export function App() {
   return (
-    <AuthProvider>
-      <ChatScreen />
-    </AuthProvider>
+    <I18nProvider>
+      <AuthProvider>
+        <ChatScreen />
+      </AuthProvider>
+    </I18nProvider>
   );
 }

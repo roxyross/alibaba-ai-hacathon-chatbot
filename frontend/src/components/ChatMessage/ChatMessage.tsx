@@ -755,7 +755,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
           <span>Pinned</span>
         </div>
       )}
-      <div className="chat-message__bubble">
+      <div className="chat-message__bubble" dir="auto">
         {isEditing ? (
           <div className="chat-message__edit-box">
             <textarea
