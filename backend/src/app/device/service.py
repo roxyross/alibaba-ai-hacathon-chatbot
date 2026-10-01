@@ -1123,7 +1123,7 @@ class DeviceService:
 
         session_id = str(uuid.uuid4())
         now_str = datetime.now(UTC).isoformat()
-        session_record = {
+        session_record: dict[str, Any] = {
             "id": session_id,
             "user_id": user_id,
             "initiator_device_id": src_id,
@@ -1249,7 +1249,7 @@ class DeviceService:
             return
 
         now_str = datetime.now(UTC).isoformat()
-        defaults = [
+        defaults: list[dict[str, Any]] = [
             {
                 "id": f"iot_light_{user_id[:8]}_1",
                 "user_id": user_id,
@@ -1353,7 +1353,7 @@ class DeviceService:
             },
         ]
         for dev in defaults:
-            self._mem_iot_devices[dev["id"]] = dev
+            self._mem_iot_devices[str(dev["id"])] = dev
 
     async def discover_iot_devices(
         self, user_id: str, protocol: str = "all", device_type: str = "all"

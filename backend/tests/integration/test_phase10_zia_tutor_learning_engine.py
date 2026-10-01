@@ -165,6 +165,7 @@ async def test_tutor_leitner_spaced_repetition_progression() -> None:
 
     # Initial deck mastery should be 0.0% (all in Box 1)
     deck_before = await repo.get_deck(user_id, deck_id)
+    assert deck_before is not None
     assert deck_before["mastery_percentage"] == 0.0
 
     # 1. First correct review: Advances to Box 2 (weight: 0.25 -> 25% mastery)
@@ -175,37 +176,46 @@ async def test_tutor_leitner_spaced_repetition_progression() -> None:
     assert rev1["correct_count"] == 1
 
     deck_after1 = await repo.get_deck(user_id, deck_id)
+    assert deck_after1 is not None
     assert deck_after1["mastery_percentage"] == 25.0
 
     # 2. Second correct review: Advances to Box 3 (weight: 0.50 -> 50% mastery)
     rev2 = await repo.record_card_review(user_id, card_id, is_correct=True)
+    assert rev2 is not None
     assert rev2["box"] == 3
     assert rev2["correct_count"] == 2
 
     deck_after2 = await repo.get_deck(user_id, deck_id)
+    assert deck_after2 is not None
     assert deck_after2["mastery_percentage"] == 50.0
 
     # 3. Third correct review: Advances to Box 4 (weight: 0.75 -> 75% mastery)
     rev3 = await repo.record_card_review(user_id, card_id, is_correct=True)
+    assert rev3 is not None
     assert rev3["box"] == 4
 
     deck_after3 = await repo.get_deck(user_id, deck_id)
+    assert deck_after3 is not None
     assert deck_after3["mastery_percentage"] == 75.0
 
     # 4. Fourth correct review: Advances to Box 5 (weight: 1.0 -> 100% mastery)
     rev4 = await repo.record_card_review(user_id, card_id, is_correct=True)
+    assert rev4 is not None
     assert rev4["box"] == 5
 
     deck_after4 = await repo.get_deck(user_id, deck_id)
+    assert deck_after4 is not None
     assert deck_after4["mastery_percentage"] == 100.0
 
     # 5. Incorrect review: Resets back to Box 1 immediately (mastery drops to 0.0%)
     rev5 = await repo.record_card_review(user_id, card_id, is_correct=False)
+    assert rev5 is not None
     assert rev5["box"] == 1
     assert rev5["review_count"] == 5
     assert rev5["correct_count"] == 4  # Did not increment on fail
 
     deck_after5 = await repo.get_deck(user_id, deck_id)
+    assert deck_after5 is not None
     assert deck_after5["mastery_percentage"] == 0.0
 
 
@@ -221,12 +231,14 @@ async def test_tutor_evaluate_answer_tool_socratic_coaching() -> None:
     user_id = f"user_socratic_{uuid.uuid4().hex[:8]}"
 
     deck = await repo.create_deck(user_id=user_id, title="Database Normalization")
+    assert deck is not None
     card = await repo.create_card(
         user_id=user_id,
         deck_id=deck["id"],
         front="What constitutes Third Normal Form (3NF)?",
         back="It is in 2NF and all transitive dependencies are eliminated.",
     )
+    assert card is not None
     card_id = card["id"]
 
     # 1. Correct evaluation
@@ -337,9 +349,12 @@ async def test_tutor_get_topic_mastery_tool_execution() -> None:
     # Create 2 decks
     deck1 = await repo.create_deck(user_id=user_id, title="Kubernetes Primers", subject="DevOps")
     deck2 = await repo.create_deck(user_id=user_id, title="Docker Fundamentals", subject="DevOps")
+    assert deck1 is not None
+    assert deck2 is not None
 
     # Add card to deck1 and advance it to box 3
     c1 = await repo.create_card(user_id, deck1["id"], front="What is a Pod?", back="Atomic unit")
+    assert c1 is not None
     await repo.record_card_review(user_id, c1["id"], is_correct=True)
     await repo.record_card_review(user_id, c1["id"], is_correct=True)
 
@@ -388,18 +403,23 @@ async def test_tutor_reset_progress_destructive_confirmation() -> None:
 
     # Verify confirmation gate
     tool = registry.get("tutor_reset_progress")
+    assert tool is not None
     assert tool.requires_confirmation is True
     assert tool.risk_level == RiskLevel.HIGH
 
     # Create deck, advance cards
     deck = await repo.create_deck(user_id=user_id, title="Cryptography")
+    assert deck is not None
     c1 = await repo.create_card(user_id, deck["id"], front="What is RSA?", back="Public key cipher")
     c2 = await repo.create_card(user_id, deck["id"], front="What is AES?", back="Symmetric block cipher")
+    assert c1 is not None
+    assert c2 is not None
     await repo.record_card_review(user_id, c1["id"], is_correct=True)
     await repo.record_card_review(user_id, c2["id"], is_correct=True)
 
     # Deck mastery should be 25% (both in box 2)
     deck_mid = await repo.get_deck(user_id, deck["id"])
+    assert deck_mid is not None
     assert deck_mid["mastery_percentage"] == 25.0
 
     # Execute reset via tool
@@ -419,10 +439,13 @@ async def test_tutor_reset_progress_destructive_confirmation() -> None:
     # Verify cards are back to Box 1
     card1_after = await repo.get_card(user_id, c1["id"])
     card2_after = await repo.get_card(user_id, c2["id"])
+    assert card1_after is not None
+    assert card2_after is not None
     assert card1_after["box"] == 1
     assert card2_after["box"] == 1
 
     deck_after = await repo.get_deck(user_id, deck["id"])
+    assert deck_after is not None
     assert deck_after["mastery_percentage"] == 0.0
 
     # Test delete_deck option
