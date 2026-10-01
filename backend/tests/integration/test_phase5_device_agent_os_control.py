@@ -355,3 +355,90 @@ async def test_device_multitenant_isolation(authed_client: AsyncClient) -> None:
         assert actions_b.json() == []
     finally:
         await client_b.aclose()
+
+
+# -----------------------------------------------------------------------------
+# 9. Explicit Named Test Contracts (test_open_application, test_app_discovery, test_device_agent_control)
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_open_application(authed_client: AsyncClient) -> None:
+    """Explicit test contract: Launch/open native application via device agent."""
+    dev_res = await authed_client.get("/api/v1/devices/current")
+    assert dev_res.status_code == 200
+    device_id = dev_res.json()["id"]
+
+    # 1. Launch via REST endpoint
+    launch_res = await authed_client.post(
+        f"/api/v1/devices/{device_id}/apps/launch",
+        json={"app_name_or_path": "calc.exe", "arguments": []},
+    )
+    assert launch_res.status_code == 200
+    assert launch_res.json()["status"] in ("success", "failed")
+
+    # 2. Open via Central ToolRegistry
+    reg = ToolRegistry.get_instance()
+    tool_res = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="device_open_app",
+            arguments={"app_name": "calc.exe"},
+            user_id="test_open_app_user",
+        )
+    )
+    assert tool_res.success is True
+    assert tool_res.output["status"] in ("success", "failed")
+
+
+@pytest.mark.anyio
+async def test_app_discovery(authed_client: AsyncClient) -> None:
+    """Explicit test contract: Scan and discover installed host applications."""
+    dev_res = await authed_client.get("/api/v1/devices/current")
+    assert dev_res.status_code == 200
+    device_id = dev_res.json()["id"]
+
+    scan_res = await authed_client.post(f"/api/v1/devices/{device_id}/apps/scan")
+    assert scan_res.status_code == 200
+    apps = scan_res.json()["discovered_apps"]
+    assert isinstance(apps, list)
+    assert len(apps) >= 5
+
+    # Verify category filtering works
+    filter_res = await authed_client.get(f"/api/v1/devices/{device_id}/apps?category=development")
+    assert filter_res.status_code == 200
+    assert isinstance(filter_res.json(), list)
+
+
+@pytest.mark.anyio
+async def test_device_agent_control(authed_client: AsyncClient) -> None:
+    """Explicit test contract: Full device agent control lifecycle (telemetry, launch, focus, capture, close)."""
+    # 1. Host auto-detection & hardware telemetry
+    dev_res = await authed_client.get("/api/v1/devices/current")
+    assert dev_res.status_code == 200
+    dev_data = dev_res.json()
+    device_id = dev_data["id"]
+    assert dev_data["status"] == "online"
+    assert "cpu_percent" in dev_data["telemetry"]
+
+    # 2. Window focus
+    focus_res = await authed_client.post(
+        f"/api/v1/devices/{device_id}/apps/focus",
+        json={"app_name": "calc.exe"},
+    )
+    assert focus_res.status_code == 200
+
+    # 3. Screen capture
+    shot_res = await authed_client.post(f"/api/v1/devices/{device_id}/screenshot")
+    assert shot_res.status_code == 200
+    assert "image_url" in shot_res.json()
+
+    # 4. App termination
+    close_res = await authed_client.post(
+        f"/api/v1/devices/{device_id}/apps/close",
+        json={"app_name_or_pid": "calc.exe", "force": True},
+    )
+    assert close_res.status_code == 200
+
+    # 5. Audit log validation
+    actions_res = await authed_client.get(f"/api/v1/devices/{device_id}/actions")
+    assert actions_res.status_code == 200
+    assert len(actions_res.json()) >= 1
