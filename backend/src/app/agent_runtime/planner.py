@@ -2219,12 +2219,200 @@ class AgentPlanner:
                 if "scheduler_list_jobs" in tools or self._tool_registry.get("scheduler_list_jobs")
                 else "system_schedule_job"
             )
+        # ---------------------------------------------------------------------
+        # Phase 10: Zia Tutor AI (Adaptive Personalized Learning Engine)
+        # ---------------------------------------------------------------------
+
+        # Single-intent: Zia Tutor - Reset Study Progress (destructive - requires confirmation)
+        if (
+            lower.startswith("reset study progress")
+            or lower.startswith("reset progress for deck ")
+            or lower.startswith("reset deck ")
+            or lower.startswith("delete study deck ")
+            or lower.startswith("delete deck ")
+            or "reset my study progress" in lower
+        ):
+            deck_id = None
+            delete_deck = "delete" in lower
+            m = re.search(r"(?:deck\s+)?([a-zA-Z0-9_\-]+)$", text)
+            if m and not lower.endswith("study progress") and not lower.endswith("my study progress"):
+                deck_id = m.group(1).strip()
+            if not deck_id:
+                deck_id = ctx_dict.get("deck_id")
+
+            tool_id = (
+                "tutor_reset_progress"
+                if "tutor_reset_progress" in tools or self._tool_registry.get("tutor_reset_progress")
+                else "system_memory_store"
+            )
             return [
                 {
                     "step_number": 1,
-                    "description": "List all scheduled automated jobs and recurring tasks",
+                    "description": f"{'Delete' if delete_deck else 'Reset'} study progress{' for deck ' + deck_id if deck_id else ''} back to Leitner Box 1 (requires user confirmation)",
                     "tool_id": tool_id,
-                    "tool_input": {},
+                    "tool_input": {"deck_id": deck_id, "delete_deck": delete_deck},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Zia Tutor - Create Study Plan / Curriculum
+        if (
+            lower.startswith("create study plan for ")
+            or lower.startswith("generate study plan for ")
+            or lower.startswith("make a study plan for ")
+            or lower.startswith("study plan for ")
+            or lower.startswith("curriculum for ")
+            or lower.startswith("create curriculum for ")
+            or ("study plan" in lower and ("create" in lower or "generate" in lower or "build" in lower))
+        ):
+            topic = re.sub(
+                r"(?i)^(?:create\s+(?:a\s+)?study\s+plan\s+(?:for\s+)?|generate\s+(?:a\s+)?study\s+plan\s+(?:for\s+)?|make\s+a\s+study\s+plan\s+(?:for\s+)?|study\s+plan\s+for\s+|curriculum\s+for\s+|create\s+curriculum\s+for\s+)",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not topic or "study plan" in topic.lower():
+                topic = re.sub(r"(?i)(?:create|generate|build|make)\s+(?:a\s+)?study\s+plan\s*(?:for\s*)?", "", text).strip()
+            if not topic:
+                topic = "General Knowledge"
+
+            tool_id = (
+                "tutor_create_study_plan"
+                if "tutor_create_study_plan" in tools or self._tool_registry.get("tutor_create_study_plan")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Generate adaptive study plan and initial deck for '{topic}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"topic": topic, "difficulty": "intermediate", "target_days": 7},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Zia Tutor - Generate Practice Quiz
+        if (
+            lower.startswith("generate quiz on ")
+            or lower.startswith("create quiz on ")
+            or lower.startswith("generate quiz for ")
+            or lower.startswith("create quiz for ")
+            or lower.startswith("quiz me on ")
+            or lower.startswith("practice quiz on ")
+            or lower.startswith("quiz on ")
+            or "generate quiz" in lower
+            or "practice quiz" in lower
+        ):
+            topic = re.sub(
+                r"(?i)^(?:generate\s+(?:a\s+)?quiz\s+(?:on|for)\s+|create\s+(?:a\s+)?quiz\s+(?:on|for)\s+|quiz\s+me\s+on\s+|practice\s+quiz\s+(?:on|for)\s+|quiz\s+on\s+)",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not topic:
+                topic = "General Subject"
+
+            tool_id = (
+                "tutor_generate_quiz"
+                if "tutor_generate_quiz" in tools or self._tool_registry.get("tutor_generate_quiz")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Generate practice quiz questions on '{topic}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"topic": topic, "count": 5, "difficulty": "medium"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Zia Tutor - Create Flashcards
+        if (
+            lower.startswith("create flashcards for ")
+            or lower.startswith("generate flashcards for ")
+            or lower.startswith("make flashcards for ")
+            or lower.startswith("flashcards for ")
+            or "create flashcards" in lower
+            or "generate flashcards" in lower
+        ):
+            topic = re.sub(
+                r"(?i)^(?:create\s+flashcards\s+(?:for\s+)?|generate\s+flashcards\s+(?:for\s+)?|make\s+flashcards\s+(?:for\s+)?|flashcards\s+for\s+)",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not topic:
+                topic = "Study Notes"
+
+            tool_id = (
+                "tutor_create_flashcards"
+                if "tutor_create_flashcards" in tools or self._tool_registry.get("tutor_create_flashcards")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Generate active-recall flashcards for '{topic}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"topic": topic, "count": 5, "level": "intermediate"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Zia Tutor - Topic Mastery & Learning Progress
+        if (
+            "topic mastery" in lower
+            or "study mastery" in lower
+            or "my study progress" in lower
+            or "learning progress" in lower
+            or "study stats" in lower
+            or "show study stats" in lower
+            or "what is my mastery" in lower
+            or lower.startswith("mastery on ")
+            or lower.startswith("mastery for ")
+        ):
+            topic = None
+            m = re.search(r"(?:mastery\s+(?:on|for)\s+)(.+)$", text, re.I)
+            if m:
+                topic = m.group(1).strip()
+            tool_id = (
+                "tutor_get_topic_mastery"
+                if "tutor_get_topic_mastery" in tools or self._tool_registry.get("tutor_get_topic_mastery")
+                else "system_memory_retrieve"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Retrieve topic mastery and study progress{' for ' + topic if topic else ''}",
+                    "tool_id": tool_id,
+                    "tool_input": {"topic": topic} if topic else {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Zia Tutor - Evaluate Answer / Review Flashcard
+        if (
+            lower.startswith("evaluate answer")
+            or lower.startswith("review card ")
+            or lower.startswith("tutor evaluate")
+        ):
+            is_correct = "incorrect" not in lower and "wrong" not in lower
+            card_id = None
+            m = re.search(r"(?:card\s+)?([a-zA-Z0-9_\-]+)$", text)
+            if m and not lower.endswith("evaluate answer"):
+                card_id = m.group(1).strip()
+            if not card_id:
+                card_id = ctx_dict.get("card_id")
+
+            tool_id = (
+                "tutor_evaluate_answer"
+                if "tutor_evaluate_answer" in tools or self._tool_registry.get("tutor_evaluate_answer")
+                else "system_memory_store"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Evaluate answer and update Leitner progression{' for card ' + card_id if card_id else ''}",
+                    "tool_id": tool_id,
+                    "tool_input": {"is_correct": is_correct, "card_id": card_id, "user_answer": text},
                     "depends_on": [],
                 }
             ]

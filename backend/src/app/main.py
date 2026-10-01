@@ -218,6 +218,8 @@ async def on_startup() -> None:
         JobService.get_instance().register_scheduler_tools()
         from app.finance.service import FinanceService
         FinanceService.get_instance().register_finance_tools()
+        from app.study.service import StudyService
+        StudyService.get_instance().register_tutor_tools()
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))

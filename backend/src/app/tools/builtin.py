@@ -494,6 +494,14 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     except Exception as exc:
         log.warning("register_builtin_tools.finance_failed", error=str(exc))
 
+    # 19. Register Zia Tutor AI & Learning Engine tools (tutor_create_study_plan, tutor_generate_quiz, etc.)
+    try:
+        from app.study.service import StudyService
+
+        StudyService.get_instance().register_tutor_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.tutor_failed", error=str(exc))
+
 
 
 

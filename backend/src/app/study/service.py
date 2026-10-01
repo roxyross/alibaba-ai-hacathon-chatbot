@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any, ClassVar
 
 import structlog
 
@@ -22,6 +23,8 @@ from app.study.schemas import (
     QuizSessionResponse,
     QuizSubmitRequest,
 )
+from app.tools.registry import ToolRegistry
+from app.tools.schemas import AgentTool, RiskLevel, ToolSource
 
 log = structlog.get_logger()
 
@@ -53,8 +56,17 @@ QUIZ_SYSTEM_PROMPT = (
 class StudyService:
     """Service for Study Studio operations."""
 
+    _instance: ClassVar[StudyService | None] = None
+
     def __init__(self, repository: StudyRepository | None = None) -> None:
         self.repo = repository or StudyRepository()
+
+    @classmethod
+    def get_instance(cls, repository: StudyRepository | None = None) -> StudyService:
+        """Get or initialize singleton instance of StudyService."""
+        if cls._instance is None:
+            cls._instance = cls(repository=repository)
+        return cls._instance
 
     async def generate_flashcards(
         self, user_id: str, request: GenerateFlashcardsRequest
@@ -457,3 +469,465 @@ class StudyService:
             )
 
         return questions[:count]
+
+    # ---------------------------------------------------------------------------
+    # Zia Tutor Domain Methods (Phase 10)
+    # ---------------------------------------------------------------------------
+
+    async def create_study_plan(
+        self,
+        user_id: str,
+        topic: str,
+        difficulty: str = "intermediate",
+        target_days: int = 7,
+    ) -> dict[str, Any]:
+        """Generate structured curriculum milestones and establish an active study deck."""
+        clean_topic = topic.strip()
+        days = max(1, min(30, target_days))
+
+        milestones = [
+            {
+                "day": 1,
+                "title": f"Foundational Principles of {clean_topic}",
+                "focus": "Core terminology, atomic concepts, and theoretical overview.",
+                "activities": ["Review concept flashcards", "Complete diagnostic quiz"],
+            },
+            {
+                "day": min(2, days),
+                "title": "Structural Mechanics & Architecture",
+                "focus": "Component relationships, data flow, and standard operation patterns.",
+                "activities": ["Socratic dialogue review", "Active recall drills"],
+            },
+            {
+                "day": min(3, days),
+                "title": "Implementation Patterns & Best Practices",
+                "focus": "Defensive workflows, modular decomposition, and boundary verification.",
+                "activities": ["Flashcard Leitner review (Box 2/3)", "Application practice"],
+            },
+            {
+                "day": min(5, days),
+                "title": "Edge Cases, Error Handling & Optimization",
+                "focus": "Fault tolerance, performance bottlenecks, and real-world diagnostics.",
+                "activities": ["Scenario-based quizzes", "Targeted reinforcement"],
+            },
+            {
+                "day": days,
+                "title": "Comprehensive Mastery & Capstone Evaluation",
+                "focus": "Full curriculum synthesis and retention assessment.",
+                "activities": ["Comprehensive final quiz", "Long-term Leitner Box 5 graduation"],
+            },
+        ]
+
+        seen_days: set[int] = set()
+        deduped_milestones: list[dict[str, Any]] = []
+        for m in milestones:
+            if m["day"] not in seen_days and m["day"] <= days:
+                seen_days.add(m["day"])
+                deduped_milestones.append(m)
+
+        deck = await self.repo.create_deck(
+            user_id=user_id,
+            title=f"Study Plan: {clean_topic}",
+            description=f"{days}-day adaptive curriculum covering {clean_topic} ({difficulty} level).",
+            subject=clean_topic[:30],
+            tags=[clean_topic, difficulty, "curriculum"],
+        )
+        deck_id = deck["id"]
+
+        gen_resp = await self.generate_flashcards(
+            user_id=user_id,
+            request=GenerateFlashcardsRequest(
+                topic=clean_topic,
+                count=5,
+                level=difficulty,
+                save_to_deck_id=deck_id,
+            ),
+        )
+
+        return {
+            "topic": clean_topic,
+            "difficulty": difficulty,
+            "target_days": days,
+            "deck_id": deck_id,
+            "deck_title": deck["title"],
+            "cards_created": gen_resp.count,
+            "milestones": deduped_milestones,
+            "summary": f"Generated {days}-day study plan for '{clean_topic}' with {gen_resp.count} flashcards in deck '{deck['title']}'.",
+        }
+
+    async def evaluate_answer(
+        self,
+        user_id: str,
+        card_id: str | None = None,
+        is_correct: bool = True,
+        user_answer: str | None = None,
+        question: str | None = None,
+        expected_answer: str | None = None,
+    ) -> dict[str, Any]:
+        """Socratic evaluation of a learner's answer with Leitner spaced repetition progression."""
+        card_info = None
+        new_box = 1
+        next_review_at = None
+
+        if card_id:
+            updated_card = await self.repo.record_card_review(
+                user_id=user_id, card_id=card_id, is_correct=is_correct
+            )
+            if updated_card:
+                card_info = updated_card
+                new_box = updated_card.get("box", 1)
+                next_review_at = updated_card.get("next_review_at")
+                if not question:
+                    question = updated_card.get("front")
+                if not expected_answer:
+                    expected_answer = updated_card.get("back")
+
+        if is_correct:
+            socratic_feedback = (
+                f"Excellent grasp! You accurately identified: '{user_answer or expected_answer or 'the core concept'}'. "
+                f"Notice how this connects to the broader systemic principles. "
+                f"Advancing to Leitner Box {new_box}."
+            )
+        else:
+            socratic_feedback = (
+                f"Not quite, but let's break it down together. Consider: '{question or 'the key premise'}'. "
+                f"What fundamental mechanism drives this rather than '{user_answer or 'the current guess'}'? "
+                f"Card reset to Leitner Box 1 for rapid review."
+            )
+
+        return {
+            "is_correct": is_correct,
+            "card_id": card_id,
+            "new_box": new_box,
+            "next_review_at": next_review_at,
+            "socratic_feedback": socratic_feedback,
+            "card": card_info,
+            "summary": f"Answer evaluated as {'correct' if is_correct else 'incorrect'}. Leitner box is now {new_box}.",
+        }
+
+    async def get_topic_mastery(
+        self,
+        user_id: str,
+        deck_id: str | None = None,
+        topic: str | None = None,
+    ) -> dict[str, Any]:
+        """Retrieve topic mastery metrics, cards due, and Leitner progression."""
+        if deck_id:
+            deck = await self.repo.get_deck(user_id=user_id, deck_id=deck_id)
+            if not deck:
+                return {"user_id": user_id, "found": False, "error": f"Deck '{deck_id}' not found."}
+            cards = await self.repo.list_cards_for_deck(user_id=user_id, deck_id=deck_id, limit=200)
+            box_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+            for c in cards:
+                box_counts[c.get("box", 1)] = box_counts.get(c.get("box", 1), 0) + 1
+            return {
+                "user_id": user_id,
+                "deck_id": deck_id,
+                "title": deck["title"],
+                "subject": deck.get("subject", "General"),
+                "mastery_percentage": deck.get("mastery_percentage", 0.0),
+                "total_cards": len(cards),
+                "leitner_boxes": box_counts,
+                "summary": f"Deck '{deck['title']}' is at {deck.get('mastery_percentage', 0.0)}% mastery with {len(cards)} cards.",
+            }
+
+        stats = await self.repo.get_study_stats(user_id=user_id)
+        decks = await self.repo.list_decks(user_id=user_id, query=topic, limit=20)
+        return {
+            "user_id": user_id,
+            "overall_stats": stats,
+            "filtered_topic": topic,
+            "matching_decks": [
+                {
+                    "id": d["id"],
+                    "title": d["title"],
+                    "subject": d.get("subject", "General"),
+                    "mastery_percentage": d.get("mastery_percentage", 0.0),
+                    "card_count": d.get("card_count", 0),
+                }
+                for d in decks
+            ],
+            "summary": f"Overall mastery: {stats.get('average_mastery', 0.0)}% across {stats.get('total_decks', 0)} decks with {stats.get('cards_due_for_review', 0)} cards due for review.",
+        }
+
+    async def reset_progress(
+        self,
+        user_id: str,
+        deck_id: str | None = None,
+        delete_deck: bool = False,
+    ) -> dict[str, Any]:
+        """Destructive mutation: Reset card Leitner review progress or delete deck entirely."""
+        if delete_deck and deck_id:
+            success = await self.repo.delete_deck(user_id=user_id, deck_id=deck_id)
+            return {
+                "user_id": user_id,
+                "deck_id": deck_id,
+                "deleted": success,
+                "action": "delete_deck",
+                "summary": f"Study deck '{deck_id}' and all associated flashcards have been deleted.",
+            }
+
+        result = await self.repo.reset_progress(user_id=user_id, deck_id=deck_id)
+        result["action"] = "reset_boxes"
+        return result
+
+    # ---------------------------------------------------------------------------
+    # Central Tool Registry Integration (Phase 10: Zia Tutor AI)
+    # ---------------------------------------------------------------------------
+
+    def register_tutor_tools(self, registry: ToolRegistry | None = None) -> None:
+        """Register all Zia Tutor AI tools into the Central Tool Registry."""
+        reg = registry or ToolRegistry.get_instance()
+
+        # 1. tutor_create_study_plan
+        async def _tool_tutor_create_study_plan(
+            topic: str,
+            difficulty: str = "intermediate",
+            target_days: int = 7,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            return await self.create_study_plan(
+                user_id=uid,
+                topic=topic,
+                difficulty=difficulty,
+                target_days=target_days,
+            )
+
+        reg.register(
+            AgentTool(
+                id="tutor_create_study_plan",
+                name="Create Study Plan",
+                description="Generate a personalized adaptive study plan, milestone curriculum, and initial flashcard deck for any topic or skill.",
+                source=ToolSource.SYSTEM,
+                capabilities=["study", "tutor", "curriculum", "learning_plan"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "topic": {"type": "string", "description": "Subject or skill to learn"},
+                        "difficulty": {"type": "string", "description": "Difficulty level: beginner, intermediate, advanced", "default": "intermediate"},
+                        "target_days": {"type": "integer", "description": "Duration of study plan in days", "default": 7},
+                    },
+                    "required": ["topic"],
+                },
+                permissions=["study:write"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_tutor_create_study_plan,
+        )
+
+        # 2. tutor_generate_quiz
+        async def _tool_tutor_generate_quiz(
+            topic: str,
+            count: int = 5,
+            difficulty: str = "medium",
+            deck_id: str | None = None,
+            source_text: str | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            resp = await self.generate_quiz(
+                user_id=uid,
+                request=GenerateQuizRequest(
+                    topic=topic,
+                    count=count,
+                    difficulty=difficulty,
+                    deck_id=deck_id,
+                    source_text=source_text,
+                ),
+            )
+            return {
+                "topic": resp.topic,
+                "count": resp.count,
+                "difficulty": resp.difficulty,
+                "questions": [q.model_dump() for q in resp.questions],
+                "summary": f"Generated {resp.count} multiple-choice quiz questions on '{resp.topic}'.",
+            }
+
+        reg.register(
+            AgentTool(
+                id="tutor_generate_quiz",
+                name="Generate Practice Quiz",
+                description="Generate interactive multiple-choice practice quizzes with pedagogical explanations and distractors.",
+                source=ToolSource.SYSTEM,
+                capabilities=["study", "tutor", "quiz", "assessment"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "topic": {"type": "string", "description": "Topic or concept to be quizzed on"},
+                        "count": {"type": "integer", "description": "Number of questions to generate", "default": 5},
+                        "difficulty": {"type": "string", "description": "Difficulty: easy, medium, hard", "default": "medium"},
+                        "deck_id": {"type": "string", "description": "Optional study deck ID to ground questions in"},
+                        "source_text": {"type": "string", "description": "Optional reference study notes or excerpts"},
+                    },
+                    "required": ["topic"],
+                },
+                permissions=["study:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_tutor_generate_quiz,
+        )
+
+        # 3. tutor_evaluate_answer
+        async def _tool_tutor_evaluate_answer(
+            is_correct: bool,
+            card_id: str | None = None,
+            user_answer: str | None = None,
+            question: str | None = None,
+            expected_answer: str | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            return await self.evaluate_answer(
+                user_id=uid,
+                card_id=card_id,
+                is_correct=is_correct,
+                user_answer=user_answer,
+                question=question,
+                expected_answer=expected_answer,
+            )
+
+        reg.register(
+            AgentTool(
+                id="tutor_evaluate_answer",
+                name="Evaluate Tutor Answer",
+                description="Evaluate a student's answer, provide Socratic feedback, and advance or reset the flashcard's Leitner spaced repetition interval.",
+                source=ToolSource.SYSTEM,
+                capabilities=["study", "tutor", "evaluate", "socratic", "spaced_repetition"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "is_correct": {"type": "boolean", "description": "Whether the answer was correct"},
+                        "card_id": {"type": "string", "description": "Optional flashcard ID being reviewed"},
+                        "user_answer": {"type": "string", "description": "The student's submitted response"},
+                        "question": {"type": "string", "description": "The prompt or question asked"},
+                        "expected_answer": {"type": "string", "description": "The correct answer or definition"},
+                    },
+                    "required": ["is_correct"],
+                },
+                permissions=["study:write"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_tutor_evaluate_answer,
+        )
+
+        # 4. tutor_create_flashcards
+        async def _tool_tutor_create_flashcards(
+            topic: str,
+            count: int = 5,
+            level: str = "intermediate",
+            source_text: str | None = None,
+            save_to_deck_id: str | None = None,
+            new_deck_title: str | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            resp = await self.generate_flashcards(
+                user_id=uid,
+                request=GenerateFlashcardsRequest(
+                    topic=topic,
+                    count=count,
+                    level=level,
+                    source_text=source_text,
+                    save_to_deck_id=save_to_deck_id,
+                    new_deck_title=new_deck_title,
+                ),
+            )
+            return {
+                "topic": resp.topic,
+                "count": resp.count,
+                "level": resp.level,
+                "deck_id": resp.deck_id,
+                "deck_title": resp.deck_title,
+                "cards": [c.model_dump() for c in resp.cards],
+                "summary": f"Created {resp.count} flashcards on '{resp.topic}'" + (f" in deck '{resp.deck_title}'." if resp.deck_title else "."),
+            }
+
+        reg.register(
+            AgentTool(
+                id="tutor_create_flashcards",
+                name="Create Flashcards",
+                description="Generate atomic, active-recall flashcards from study materials, notes, or topics, with optional persistence to a deck.",
+                source=ToolSource.SYSTEM,
+                capabilities=["study", "tutor", "flashcards", "active_recall"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "topic": {"type": "string", "description": "Subject or topic of the flashcards"},
+                        "count": {"type": "integer", "description": "Number of flashcards to generate", "default": 5},
+                        "level": {"type": "string", "description": "Difficulty: beginner, intermediate, advanced", "default": "intermediate"},
+                        "source_text": {"type": "string", "description": "Optional notes or source material to extract cards from"},
+                        "save_to_deck_id": {"type": "string", "description": "Existing deck ID to save cards to"},
+                        "new_deck_title": {"type": "string", "description": "Title of new deck to create and save cards in"},
+                    },
+                    "required": ["topic"],
+                },
+                permissions=["study:write"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_tutor_create_flashcards,
+        )
+
+        # 5. tutor_get_topic_mastery
+        async def _tool_tutor_get_topic_mastery(
+            deck_id: str | None = None,
+            topic: str | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            return await self.get_topic_mastery(user_id=uid, deck_id=deck_id, topic=topic)
+
+        reg.register(
+            AgentTool(
+                id="tutor_get_topic_mastery",
+                name="Get Topic Mastery",
+                description="Retrieve learning mastery metrics, spaced repetition cards due for review, Leitner box distribution, and overall study progress.",
+                source=ToolSource.SYSTEM,
+                capabilities=["study", "tutor", "mastery", "progress", "stats"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "deck_id": {"type": "string", "description": "Specific study deck ID to inspect"},
+                        "topic": {"type": "string", "description": "Filter mastery by topic keyword"},
+                    },
+                },
+                permissions=["study:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+            ),
+            _tool_tutor_get_topic_mastery,
+        )
+
+        # 6. tutor_reset_progress (RiskLevel.HIGH, requires_confirmation=True)
+        async def _tool_tutor_reset_progress(
+            deck_id: str | None = None,
+            delete_deck: bool = False,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            return await self.reset_progress(user_id=uid, deck_id=deck_id, delete_deck=delete_deck)
+
+        reg.register(
+            AgentTool(
+                id="tutor_reset_progress",
+                name="Reset Study Progress",
+                description="Destructively reset study progress, mastery scores, and card intervals back to Leitner Box 1, or delete a study deck. Requires explicit confirmation.",
+                source=ToolSource.SYSTEM,
+                capabilities=["study", "tutor", "reset", "delete"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "deck_id": {"type": "string", "description": "Specific study deck to reset or delete"},
+                        "delete_deck": {"type": "boolean", "description": "Whether to delete the deck entirely instead of just resetting review boxes", "default": False},
+                    },
+                },
+                permissions=["study:write"],
+                risk_level=RiskLevel.HIGH,
+                requires_confirmation=True,
+            ),
+            _tool_tutor_reset_progress,
+        )
