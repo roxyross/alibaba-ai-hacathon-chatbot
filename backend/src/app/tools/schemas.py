@@ -60,10 +60,15 @@ class AgentTool(BaseModel):
 class ToolExecutionRequest(BaseModel):
     tool_id: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+    input: dict[str, Any] | None = None
     user_id: str
     workspace_id: str | None = None
     task_id: str | None = None
     step_id: str | None = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.arguments and self.input:
+            self.arguments = dict(self.input)
 
 
 class ToolExecutionResult(BaseModel):

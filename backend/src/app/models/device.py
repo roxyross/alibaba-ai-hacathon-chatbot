@@ -265,3 +265,200 @@ class DeviceActionLog(Base):
                 else None
             ),
         }
+
+
+# =============================================================================
+# Phase 11: Cross-Device Continuity & Session Handover Model
+# =============================================================================
+
+class SessionHandover(Base):
+    """Seamless session transfer token and context between user devices."""
+
+    __tablename__ = "session_handovers"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    session_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    source_device_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    target_device_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+
+    status: Mapped[str] = mapped_column(
+        String(32), default="pending", nullable=False, index=True
+    )  # pending, accepted, completed, expired, rejected
+    state_payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    __table_args__ = (
+        Index("idx_session_handovers_user_target", "user_id", "target_device_id", "status"),
+    )
+
+    def get_payload(self) -> dict[str, Any]:
+        try:
+            val = json.loads(self.state_payload_json)
+            return val if isinstance(val, dict) else {}
+        except Exception:
+            return {}
+
+    def set_payload(self, payload: dict[str, Any]) -> None:
+        self.state_payload_json = json.dumps(payload)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "source_device_id": self.source_device_id,
+            "target_device_id": self.target_device_id,
+            "status": self.status,
+            "state_payload": self.get_payload(),
+            "expires_at": self.expires_at.isoformat() if self.expires_at is not None else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at is not None else None,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+        }
+
+
+# =============================================================================
+# Phase 11: P2P WebRTC Peer Session Model
+# =============================================================================
+
+class WebRTCPeerSession(Base):
+    """P2P WebRTC signaling channel session between paired user devices."""
+
+    __tablename__ = "webrtc_peer_sessions"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    initiator_device_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    target_device_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+
+    session_type: Mapped[str] = mapped_column(
+        String(32), default="data_channel", nullable=False
+    )  # data_channel, screen_stream, audio_call, file_sync
+    status: Mapped[str] = mapped_column(
+        String(32), default="negotiating", nullable=False, index=True
+    )  # negotiating, connected, closed, failed
+
+    sdp_offer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sdp_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ice_candidates_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("idx_webrtc_user_peers", "user_id", "initiator_device_id", "target_device_id"),
+    )
+
+    def get_ice_candidates(self) -> list[dict[str, Any]]:
+        try:
+            val = json.loads(self.ice_candidates_json)
+            return [x for x in val if isinstance(x, dict)] if isinstance(val, list) else []
+        except Exception:
+            return []
+
+    def add_ice_candidate(self, candidate: dict[str, Any]) -> None:
+        candidates = self.get_ice_candidates()
+        candidates.append(candidate)
+        self.ice_candidates_json = json.dumps(candidates)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "initiator_device_id": self.initiator_device_id,
+            "target_device_id": self.target_device_id,
+            "session_type": self.session_type,
+            "status": self.status,
+            "sdp_offer": self.sdp_offer,
+            "sdp_answer": self.sdp_answer,
+            "ice_candidates": self.get_ice_candidates(),
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at is not None else None,
+        }
+
+
+# =============================================================================
+# Phase 11: Matter & Zigbee IoT Smart Home Device Model
+# =============================================================================
+
+class IoTDevice(Base):
+    """Connected Matter, Zigbee, or Thread smart home appliance/sensor."""
+
+    __tablename__ = "iot_devices"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    device_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    device_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, index=True
+    )  # light, plug, thermostat, lock, sensor
+    protocol: Mapped[str] = mapped_column(
+        String(32), default="matter", nullable=False, index=True
+    )  # matter, zigbee, thread
+    vendor: Mapped[str] = mapped_column(String(64), default="generic", nullable=False)
+    model: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    node_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    endpoint: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    is_online: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    state_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("idx_iot_devices_user_type", "user_id", "device_type"),
+    )
+
+    def get_state(self) -> dict[str, Any]:
+        try:
+            val = json.loads(self.state_json)
+            return val if isinstance(val, dict) else {}
+        except Exception:
+            return {}
+
+    def set_state(self, state: dict[str, Any]) -> None:
+        self.state_json = json.dumps(state)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "device_name": self.device_name,
+            "device_type": self.device_type,
+            "protocol": self.protocol,
+            "vendor": self.vendor,
+            "model": self.model,
+            "node_id": self.node_id,
+            "endpoint": self.endpoint,
+            "is_online": self.is_online,
+            "state": self.get_state(),
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at is not None else None,
+        }
+

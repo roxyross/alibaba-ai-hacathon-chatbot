@@ -1711,8 +1711,16 @@ class AgentPlanner:
                 text,
             ).strip().strip("'\"")
             # Filter out non-app phrases
-            non_app_words = ["project", "task", "file", "diagram", "artifact", "document", "report", "calendar", "meeting", "event", "session", "chat"]
-            if target_app and not any(target_app.lower().startswith(w) for w in non_app_words):
+            non_app_words = [
+                "project", "task", "file", "diagram", "artifact", "document",
+                "report", "calendar", "meeting", "event", "session", "chat",
+                "p2p", "webrtc", "stream", "continuity", "handover",
+            ]
+            if (
+                target_app
+                and not any(w in target_app.lower() for w in ("p2p", "webrtc", "stream", "session", "handover"))
+                and not any(target_app.lower().startswith(w) for w in non_app_words)
+            ):
                 tool_id = (
                     "device_open_app"
                     if "device_open_app" in tools or self._tool_registry.get("device_open_app")
@@ -2413,6 +2421,239 @@ class AgentPlanner:
                     "description": f"Evaluate answer and update Leitner progression{' for card ' + card_id if card_id else ''}",
                     "tool_id": tool_id,
                     "tool_input": {"is_correct": is_correct, "card_id": card_id, "user_answer": text},
+                    "depends_on": [],
+                }
+            ]
+
+        # ---------------------------------------------------------------------
+        # Phase 11: Cross-Device Continuity, P2P WebRTC & Matter IoT Layer
+        # ---------------------------------------------------------------------
+
+        # Single-intent: Cross-Device Session Handover
+        if (
+            lower.startswith("handover session to ")
+            or lower.startswith("handover to ")
+            or lower.startswith("transfer chat to ")
+            or lower.startswith("transfer session to ")
+            or lower.startswith("continue this on ")
+            or lower.startswith("continue chat on ")
+            or (lower.startswith("switch to ") and any(w in lower for w in ("device", "phone", "macbook", "laptop", "desktop", "tablet", "ipad", "iphone")))
+        ):
+            target_dev = re.sub(
+                r"(?i)^(?:handover\s+(?:session\s+)?to\s+|transfer\s+(?:chat|session)?\s*(?:to\s*)?|continue\s+(?:this|chat)\s+on\s+|switch\s+to\s+)",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not target_dev:
+                target_dev = "Companion Device"
+
+            tool_id = (
+                "device_handover_session"
+                if "device_handover_session" in tools or self._tool_registry.get("device_handover_session")
+                else "device_list_apps"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Transfer active session and context to '{target_dev}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "target_device_id": target_dev,
+                        "session_id": str(ctx_dict.get("session_id", "active_session")),
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: P2P WebRTC Peer Signaling
+        if (
+            lower.startswith("start p2p stream with ")
+            or lower.startswith("start webrtc with ")
+            or lower.startswith("initiate webrtc with ")
+            or lower.startswith("webrtc connection to ")
+            or "p2p stream" in lower
+            or "webrtc connection" in lower
+        ):
+            target_peer = re.sub(
+                r"(?i)^(?:start\s+(?:p2p\s+stream|webrtc)\s+with\s+|initiate\s+webrtc\s+with\s+|webrtc\s+connection\s+to\s+)",
+                "",
+                text,
+            ).strip().strip("'\"")
+            if not target_peer or target_peer.lower() in ("p2p stream", "webrtc"):
+                target_peer = "Target Device"
+
+            tool_id = (
+                "webrtc_signal_exchange"
+                if "webrtc_signal_exchange" in tools or self._tool_registry.get("webrtc_signal_exchange")
+                else "device_list_apps"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Initiate WebRTC P2P signaling connection with '{target_peer}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "target_device_id": target_peer,
+                        "signal_type": "offer",
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Matter & Zigbee IoT Device Discovery
+        if (
+            lower.startswith("discover iot devices")
+            or lower.startswith("scan for iot devices")
+            or lower.startswith("scan for smart home devices")
+            or lower.startswith("discover matter devices")
+            or lower.startswith("discover smart home devices")
+            or "discover smart devices" in lower
+            or "find smart home devices" in lower
+            or "scan smart home" in lower
+            or "list smart devices" in lower
+            or "list iot devices" in lower
+        ):
+            tool_id = (
+                "iot_discover_devices"
+                if "iot_discover_devices" in tools or self._tool_registry.get("iot_discover_devices")
+                else "device_list_apps"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Scan and discover connected Matter & Zigbee IoT devices",
+                    "tool_id": tool_id,
+                    "tool_input": {"protocol": "all", "device_type": "all"},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Smart Lock Control (Security / Destructive - requires confirmation!)
+        if (
+            (lower.startswith("unlock ") and any(w in lower for w in ("door", "lock", "gate")))
+            or (lower.startswith("lock ") and any(w in lower for w in ("door", "lock", "gate")))
+            or "unlock front door" in lower
+            or "lock front door" in lower
+            or "disarm front door lock" in lower
+            or "unlock door" in lower
+            or "lock door" in lower
+        ):
+            is_unlock = any(w in lower for w in ("unlock", "disarm", "open"))
+            action = "unlock" if is_unlock else "lock"
+
+            lock_name = "Front Door Smart Lock"
+            if "garage" in lower:
+                lock_name = "Garage Door Lock"
+            elif "back door" in lower:
+                lock_name = "Back Door Lock"
+
+            tool_id = (
+                "iot_lock_control"
+                if "iot_lock_control" in tools or self._tool_registry.get("iot_lock_control")
+                else "device_close_app"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"{action.capitalize()} smart security perimeter '{lock_name}' (requires user confirmation)",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "device_name": lock_name,
+                        "action": action,
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Matter & Zigbee IoT Appliance Control
+        if (
+            lower.startswith("turn on ")
+            or lower.startswith("turn off ")
+            or lower.startswith("switch on ")
+            or lower.startswith("switch off ")
+            or lower.startswith("toggle ")
+            or lower.startswith("set thermostat to ")
+            or lower.startswith("set temperature to ")
+            or lower.startswith("set brightness to ")
+            or ("thermostat" in lower and ("set" in lower or "change" in lower or "heat" in lower or "cool" in lower))
+        ):
+            command = "toggle"
+            parameters: dict[str, Any] = {}
+
+            if lower.startswith("turn on ") or lower.startswith("switch on "):
+                command = "turn_on"
+                dev_name = re.sub(r"(?i)^(?:turn|switch)\s+on\s+", "", text).strip().strip("'\"")
+            elif lower.startswith("turn off ") or lower.startswith("switch off "):
+                command = "turn_off"
+                dev_name = re.sub(r"(?i)^(?:turn|switch)\s+off\s+", "", text).strip().strip("'\"")
+            elif lower.startswith("toggle "):
+                command = "toggle"
+                dev_name = re.sub(r"(?i)^toggle\s+", "", text).strip().strip("'\"")
+            elif "thermostat" in lower or "temperature" in lower:
+                command = "set_temperature"
+                dev_name = "Office Thermostat"
+                temp_match = re.search(r"(\d+(?:\.\d+)?)", text)
+                if temp_match:
+                    parameters["temperature"] = float(temp_match.group(1))
+            elif "brightness" in lower:
+                command = "set_brightness"
+                dev_name = "Living Room Main Light"
+                b_match = re.search(r"(\d+)%?", text)
+                if b_match:
+                    parameters["brightness"] = int(b_match.group(1))
+            else:
+                dev_name = text
+
+            if not dev_name:
+                dev_name = "Living Room Main Light"
+
+            tool_id = (
+                "iot_control_device"
+                if "iot_control_device" in tools or self._tool_registry.get("iot_control_device")
+                else "device_open_app"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Send command '{command}' to IoT device '{dev_name}'",
+                    "tool_id": tool_id,
+                    "tool_input": {
+                        "device_name": dev_name,
+                        "command": command,
+                        "parameters": parameters,
+                    },
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Matter & Zigbee IoT Telemetry / State Query
+        if (
+            (lower.startswith("check ") and any(w in lower for w in ("temperature", "thermostat", "light", "plug", "sensor", "status", "lock")))
+            or (lower.startswith("is the ") and any(w in lower for w in ("on", "off", "open", "locked")))
+            or lower.startswith("get status of ")
+            or lower.startswith("status of ")
+            or "what is the temperature" in lower
+            or "check smart home" in lower
+        ):
+            dev_name = "Office Thermostat" if ("temperature" in lower or "thermostat" in lower) else "Living Room Main Light"
+            if "plug" in lower:
+                dev_name = "Kitchen Smart Plug"
+            elif "sensor" in lower or "motion" in lower:
+                dev_name = "Hallway Motion Sensor"
+            elif "lock" in lower or "door" in lower:
+                dev_name = "Front Door Smart Lock"
+
+            tool_id = (
+                "iot_get_device_state"
+                if "iot_get_device_state" in tools or self._tool_registry.get("iot_get_device_state")
+                else "device_list_apps"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Query real-time state and telemetry for '{dev_name}'",
+                    "tool_id": tool_id,
+                    "tool_input": {"device_name": dev_name},
                     "depends_on": [],
                 }
             ]

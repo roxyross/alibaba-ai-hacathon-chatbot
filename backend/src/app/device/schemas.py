@@ -139,3 +139,121 @@ class DeviceActionLogResponse(BaseModel):
     result: dict[str, Any]
     error_message: str | None = None
     executed_at: str | None = None
+
+
+# =============================================================================
+# Phase 11: Cross-Device Continuity & Session Handover Schemas
+# =============================================================================
+
+class SessionHandoverCreateRequest(BaseModel):
+    """Request to initiate a cross-device session handover."""
+
+    target_device_id: str = Field(..., description="ID of destination device")
+    session_id: str = Field(..., description="Active session ID being transferred")
+    source_device_id: str | None = Field(default=None, description="Optional source device ID (defaults to current host)")
+    state_payload: dict[str, Any] = Field(default_factory=dict, description="Active conversation, draft, or workspace context")
+    ttl_seconds: int = Field(default=600, ge=60, le=86400, description="Handover token validity period")
+
+
+class SessionHandoverResponse(BaseModel):
+    """Response representing a cross-device session handover record."""
+
+    id: str
+    user_id: str
+    session_id: str
+    source_device_id: str
+    target_device_id: str
+    status: str  # pending, accepted, completed, expired, rejected
+    state_payload: dict[str, Any]
+    expires_at: str
+    completed_at: str | None = None
+    created_at: str
+
+
+# =============================================================================
+# Phase 11: P2P WebRTC Signaling Schemas
+# =============================================================================
+
+class WebRTCSessionCreateRequest(BaseModel):
+    """Request to establish a WebRTC P2P signaling session between paired devices."""
+
+    target_device_id: str = Field(..., description="Destination peer device ID")
+    initiator_device_id: str | None = Field(default=None, description="Initiating peer device ID")
+    session_type: str = Field(default="data_channel", description="data_channel, screen_stream, audio_call, file_sync")
+    sdp_offer: str | None = Field(default=None, description="Initial SDP Offer description if ready")
+
+
+class WebRTCSignalRequest(BaseModel):
+    """Signal exchange packet (SDP offer/answer, ICE candidate, or status)."""
+
+    sender_device_id: str = Field(..., description="Device sending this signal")
+    signal_type: str = Field(..., description="offer, answer, candidate, or close")
+    payload: Any = Field(..., description="SDP string or ICE candidate dictionary")
+
+
+class WebRTCSessionResponse(BaseModel):
+    """WebRTC peer session state."""
+
+    id: str
+    user_id: str
+    initiator_device_id: str
+    target_device_id: str
+    session_type: str
+    status: str  # negotiating, connected, closed, failed
+    sdp_offer: str | None = None
+    sdp_answer: str | None = None
+    ice_candidates: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: str
+    updated_at: str
+
+
+# =============================================================================
+# Phase 11: Matter & Zigbee IoT Smart Home Schemas
+# =============================================================================
+
+class IoTDeviceResponse(BaseModel):
+    """Representation of a Matter, Zigbee, or Thread smart home device."""
+
+    id: str
+    user_id: str
+    device_name: str
+    device_type: str  # light, plug, thermostat, lock, sensor
+    protocol: str  # matter, zigbee, thread
+    vendor: str
+    model: str
+    node_id: str
+    endpoint: int
+    is_online: bool
+    state: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
+class IoTDiscoverRequest(BaseModel):
+    """Parameters for discovering local Matter/IoT devices."""
+
+    protocol: str = Field(default="all", description="all, matter, zigbee, thread")
+    device_type: str = Field(default="all", description="all, light, plug, thermostat, lock, sensor")
+
+
+class IoTDiscoverResponse(BaseModel):
+    """Discovered smart home devices scan result."""
+
+    discovered_count: int
+    devices: list[IoTDeviceResponse]
+    scan_timestamp: str
+
+
+class IoTControlRequest(BaseModel):
+    """Control command for smart home devices."""
+
+    command: str = Field(..., description="turn_on, turn_off, toggle, set_brightness, set_temperature, set_color")
+    parameters: dict[str, Any] = Field(default_factory=dict, description="Command parameters (e.g. brightness, temperature, color)")
+
+
+class IoTLockRequest(BaseModel):
+    """Action request for smart door locks / security gates."""
+
+    action: str = Field(..., description="lock or unlock")
+    reason: str | None = Field(default=None, description="Optional audit reason")
+

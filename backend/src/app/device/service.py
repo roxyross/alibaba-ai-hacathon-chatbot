@@ -28,7 +28,14 @@ import structlog
 from sqlalchemy import select
 
 from app.db import get_session_factory
-from app.models.device import DeviceActionLog, DeviceRegistration, DiscoveredApp
+from app.models.device import (
+    DeviceActionLog,
+    DeviceRegistration,
+    DiscoveredApp,
+    IoTDevice,
+    SessionHandover,
+    WebRTCPeerSession,
+)
 from app.tools.registry import ToolRegistry
 from app.tools.schemas import AgentTool, RiskLevel, ToolSource
 
@@ -49,6 +56,9 @@ class DeviceService:
         self._mem_devices: dict[str, dict[str, Any]] = {}
         self._mem_apps: dict[str, list[dict[str, Any]]] = {}
         self._mem_actions: dict[str, list[dict[str, Any]]] = {}
+        self._mem_handovers: dict[str, dict[str, Any]] = {}
+        self._mem_webrtc_sessions: dict[str, dict[str, Any]] = {}
+        self._mem_iot_devices: dict[str, dict[str, Any]] = {}
 
         self.register_device_tools()
 
@@ -903,6 +913,632 @@ class DeviceService:
 
         return self._mem_actions.get(device_id, [])[:limit]
 
+    # =========================================================================
+    # Phase 11: Cross-Device Continuity & Session Handover
+    # =========================================================================
+
+    async def create_session_handover(
+        self,
+        user_id: str,
+        target_device_id: str,
+        session_id: str,
+        source_device_id: str | None = None,
+        state_payload: dict[str, Any] | None = None,
+        ttl_seconds: int = 600,
+    ) -> dict[str, Any]:
+        """Initiate a seamless session transfer between user devices."""
+        from datetime import timedelta
+
+        devices = await self.list_devices(user_id=user_id)
+        target_dev = next((d for d in devices if d["id"] == target_device_id), None)
+        if not target_dev:
+            target_dev = next((d for d in devices if d["device_name"].lower() == target_device_id.lower()), None)
+            if target_dev:
+                target_device_id = str(target_dev["id"])
+            else:
+                raise ValueError(f"Target device '{target_device_id}' not found or does not belong to user.")
+
+        src_id = source_device_id
+        if not src_id:
+            local_dev = await self.get_or_create_local_device(user_id)
+            src_id = local_dev["id"]
+
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(seconds=ttl_seconds)
+        payload = state_payload or {}
+        handover_id = str(uuid.uuid4())
+
+        record = {
+            "id": handover_id,
+            "user_id": user_id,
+            "session_id": session_id,
+            "source_device_id": src_id,
+            "target_device_id": target_device_id,
+            "status": "pending",
+            "state_payload": payload,
+            "expires_at": expires_at.isoformat(),
+            "completed_at": None,
+            "created_at": now.isoformat(),
+        }
+
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    db_item = SessionHandover(
+                        id=handover_id,
+                        user_id=user_id,
+                        session_id=session_id,
+                        source_device_id=src_id,
+                        target_device_id=target_device_id,
+                        status="pending",
+                        expires_at=expires_at,
+                    )
+                    db_item.set_payload(payload)
+                    session.add(db_item)
+                    await session.commit()
+            except Exception as exc:
+                log.warning("device_service.db_create_handover_failed", error=str(exc))
+
+        self._mem_handovers[handover_id] = record
+        return record
+
+    async def get_session_handover(
+        self, user_id: str, handover_id: str
+    ) -> dict[str, Any] | None:
+        """Retrieve a session handover record verifying multi-tenant ownership."""
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    stmt = select(SessionHandover).where(
+                        SessionHandover.id == handover_id,
+                        SessionHandover.user_id == user_id,
+                    )
+                    res = await session.execute(stmt)
+                    item = res.scalars().first()
+                    if item:
+                        d = item.to_dict()
+                        if d["status"] == "pending":
+                            exp = datetime.fromisoformat(d["expires_at"])
+                            if exp < datetime.now(UTC):
+                                d["status"] = "expired"
+                                item.status = "expired"
+                                await session.commit()
+                        return d
+            except Exception as exc:
+                log.warning("device_service.db_get_handover_failed", error=str(exc))
+
+        record = self._mem_handovers.get(handover_id)
+        if record and record.get("user_id") == user_id:
+            if record.get("status") == "pending":
+                exp = datetime.fromisoformat(record["expires_at"])
+                if exp < datetime.now(UTC):
+                    record["status"] = "expired"
+            return record
+        return None
+
+    async def accept_session_handover(
+        self, user_id: str, handover_id: str, target_device_id: str | None = None
+    ) -> dict[str, Any]:
+        """Accept an active session handover and retrieve transferred context."""
+        record = await self.get_session_handover(user_id, handover_id)
+        if not record:
+            raise ValueError(f"Session handover '{handover_id}' not found or access denied.")
+
+        if record["status"] == "expired":
+            raise ValueError(f"Session handover '{handover_id}' has expired.")
+
+        now_str = datetime.now(UTC).isoformat()
+        record["status"] = "accepted"
+        record["completed_at"] = now_str
+        if target_device_id:
+            record["target_device_id"] = target_device_id
+
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    stmt = select(SessionHandover).where(
+                        SessionHandover.id == handover_id,
+                        SessionHandover.user_id == user_id,
+                    )
+                    res = await session.execute(stmt)
+                    item = res.scalars().first()
+                    if item:
+                        item.status = "accepted"
+                        item.completed_at = datetime.now(UTC)
+                        if target_device_id:
+                            item.target_device_id = target_device_id
+                        await session.commit()
+            except Exception as exc:
+                log.warning("device_service.db_accept_handover_failed", error=str(exc))
+
+        self._mem_handovers[handover_id] = record
+        return record
+
+    async def list_session_handovers(
+        self, user_id: str, device_id: str | None = None, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        """List active or historical session handovers for the current user."""
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    stmt = select(SessionHandover).where(SessionHandover.user_id == user_id)
+                    if device_id:
+                        stmt = stmt.where(
+                            (SessionHandover.source_device_id == device_id)
+                            | (SessionHandover.target_device_id == device_id)
+                        )
+                    if status:
+                        stmt = stmt.where(SessionHandover.status == status)
+                    stmt = stmt.order_by(SessionHandover.created_at.desc())
+                    res = await session.execute(stmt)
+                    items = res.scalars().all()
+                    if items:
+                        return [x.to_dict() for x in items]
+            except Exception as exc:
+                log.warning("device_service.db_list_handovers_failed", error=str(exc))
+
+        results = [
+            r for r in self._mem_handovers.values()
+            if r.get("user_id") == user_id
+        ]
+        if device_id:
+            results = [
+                r for r in results
+                if r.get("source_device_id") == device_id or r.get("target_device_id") == device_id
+            ]
+        if status:
+            results = [r for r in results if r.get("status") == status]
+        return sorted(results, key=lambda x: str(x.get("created_at")), reverse=True)
+
+    # =========================================================================
+    # Phase 11: P2P WebRTC Signaling Layer
+    # =========================================================================
+
+    async def initiate_webrtc_session(
+        self,
+        user_id: str,
+        target_device_id: str,
+        initiator_device_id: str | None = None,
+        session_type: str = "data_channel",
+        sdp_offer: str | None = None,
+    ) -> dict[str, Any]:
+        """Establish a WebRTC P2P signaling session between paired user devices."""
+        devices = await self.list_devices(user_id=user_id)
+        target_dev = next((d for d in devices if d["id"] == target_device_id), None)
+        if not target_dev:
+            target_dev = next((d for d in devices if d["device_name"].lower() == target_device_id.lower()), None)
+            if target_dev:
+                target_device_id = str(target_dev["id"])
+            else:
+                raise ValueError(f"Target peer device '{target_device_id}' not found or belongs to another user.")
+
+        src_id = initiator_device_id
+        if not src_id:
+            local_dev = await self.get_or_create_local_device(user_id)
+            src_id = local_dev["id"]
+
+        session_id = str(uuid.uuid4())
+        now_str = datetime.now(UTC).isoformat()
+        session_record = {
+            "id": session_id,
+            "user_id": user_id,
+            "initiator_device_id": src_id,
+            "target_device_id": target_device_id,
+            "session_type": session_type,
+            "status": "negotiating",
+            "sdp_offer": sdp_offer,
+            "sdp_answer": None,
+            "ice_candidates": [],
+            "created_at": now_str,
+            "updated_at": now_str,
+        }
+
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    db_item = WebRTCPeerSession(
+                        id=session_id,
+                        user_id=user_id,
+                        initiator_device_id=src_id,
+                        target_device_id=target_device_id,
+                        session_type=session_type,
+                        status="negotiating",
+                        sdp_offer=sdp_offer,
+                    )
+                    session.add(db_item)
+                    await session.commit()
+            except Exception as exc:
+                log.warning("device_service.db_initiate_webrtc_failed", error=str(exc))
+
+        self._mem_webrtc_sessions[session_id] = session_record
+        return session_record
+
+    async def exchange_webrtc_signal(
+        self,
+        user_id: str,
+        session_id: str,
+        sender_device_id: str,
+        signal_type: str,
+        payload: Any,
+    ) -> dict[str, Any]:
+        """Exchange WebRTC signal (SDP offer/answer, ICE candidate, or close command)."""
+        session_record = await self.get_webrtc_session(user_id, session_id)
+        if not session_record:
+            raise ValueError(f"WebRTC session '{session_id}' not found or access denied.")
+
+        now_str = datetime.now(UTC).isoformat()
+
+        if signal_type == "offer":
+            session_record["sdp_offer"] = payload if isinstance(payload, str) else str(payload.get("sdp", payload))
+            session_record["status"] = "negotiating"
+        elif signal_type == "answer":
+            session_record["sdp_answer"] = payload if isinstance(payload, str) else str(payload.get("sdp", payload))
+            session_record["status"] = "connected"
+        elif signal_type == "candidate":
+            candidate = payload if isinstance(payload, dict) else {"candidate": str(payload)}
+            session_record.setdefault("ice_candidates", []).append(candidate)
+        elif signal_type == "close":
+            session_record["status"] = "closed"
+        else:
+            raise ValueError(f"Unknown signal type: '{signal_type}'")
+
+        session_record["updated_at"] = now_str
+
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    stmt = select(WebRTCPeerSession).where(
+                        WebRTCPeerSession.id == session_id,
+                        WebRTCPeerSession.user_id == user_id,
+                    )
+                    res = await session.execute(stmt)
+                    item = res.scalars().first()
+                    if item:
+                        item.status = session_record["status"]
+                        if session_record.get("sdp_offer"):
+                            item.sdp_offer = session_record["sdp_offer"]
+                        if session_record.get("sdp_answer"):
+                            item.sdp_answer = session_record["sdp_answer"]
+                        if signal_type == "candidate" and isinstance(payload, dict):
+                            item.add_ice_candidate(payload)
+                        await session.commit()
+            except Exception as exc:
+                log.warning("device_service.db_update_webrtc_failed", error=str(exc))
+
+        self._mem_webrtc_sessions[session_id] = session_record
+        return session_record
+
+    async def get_webrtc_session(
+        self, user_id: str, session_id: str
+    ) -> dict[str, Any] | None:
+        """Retrieve WebRTC peer session ensuring user isolation."""
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    stmt = select(WebRTCPeerSession).where(
+                        WebRTCPeerSession.id == session_id,
+                        WebRTCPeerSession.user_id == user_id,
+                    )
+                    res = await session.execute(stmt)
+                    item = res.scalars().first()
+                    if item:
+                        return item.to_dict()
+            except Exception as exc:
+                log.warning("device_service.db_get_webrtc_failed", error=str(exc))
+
+        rec = self._mem_webrtc_sessions.get(session_id)
+        if rec and rec.get("user_id") == user_id:
+            return rec
+        return None
+
+    # =========================================================================
+    # Phase 11: Matter & Zigbee IoT Smart Home Control
+    # =========================================================================
+
+    def _ensure_user_iot_devices(self, user_id: str) -> None:
+        """Seed default Matter & Zigbee IoT devices for user in-memory store if empty."""
+        user_devices = [d for d in self._mem_iot_devices.values() if d.get("user_id") == user_id]
+        if user_devices:
+            return
+
+        now_str = datetime.now(UTC).isoformat()
+        defaults = [
+            {
+                "id": f"iot_light_{user_id[:8]}_1",
+                "user_id": user_id,
+                "device_name": "Living Room Main Light",
+                "device_type": "light",
+                "protocol": "matter",
+                "vendor": "Philips Hue",
+                "model": "White & Color Ambiance A19",
+                "node_id": "0x0001",
+                "endpoint": 1,
+                "is_online": True,
+                "state": {
+                    "power": "off",
+                    "brightness": 75,
+                    "color_temp": 3000,
+                    "rgb": "#ffffff",
+                    "reachable": True,
+                },
+                "created_at": now_str,
+                "updated_at": now_str,
+            },
+            {
+                "id": f"iot_plug_{user_id[:8]}_1",
+                "user_id": user_id,
+                "device_name": "Kitchen Smart Plug",
+                "device_type": "plug",
+                "protocol": "matter",
+                "vendor": "Eve Energy",
+                "model": "Matter Smart Plug with Metering",
+                "node_id": "0x0002",
+                "endpoint": 1,
+                "is_online": True,
+                "state": {
+                    "power": "on",
+                    "energy_watts": 42.5,
+                    "voltage": 120.0,
+                    "amperage": 0.35,
+                },
+                "created_at": now_str,
+                "updated_at": now_str,
+            },
+            {
+                "id": f"iot_thermostat_{user_id[:8]}_1",
+                "user_id": user_id,
+                "device_name": "Office Thermostat",
+                "device_type": "thermostat",
+                "protocol": "matter",
+                "vendor": "Ecobee",
+                "model": "SmartThermostat Premium",
+                "node_id": "0x0003",
+                "endpoint": 1,
+                "is_online": True,
+                "state": {
+                    "current_temperature": 21.0,
+                    "target_temperature": 22.0,
+                    "hvac_mode": "heat",
+                    "humidity": 45,
+                },
+                "created_at": now_str,
+                "updated_at": now_str,
+            },
+            {
+                "id": f"iot_lock_{user_id[:8]}_1",
+                "user_id": user_id,
+                "device_name": "Front Door Smart Lock",
+                "device_type": "lock",
+                "protocol": "matter",
+                "vendor": "Yale Assure",
+                "model": "Assure Lock 2 Matter",
+                "node_id": "0x0004",
+                "endpoint": 1,
+                "is_online": True,
+                "state": {
+                    "locked": True,
+                    "battery_level": 88,
+                    "door_closed": True,
+                    "auto_lock_seconds": 30,
+                },
+                "created_at": now_str,
+                "updated_at": now_str,
+            },
+            {
+                "id": f"iot_sensor_{user_id[:8]}_1",
+                "user_id": user_id,
+                "device_name": "Hallway Motion Sensor",
+                "device_type": "sensor",
+                "protocol": "zigbee",
+                "vendor": "Aqara",
+                "model": "Precision Motion P1",
+                "node_id": "0x0005",
+                "endpoint": 1,
+                "is_online": True,
+                "state": {
+                    "motion_detected": False,
+                    "temperature": 21.8,
+                    "illuminance_lux": 420,
+                    "battery_level": 95,
+                },
+                "created_at": now_str,
+                "updated_at": now_str,
+            },
+        ]
+        for dev in defaults:
+            self._mem_iot_devices[dev["id"]] = dev
+
+    async def discover_iot_devices(
+        self, user_id: str, protocol: str = "all", device_type: str = "all"
+    ) -> list[dict[str, Any]]:
+        """Scan network and coordinators for Matter, Zigbee, and Thread IoT devices."""
+        self._ensure_user_iot_devices(user_id)
+
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    stmt = select(IoTDevice).where(IoTDevice.user_id == user_id)
+                    if protocol != "all":
+                        stmt = stmt.where(IoTDevice.protocol == protocol)
+                    if device_type != "all":
+                        stmt = stmt.where(IoTDevice.device_type == device_type)
+                    res = await session.execute(stmt)
+                    items = res.scalars().all()
+                    if items:
+                        return [x.to_dict() for x in items]
+            except Exception as exc:
+                log.warning("device_service.db_discover_iot_failed", error=str(exc))
+
+        results = [
+            d for d in self._mem_iot_devices.values()
+            if d.get("user_id") == user_id
+        ]
+        if protocol != "all":
+            results = [d for d in results if d.get("protocol") == protocol]
+        if device_type != "all":
+            results = [d for d in results if d.get("device_type") == device_type]
+        return results
+
+    async def get_iot_device(
+        self, user_id: str, device_id_or_name: str
+    ) -> dict[str, Any] | None:
+        """Find an IoT smart home device by ID or name ensuring tenant isolation."""
+        self._ensure_user_iot_devices(user_id)
+
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    stmt = select(IoTDevice).where(
+                        IoTDevice.user_id == user_id,
+                        (IoTDevice.id == device_id_or_name)
+                        | (IoTDevice.device_name.ilike(device_id_or_name)),
+                    )
+                    res = await session.execute(stmt)
+                    item = res.scalars().first()
+                    if item:
+                        return item.to_dict()
+            except Exception as exc:
+                log.warning("device_service.db_get_iot_failed", error=str(exc))
+
+        target_lower = device_id_or_name.lower().strip()
+        for d in self._mem_iot_devices.values():
+            if d.get("user_id") == user_id:
+                if d.get("id") == device_id_or_name or d.get("device_name", "").lower() == target_lower:
+                    return d
+                if target_lower in d.get("device_name", "").lower() or d.get("device_name", "").lower() in target_lower:
+                    return d
+        return None
+
+    async def control_iot_device(
+        self,
+        user_id: str,
+        device_id_or_name: str,
+        command: str,
+        parameters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Send operational command to a Matter/Zigbee device (lights, plugs, thermostats)."""
+        device = await self.get_iot_device(user_id, device_id_or_name)
+        if not device:
+            raise ValueError(f"IoT Device '{device_id_or_name}' not found or belongs to another user.")
+
+        if device.get("device_type") == "lock" and command.lower() in ("unlock", "lock"):
+            return await self.control_smart_lock(user_id, device_id_or_name, command)
+
+        params = parameters or {}
+        state = device.setdefault("state", {})
+        cmd = command.lower()
+
+        if cmd in ("turn_on", "on"):
+            state["power"] = "on"
+        elif cmd in ("turn_off", "off"):
+            state["power"] = "off"
+        elif cmd == "toggle":
+            state["power"] = "off" if state.get("power") == "on" else "on"
+        elif cmd in ("set_brightness", "brightness"):
+            b_val = params.get("brightness", 100)
+            state["brightness"] = max(0, min(100, int(b_val)))
+            state["power"] = "on"
+        elif cmd in ("set_temperature", "temperature"):
+            t_val = params.get("temperature", params.get("target_temperature", 22.0))
+            state["target_temperature"] = float(t_val)
+        elif cmd in ("set_color", "color"):
+            c_val = params.get("color", params.get("rgb", "#ffffff"))
+            state["rgb"] = str(c_val)
+            state["power"] = "on"
+        else:
+            for k, v in params.items():
+                state[k] = v
+
+        device["updated_at"] = datetime.now(UTC).isoformat()
+        self._mem_iot_devices[device["id"]] = device
+
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    stmt = select(IoTDevice).where(
+                        IoTDevice.id == device["id"],
+                        IoTDevice.user_id == user_id,
+                    )
+                    res = await session.execute(stmt)
+                    item = res.scalars().first()
+                    if item:
+                        item.set_state(state)
+                        await session.commit()
+            except Exception as exc:
+                log.warning("device_service.db_control_iot_failed", error=str(exc))
+
+        return {
+            "status": "success",
+            "device_id": device["id"],
+            "device_name": device["device_name"],
+            "command": command,
+            "parameters": params,
+            "state": state,
+        }
+
+    async def control_smart_lock(
+        self,
+        user_id: str,
+        device_id_or_name: str,
+        action: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Control smart door locks or security gates (requires confirmation)."""
+        device = await self.get_iot_device(user_id, device_id_or_name)
+        if not device:
+            raise ValueError(f"Smart Lock '{device_id_or_name}' not found or belongs to another user.")
+
+        if device.get("device_type") != "lock":
+            raise ValueError(f"Device '{device['device_name']}' is not a smart lock (type is {device.get('device_type')}).")
+
+        act = action.lower()
+        state = device.setdefault("state", {})
+        if act in ("unlock", "open"):
+            state["locked"] = False
+        elif act in ("lock", "close"):
+            state["locked"] = True
+        else:
+            raise ValueError(f"Invalid lock action: '{action}'. Must be 'lock' or 'unlock'.")
+
+        device["updated_at"] = datetime.now(UTC).isoformat()
+        self._mem_iot_devices[device["id"]] = device
+
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    stmt = select(IoTDevice).where(
+                        IoTDevice.id == device["id"],
+                        IoTDevice.user_id == user_id,
+                    )
+                    res = await session.execute(stmt)
+                    item = res.scalars().first()
+                    if item:
+                        item.set_state(state)
+                        await session.commit()
+            except Exception as exc:
+                log.warning("device_service.db_control_lock_failed", error=str(exc))
+
+        return {
+            "status": "success",
+            "device_id": device["id"],
+            "device_name": device["device_name"],
+            "action": action,
+            "locked": state["locked"],
+            "reason": reason,
+            "state": state,
+        }
+
     # -------------------------------------------------------------------------
     # Tool Registry Integration
     # -------------------------------------------------------------------------
@@ -1036,3 +1672,263 @@ class DeviceService:
             ),
             _tool_capture_screen,
         )
+
+        # ---------------------------------------------------------------------
+        # Phase 11: Cross-Device Continuity & Session Handover Tools
+        # ---------------------------------------------------------------------
+
+        async def _tool_handover_session(
+            target_device_id: str,
+            session_id: str,
+            state_payload: dict[str, Any] | None = None,
+            source_device_id: str | None = None,
+            ttl_seconds: int = 600,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            return await self.create_session_handover(
+                user_id=uid,
+                target_device_id=target_device_id,
+                session_id=session_id,
+                source_device_id=source_device_id,
+                state_payload=state_payload or {},
+                ttl_seconds=ttl_seconds,
+            )
+
+        self._tool_registry.register(
+            AgentTool(
+                id="device_handover_session",
+                name="device_handover_session",
+                description="Transfer an active chat or workspace session from current device to another registered device.",
+                source=ToolSource.DEVICE,
+                capabilities=["device", "continuity", "session_handover"],
+                permissions=["device:transfer"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "target_device_id": {"type": "string", "description": "ID or name of destination device"},
+                        "session_id": {"type": "string", "description": "Active session ID being transferred"},
+                        "state_payload": {"type": "object", "description": "Active conversation context or draft payload"},
+                        "source_device_id": {"type": "string", "description": "Optional source device ID"},
+                        "ttl_seconds": {"type": "integer", "default": 600},
+                    },
+                    "required": ["target_device_id", "session_id"],
+                },
+            ),
+            _tool_handover_session,
+        )
+
+        # ---------------------------------------------------------------------
+        # Phase 11: P2P WebRTC Signaling Tools
+        # ---------------------------------------------------------------------
+
+        async def _tool_webrtc_signal(
+            target_device_id: str,
+            signal_type: str = "offer",
+            payload: Any = None,
+            session_id: str | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            if not session_id:
+                sdp = payload if isinstance(payload, str) else (payload.get("sdp") if isinstance(payload, dict) else None)
+                return await self.initiate_webrtc_session(
+                    user_id=uid,
+                    target_device_id=target_device_id,
+                    sdp_offer=sdp,
+                )
+            else:
+                sender_dev = await self.get_or_create_local_device(uid)
+                return await self.exchange_webrtc_signal(
+                    user_id=uid,
+                    session_id=session_id,
+                    sender_device_id=sender_dev["id"],
+                    signal_type=signal_type,
+                    payload=payload,
+                )
+
+        self._tool_registry.register(
+            AgentTool(
+                id="webrtc_signal_exchange",
+                name="webrtc_signal_exchange",
+                description="Exchange WebRTC signaling data (SDP offer/answer, ICE candidates) for direct P2P data channels or streaming.",
+                source=ToolSource.DEVICE,
+                capabilities=["device", "p2p", "webrtc"],
+                permissions=["device:p2p"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "target_device_id": {"type": "string", "description": "Target peer device ID"},
+                        "signal_type": {"type": "string", "enum": ["offer", "answer", "candidate", "close"], "default": "offer"},
+                        "payload": {"description": "SDP string or ICE candidate dictionary"},
+                        "session_id": {"type": "string", "description": "Existing WebRTC session ID if answering/exchanging"},
+                    },
+                    "required": ["target_device_id"],
+                },
+            ),
+            _tool_webrtc_signal,
+        )
+
+        # ---------------------------------------------------------------------
+        # Phase 11: Matter & Zigbee IoT Smart Home Tools
+        # ---------------------------------------------------------------------
+
+        async def _tool_discover_iot(
+            protocol: str = "all",
+            device_type: str = "all",
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            devices = await self.discover_iot_devices(uid, protocol=protocol, device_type=device_type)
+            return {"discovered_count": len(devices), "devices": devices}
+
+        self._tool_registry.register(
+            AgentTool(
+                id="iot_discover_devices",
+                name="iot_discover_devices",
+                description="Scan network and coordinators to discover connected Matter, Zigbee, and Thread smart home devices.",
+                source=ToolSource.DEVICE,
+                capabilities=["iot", "matter", "discovery"],
+                permissions=["iot:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "protocol": {"type": "string", "enum": ["all", "matter", "zigbee", "thread"], "default": "all"},
+                        "device_type": {"type": "string", "enum": ["all", "light", "plug", "thermostat", "lock", "sensor"], "default": "all"},
+                    },
+                },
+            ),
+            _tool_discover_iot,
+        )
+
+        async def _tool_control_iot(
+            device_id: str | None = None,
+            device_name: str | None = None,
+            command: str = "toggle",
+            parameters: dict[str, Any] | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            target = device_id or device_name
+            if not target:
+                raise ValueError("Must provide either device_id or device_name.")
+            return await self.control_iot_device(
+                user_id=uid,
+                device_id_or_name=target,
+                command=command,
+                parameters=parameters or {},
+            )
+
+        self._tool_registry.register(
+            AgentTool(
+                id="iot_control_device",
+                name="iot_control_device",
+                description="Send operational commands to a smart home device (e.g. turn on/off lights, set brightness, adjust thermostat, toggle smart plug).",
+                source=ToolSource.DEVICE,
+                capabilities=["iot", "matter", "control"],
+                permissions=["iot:write"],
+                risk_level=RiskLevel.MEDIUM,
+                requires_confirmation=False,
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "device_name": {"type": "string", "description": "Device name (e.g., 'Living Room Light')"},
+                        "device_id": {"type": "string", "description": "Explicit IoT device ID"},
+                        "command": {"type": "string", "description": "turn_on, turn_off, toggle, set_brightness, set_temperature, set_color"},
+                        "parameters": {"type": "object", "description": "Command parameters"},
+                    },
+                },
+            ),
+            _tool_control_iot,
+        )
+
+        async def _tool_get_iot_state(
+            device_id: str | None = None,
+            device_name: str | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            target = device_id or device_name
+            if not target:
+                raise ValueError("Must provide either device_id or device_name.")
+            dev = await self.get_iot_device(uid, target)
+            if not dev:
+                raise ValueError(f"Device '{target}' not found.")
+            return {
+                "device_id": dev["id"],
+                "device_name": dev["device_name"],
+                "device_type": dev.get("device_type"),
+                "protocol": dev.get("protocol"),
+                "state": dev.get("state", {}),
+                "is_online": dev.get("is_online", True),
+            }
+
+        self._tool_registry.register(
+            AgentTool(
+                id="iot_get_device_state",
+                name="iot_get_device_state",
+                description="Query current telemetry, sensor readings, and operational state from a smart home Matter/Zigbee device.",
+                source=ToolSource.DEVICE,
+                capabilities=["iot", "matter", "status"],
+                permissions=["iot:read"],
+                risk_level=RiskLevel.LOW,
+                requires_confirmation=False,
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "device_name": {"type": "string", "description": "Device name or identifier"},
+                        "device_id": {"type": "string", "description": "Explicit IoT device ID"},
+                    },
+                },
+            ),
+            _tool_get_iot_state,
+        )
+
+        async def _tool_lock_control(
+            device_id: str | None = None,
+            device_name: str | None = None,
+            action: str = "lock",
+            reason: str | None = None,
+            user_id: str | None = None,
+        ) -> dict[str, Any]:
+            uid = user_id or "default"
+            target = device_id or device_name
+            if not target:
+                raise ValueError("Must provide either device_id or device_name.")
+            return await self.control_smart_lock(
+                user_id=uid,
+                device_id_or_name=target,
+                action=action,
+                reason=reason,
+            )
+
+        self._tool_registry.register(
+            AgentTool(
+                id="iot_lock_control",
+                name="iot_lock_control",
+                description="Control smart door locks or physical perimeter access points (unlock/lock doors or gates). Strictly requires human confirmation.",
+                source=ToolSource.DEVICE,
+                capabilities=["iot", "matter", "security", "destructive"],
+                permissions=["iot:security"],
+                risk_level=RiskLevel.HIGH,
+                requires_confirmation=True,
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "device_name": {"type": "string", "description": "Lock name (e.g., 'Front Door Smart Lock')"},
+                        "device_id": {"type": "string", "description": "Explicit lock device ID"},
+                        "action": {"type": "string", "enum": ["lock", "unlock"], "description": "Lock or unlock"},
+                        "reason": {"type": "string", "description": "Optional audit explanation"},
+                    },
+                    "required": ["action"],
+                },
+            ),
+            _tool_lock_control,
+        )
+

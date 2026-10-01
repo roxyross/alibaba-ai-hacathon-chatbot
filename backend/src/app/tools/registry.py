@@ -173,11 +173,12 @@ class ToolRegistry:
             # Check parameters accepted by handler
             sig = inspect.signature(handler)
             kwargs: dict[str, Any] = {}
+            args = request.arguments or getattr(request, "input", None) or {}
             for param_name in sig.parameters:
-                if param_name in request.arguments:
-                    kwargs[param_name] = request.arguments[param_name]
+                if param_name in args:
+                    kwargs[param_name] = args[param_name]
                 elif param_name == "arguments":
-                    kwargs["arguments"] = request.arguments
+                    kwargs["arguments"] = args
                 elif param_name == "user_id":
                     kwargs["user_id"] = request.user_id
                 elif param_name == "workspace_id":
