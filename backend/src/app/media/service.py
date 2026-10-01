@@ -11,7 +11,7 @@ import re
 import tempfile
 import urllib.parse
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -88,7 +88,7 @@ class MediaService:
         byok = user_byok or {}
         factory = get_session_factory()
         job_id = f"job_{uuid.uuid4().hex[:12]}"
-        now_str = datetime.now(timezone.utc).isoformat()
+        now_str = datetime.now(UTC).isoformat()
 
         if factory is not None:
             try:
@@ -359,7 +359,7 @@ class MediaService:
                 if not media_url:
                     raise RuntimeError("Veo video generation operation completed without returning video content.")
 
-            now_iso = datetime.now(timezone.utc).isoformat()
+            now_iso = datetime.now(UTC).isoformat()
 
             # Update memory store
             if job_id in _MEM_JOBS:
@@ -404,7 +404,7 @@ class MediaService:
                             job.status = "completed"
                             job.progress = 100
                             job.media_url = media_url
-                            job.completed_at = datetime.now(timezone.utc)
+                            job.completed_at = datetime.now(UTC)
                             session.add(job)
 
                         asset = MediaAsset(
@@ -445,7 +445,7 @@ class MediaService:
 
         except Exception as exc:
             logger.error(f"Generation job {job_id} failed: {exc}")
-            now_iso = datetime.now(timezone.utc).isoformat()
+            now_iso = datetime.now(UTC).isoformat()
             if job_id in _MEM_JOBS:
                 _MEM_JOBS[job_id]["status"] = "failed"
                 _MEM_JOBS[job_id]["error_message"] = str(exc)
@@ -463,7 +463,7 @@ class MediaService:
                         if job:
                             job.status = "failed"
                             job.error_message = str(exc)
-                            job.completed_at = datetime.now(timezone.utc)
+                            job.completed_at = datetime.now(UTC)
                             session.add(job)
                             await session.commit()
                 except Exception:
@@ -574,7 +574,7 @@ class MediaService:
 
         media_url = f"/static/media/uploads/{dest_filename}"
         media_type = "video" if filename.lower().endswith((".mp4", ".mov", ".webm")) else "image"
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         asset_id = f"upl_{uuid.uuid4().hex[:12]}"
 
         # Always save to in-memory asset library

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import os
 from typing import Any
-
-import importlib
 
 genai: Any = None
 types: Any = None
