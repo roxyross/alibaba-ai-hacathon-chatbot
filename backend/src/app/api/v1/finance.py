@@ -433,6 +433,60 @@ async def toggle_pin_transaction(
 # Account Management
 # ---------------------------------------------------------------------------
 
+@router.get("/accounts", response_model=list[AccountSummary])
+async def list_finance_accounts(
+    current_user: User = Depends(get_current_user),
+) -> list[AccountSummary]:
+    """List all connected accounts owned by the user."""
+    user_id = str(current_user.id)
+    repo = FinanceRepository()
+    db_accounts = await repo.list_accounts(user_id)
+    return [
+        AccountSummary(
+            connection_id=a.id,
+            institution=a.institution_name,
+            account_id=a.id,
+            name=f"{a.institution_name} {a.account_holder}",
+            type=a.account_type,
+            mask=a.account_number_masked[-4:] if len(a.account_number_masked) >= 4 else a.account_number_masked,
+            balance=a.balance_usd,
+            balance_usd=a.balance_usd,
+            balance_pkr=a.balance_pkr,
+            budget_usd=a.budget_limit_usd,
+            budget_pkr=a.budget_limit_pkr,
+            provider=a.provider,
+        )
+        for a in db_accounts
+    ]
+
+
+@router.get("/accounts/{account_id}", response_model=AccountSummary)
+async def get_finance_account(
+    account_id: str,
+    current_user: User = Depends(get_current_user),
+) -> AccountSummary:
+    """Retrieve details of a single financial account by ID."""
+    user_id = str(current_user.id)
+    repo = FinanceRepository()
+    acc = await repo.get_account(account_id, user_id)
+    if not acc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    return AccountSummary(
+        connection_id=acc.id,
+        institution=acc.institution_name,
+        account_id=acc.id,
+        name=f"{acc.institution_name} {acc.account_holder}",
+        type=acc.account_type,
+        mask=acc.account_number_masked[-4:] if len(acc.account_number_masked) >= 4 else acc.account_number_masked,
+        balance=acc.balance_usd,
+        balance_usd=acc.balance_usd,
+        balance_pkr=acc.balance_pkr,
+        budget_usd=acc.budget_limit_usd,
+        budget_pkr=acc.budget_limit_pkr,
+        provider=acc.provider,
+    )
+
+
 @router.delete("/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_finance_account(
     account_id: str,

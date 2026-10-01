@@ -80,6 +80,10 @@ class ToolRegistry:
             tools = [t for t in tools if any(cap_lower in c.lower() for c in t.capabilities)]
         return tools
 
+    def list_all(self) -> list[AgentTool]:
+        """Convenience method returning all registered tools."""
+        return list(self._tools.values())
+
     def search_tools(self, query: str) -> list[AgentTool]:
         """Search tools by name, description, or capability tags."""
         q = query.lower().strip()
