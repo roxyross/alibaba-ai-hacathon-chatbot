@@ -485,7 +485,7 @@ class StudyService:
         clean_topic = topic.strip()
         days = max(1, min(30, target_days))
 
-        milestones = [
+        milestones: list[dict[str, Any]] = [
             {
                 "day": 1,
                 "title": f"Foundational Principles of {clean_topic}",
@@ -521,8 +521,9 @@ class StudyService:
         seen_days: set[int] = set()
         deduped_milestones: list[dict[str, Any]] = []
         for m in milestones:
-            if m["day"] not in seen_days and m["day"] <= days:
-                seen_days.add(m["day"])
+            day_num = int(m["day"])
+            if day_num not in seen_days and day_num <= days:
+                seen_days.add(day_num)
                 deduped_milestones.append(m)
 
         deck = await self.repo.create_deck(
