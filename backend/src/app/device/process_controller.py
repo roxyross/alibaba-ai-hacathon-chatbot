@@ -21,10 +21,7 @@ import subprocess
 import time
 from pathlib import Path
 
-try:
-    import psutil  # type: ignore[import-untyped]
-except ImportError:
-    psutil = None  # type: ignore[assignment]
+import psutil  # type: ignore[import-untyped]
 import structlog
 
 from app.device.schemas import (

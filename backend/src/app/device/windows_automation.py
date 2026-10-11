@@ -21,16 +21,13 @@ from __future__ import annotations
 import base64
 import contextlib
 import io
-from pathlib import Path
 import re
 import sys
 import time
+from pathlib import Path
 from typing import Any, Literal
 
-try:
-    import psutil  # type: ignore[import-untyped]
-except ImportError:
-    psutil = None  # type: ignore[assignment]
+import psutil  # type: ignore[import-untyped]
 import structlog
 from pydantic import BaseModel, Field
 
@@ -123,10 +120,10 @@ class WindowsUIAutomationEngine:
         try:
             import ctypes
             user32 = ctypes.windll.user32
-            DESKTOP_ALL = 0x01FF
-            h_default = user32.OpenDesktopW("Default", 0, False, DESKTOP_ALL)
+            desktop_all = 0x01FF
+            h_default = user32.OpenDesktopW("Default", 0, False, desktop_all)
             if not h_default:
-                h_default = user32.OpenInputDesktop(0, False, DESKTOP_ALL)
+                h_default = user32.OpenInputDesktop(0, False, desktop_all)
             if h_default:
                 return bool(user32.SetThreadDesktop(h_default))
         except Exception as exc:
@@ -1229,10 +1226,8 @@ class WindowsUIAutomationEngine:
         while time.perf_counter() < disk_poll_end:
             if target_path.exists():
                 file_verified = True
-                try:
+                with contextlib.suppress(Exception):
                     bytes_written = target_path.stat().st_size
-                except Exception:
-                    pass
                 break
             time.sleep(0.2)
 

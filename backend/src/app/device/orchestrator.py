@@ -21,15 +21,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
-try:
-    import psutil  # type: ignore[import-untyped]
-except ImportError:
-    psutil = None  # type: ignore[assignment]
+import psutil  # type: ignore[import-untyped]
 import structlog
 
-from app.core.correlation import get_trace_id
-
 from app.browser.service import BrowserService
+from app.core.correlation import get_trace_id
 from app.device.android_automation import AndroidAutomationEngine
 from app.device.capability_engine import DynamicCapabilityDiscoveryEngine
 from app.device.desktop_automation import DesktopAutomationEngine
@@ -992,8 +988,8 @@ class UniversalAppController:
             # -----------------------------------------------------------------
             elif integration == "cloud_connector":
                 if request.application.lower() in ("whatsapp", "wa") or handler in ("whatsapp_send_message", "whatsapp_check_session"):
-                    from app.integrations.whatsapp.service import WhatsAppService
                     from app.integrations.whatsapp.models import WhatsAppRoute, WhatsAppTaskStatus
+                    from app.integrations.whatsapp.service import WhatsAppService
 
                     wa_service = WhatsAppService.get_instance()
                     wa_service.register_tools()

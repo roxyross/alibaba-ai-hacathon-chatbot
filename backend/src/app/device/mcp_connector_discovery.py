@@ -24,12 +24,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 import httpx
+import psutil  # type: ignore[import-untyped]
 import structlog
-
-try:
-    import psutil  # type: ignore[import-untyped]
-except ImportError:
-    psutil = None  # type: ignore[assignment]
 
 from app.connectors.base import BaseConnector
 from app.connectors.openapi import OpenAPIConnector

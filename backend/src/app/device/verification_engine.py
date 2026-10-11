@@ -23,10 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-try:
-    import psutil  # type: ignore[import-untyped]
-except ImportError:
-    psutil = None  # type: ignore[assignment]
+import psutil  # type: ignore[import-untyped]
 import structlog
 
 from app.device.desktop_automation import DesktopAutomationEngine
@@ -41,8 +38,8 @@ from app.device.schemas import (
     SingleCheckResult,
     VerificationModality,
     VerificationOperator,
-    WindowStateVerificationCriteria,
     WhatsAppVerificationCriteria,
+    WindowStateVerificationCriteria,
 )
 from app.device.windows_automation import WindowStateModel
 
