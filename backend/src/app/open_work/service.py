@@ -32,8 +32,13 @@ log = structlog.get_logger()
 
 
 def _get_open_work_storage_path() -> Path:
-    storage_dir = Path(os.environ.get("ROXY_STORAGE_DIR") or (Path.home() / ".roxy"))
-    storage_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        storage_dir = Path(os.environ.get("ROXY_STORAGE_DIR") or (Path.home() / ".roxy"))
+        storage_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        import tempfile
+        storage_dir = Path(tempfile.gettempdir()) / "roxy"
+        storage_dir.mkdir(parents=True, exist_ok=True)
     return storage_dir / "open_work_tasks.json"
 
 
