@@ -54,6 +54,7 @@ from app.models.trust import (
     EvaluationRecord,
     PersonalizationProposal,
     RecoveryJob,
+    RollbackAction,
     TrustEvent,
 )
 from app.models.user_preference import UserPreference
@@ -110,6 +111,7 @@ __all__ = [
     "QuizSession",
     "RecoveryJob",
     "ResearchReport",
+    "RollbackAction",
     "ScheduledJob",
     "SemanticMemory",
     "SpendingAlert",

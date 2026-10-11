@@ -1486,3 +1486,439 @@
   font-family: monospace;
 }
 
+/* ==========================================================================
+   Phase C: Permissions Transparency Grid & Controls
+   ========================================================================== */
+.reset-perms-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #f87171;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.reset-perms-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.permissions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.permission-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.2s ease;
+}
+
+.permission-card.perm-revoked {
+  opacity: 0.6;
+  border-color: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.02);
+}
+
+.perm-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.perm-app-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(20, 184, 166, 0.12);
+  color: #2dd4bf;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.perm-status-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.perm-status-badge.status-active {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.perm-status-badge.status-revoked {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.perm-capability {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  margin: 0;
+}
+
+.perm-target, .perm-why {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.4;
+}
+
+.perm-meta-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(0, 0, 0, 0.15);
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.perm-policy-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.perm-policy-control label {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.perm-policy-select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+}
+
+.perm-policy-select option {
+  background: #18181b;
+  color: #fff;
+}
+
+.perm-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.revoke-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #f87171;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.revoke-btn:hover {
+  background: rgba(239, 68, 68, 0.22);
+}
+
+.revoked-notice {
+  font-size: 11px;
+  color: rgba(239, 68, 68, 0.7);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   Phase B: Action History Cards View
+   ========================================================================== */
+.history-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.view-toggle-btns {
+  display: flex;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.view-toggle-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.view-toggle-btn.active {
+  background: rgba(20, 184, 166, 0.2);
+  color: #2dd4bf;
+  font-weight: 600;
+}
+
+.action-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.action-proof-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: all 0.2s ease;
+}
+
+.action-proof-card:hover {
+  border-color: rgba(20, 184, 166, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.action-proof-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.action-app-badge {
+  background: rgba(20, 184, 166, 0.15);
+  color: #2dd4bf;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.action-time-badge {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.action-proof-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.action-proof-type {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: monospace;
+}
+
+.action-proof-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.proof-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.field-label {
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+}
+
+.field-val {
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 500;
+}
+
+.card-undo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(20, 184, 166, 0.15);
+  border: 1px solid rgba(20, 184, 166, 0.3);
+  color: #2dd4bf;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.card-undo-btn:hover {
+  background: rgba(20, 184, 166, 0.25);
+}
+
+.undo-undone {
+  font-size: 11px;
+  color: #a855f7;
+  font-style: italic;
+}
+
+.undo-unavailable {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+  font-style: italic;
+}
+
+.action-explanation {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.expl-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 700;
+  display: block;
+  margin-bottom: 3px;
+}
+
+.expl-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.card-controls-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.ctrl-btn.pause {
+  background: rgba(234, 179, 8, 0.12);
+  color: #facc15;
+  border-color: rgba(234, 179, 8, 0.25);
+}
+
+.ctrl-btn.resume {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.ctrl-btn.cancel {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.ctrl-btn.retry {
+  background: rgba(59, 130, 246, 0.12);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+/* ==========================================================================
+   Phase S: Mobile, RTL & Accessibility
+   ========================================================================== */
+[dir="rtl"] .trust-center {
+  direction: rtl;
+  text-align: right;
+}
+
+[dir="rtl"] .trust-header__title-row {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .history-controls-row {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .action-proof-head {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .proof-field {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .perm-card-head {
+  flex-direction: row-reverse;
+}
+
+@media (max-width: 768px) {
+  .trust-center {
+    padding: 16px 12px;
+  }
+
+  .trust-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .trust-dimensions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trust-tabs {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .action-cards-grid,
+  .permissions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .history-controls-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+

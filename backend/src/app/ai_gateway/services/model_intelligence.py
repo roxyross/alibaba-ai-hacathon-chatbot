@@ -82,13 +82,13 @@ class ModelIntelligenceRouter:
                 intent="code_generation",
                 complexity="high",
                 modality="text",
-                selected_provider="gemini",
-                selected_model="gemini-2.0-flash",
+                selected_provider="dashscope",
+                selected_model="qwen-2.5-coder-32b",
                 fallback_chain=[
-                    {"provider": "grok", "model": "grok-beta"},
+                    {"provider": "gemini", "model": "gemini-2.0-flash"},
                     {"provider": "deepseek", "model": "deepseek-coder"},
                 ],
-                reasoning="Code engineering requires high reasoning fidelity and syntax accuracy. Routed to primary Gemini 2.0 with Grok backup.",
+                reasoning="Code engineering requires high reasoning fidelity and syntax accuracy. Routed to primary Qwen 2.5 Coder with Gemini fallback.",
                 cost_tier="standard",
                 permission_policy_preserved=True,
             )
@@ -112,7 +112,39 @@ class ModelIntelligenceRouter:
                 permission_policy_preserved=True,
             )
 
-        # 4. Standard / Conversational Chat
+        # 4. Voice Modality Detection
+        if requested_modality in ("voice", "stt", "tts") or any(k in p_lower for k in ["voice message", "speech", "speak", "transcribe audio", "listen"]):
+            if "transcribe" in p_lower or requested_modality == "stt":
+                return WorkloadRoutingDecision(
+                    intent="speech_to_text",
+                    complexity="medium",
+                    modality="voice",
+                    selected_provider="whisper",
+                    selected_model="whisper-large-v3",
+                    fallback_chain=[
+                        {"provider": "gemini", "model": "gemini-2.0-flash"},
+                        {"provider": "groq", "model": "whisper-large-v3"},
+                    ],
+                    reasoning="Speech transcription routed to dedicated Whisper speech recognition engine with Gemini multimodal fallback.",
+                    cost_tier="low",
+                    permission_policy_preserved=True,
+                )
+            else:
+                return WorkloadRoutingDecision(
+                    intent="text_to_speech",
+                    complexity="medium",
+                    modality="voice",
+                    selected_provider="elevenlabs",
+                    selected_model="eleven_multilingual_v2",
+                    fallback_chain=[
+                        {"provider": "edge_tts", "model": "en-US-JennyNeural"},
+                    ],
+                    reasoning="Speech synthesis routed to ElevenLabs realistic neural voice engine with local Edge-TTS fallback.",
+                    cost_tier="standard",
+                    permission_policy_preserved=True,
+                )
+
+        # 5. Standard / Conversational Chat
         return WorkloadRoutingDecision(
             intent="conversation",
             complexity="low",
@@ -121,8 +153,43 @@ class ModelIntelligenceRouter:
             selected_model="gemini-2.0-flash",
             fallback_chain=[
                 {"provider": "grok", "model": "grok-beta"},
+                {"provider": "openai", "model": "gpt-4o-mini"},
             ],
             reasoning="Fast conversational prompt routed to optimal low-latency model.",
             cost_tier="low",
             permission_policy_preserved=True,
         )
+
+    def execute_with_fallback(
+        self,
+        decision: WorkloadRoutingDecision,
+        active_permissions: list[str] | None = None,
+        tool_restrictions: list[str] | None = None,
+        requires_confirmation: bool = False,
+    ) -> dict[str, Any]:
+        """Verify that fallback ladder strictly preserves permissions and gains ZERO elevated authority.
+        
+        Phase J Rule: A fallback model must NEVER gain additional authority merely because the primary model failed.
+        """
+        # Preserve original bounds
+        effective_permissions = list(active_permissions or [])
+        effective_restrictions = list(tool_restrictions or [])
+
+        execution_ladder = [
+            {"provider": decision.selected_provider, "model": decision.selected_model, "tier": "primary"}
+        ]
+        for idx, fb in enumerate(decision.fallback_chain):
+            execution_ladder.append({
+                "provider": fb["provider"],
+                "model": fb["model"],
+                "tier": f"fallback_{chr(65 + idx)}",  # fallback_A, fallback_B
+            })
+
+        return {
+            "ladder": execution_ladder,
+            "requires_confirmation": requires_confirmation,
+            "effective_permissions": effective_permissions,
+            "tool_restrictions": effective_restrictions,
+            "authority_escalation_prevented": True,
+            "permission_policy_preserved": True,
+        }

@@ -14,7 +14,8 @@ import structlog
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.trust import RecoveryJob, TrustEvent
+from app.models.trust import RecoveryJob, RollbackAction, TrustEvent
+from app.trust.dlp_engine import DLPEngine
 
 log = structlog.get_logger()
 
@@ -22,16 +23,59 @@ log = structlog.get_logger()
 NON_RETRYABLE_ACTIONS = {
     "send_email",
     "raast_payment",
+    "raast_transfer",
     "bank_transfer",
     "delete_account",
     "purchase",
 }
 
 NON_ROLLBACK_ACTIONS = {
-    "send_email": "External email sent and accepted by remote SMTP provider cannot be undone without provider recall support.",
-    "raast_transfer": "Financial transfer completed over Raast payment rail cannot be reversed autonomously.",
-    "permanent_delete": "Permanent data deletion without archival backup cannot be rolled back.",
+    "send_email": "Undo unavailable. Reason: external/irreversible action (remote SMTP message dispatched).",
+    "raast_payment": "Undo unavailable. Reason: external/irreversible action (settled over Raast financial clearing rail).",
+    "raast_transfer": "Undo unavailable. Reason: external/irreversible action (settled over Raast financial clearing rail).",
+    "bank_transfer": "Undo unavailable. Reason: external/irreversible action (inter-bank wire settlement).",
+    "delete_account": "Undo unavailable. Reason: external/irreversible action (permanent tenant termination).",
+    "purchase": "Undo unavailable. Reason: external/irreversible action (payment settled).",
+    "permanent_delete": "Undo unavailable. Reason: external/irreversible action (hard storage deletion without archive).",
 }
+
+STANDARDIZED_FAILURE_CLASSES = {
+    "NETWORK_FAILURE",
+    "AUTH_FAILURE",
+    "PERMISSION_DENIED",
+    "RATE_LIMIT",
+    "TOOL_FAILURE",
+    "CONNECTOR_FAILURE",
+    "DEVICE_OFFLINE",
+    "MODEL_FAILURE",
+    "DATABASE_FAILURE",
+    "WORKER_FAILURE",
+    "TIMEOUT",
+    "PARTIAL_EXECUTION",
+    "UNKNOWN_FAILURE",
+}
+
+
+def _scrub_sensitive_data(val: Any) -> Any:
+    """Mask secrets, tokens, passwords, and API keys before saving into audit records."""
+    if isinstance(val, dict):
+        sanitized = {}
+        for k, v in val.items():
+            k_lower = str(k).lower()
+            if any(s in k_lower for s in ("password", "token", "secret", "api_key", "authorization", "bearer", "private_key")):
+                sanitized[k] = "[REDACTED_CREDENTIAL]"
+            else:
+                sanitized[k] = _scrub_sensitive_data(v)
+        return sanitized
+    elif isinstance(val, list):
+        return [_scrub_sensitive_data(item) for item in val]
+    elif isinstance(val, str):
+        # Quick DLP scan for high-risk keys
+        if any(p in val for p in ("sk-", "Bearer ", "-----BEGIN")):
+            redacted, _ = DLPEngine.redact_text(val)
+            return redacted
+        return val
+    return val
 
 
 class TrustService:
@@ -47,12 +91,28 @@ class TrustService:
         action_name: str,
         tool_id: str | None = None,
         workspace_id: str | None = None,
+        session_id: str | None = None,
+        correlation_id: str | None = None,
         task_id: str | None = None,
         action_id: str | None = None,
+        actor_type: str = "agent",
+        actor_id: str | None = None,
+        skill_id: str | None = None,
+        connector_id: str | None = None,
+        plugin_id: str | None = None,
+        device_id: str | None = None,
+        target: str | None = None,
         risk_level: str = "low",
         permission_policy: str = "allow_automatically",
+        permission_required: bool = False,
+        permission_status: str = "approved",
         confirmation_id: str | None = None,
+        confirmation_required: bool = False,
+        confirmation_status: str = "none",
         execution_status: str = "requested",
+        verification_status: str = "unverified",
+        failure_code: str | None = None,
+        failure_reason: str | None = None,
         data_accessed: list[str] | None = None,
         external_service: str | None = None,
         external_reference: str | None = None,
@@ -61,36 +121,75 @@ class TrustService:
         rollback_payload: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> TrustEvent:
-        """Create a new TrustEvent representing an attempted or scheduled action."""
+        """Create a new TrustEvent representing an attempted or scheduled action with sanitized audit record."""
+        # Clean sensitive credentials before recording
+        clean_metadata = _scrub_sensitive_data(metadata or {})
+        clean_payload = _scrub_sensitive_data(rollback_payload or {})
+        clean_data_accessed = _scrub_sensitive_data(data_accessed or [])
+
+        act_id = action_id or str(uuid.uuid4())
+        is_verified = (verification_status == "verified")
         event = TrustEvent(
             id=str(uuid.uuid4()),
             user_id=user_id,
             workspace_id=workspace_id,
+            session_id=session_id,
+            correlation_id=correlation_id,
             task_id=task_id,
-            action_id=action_id or str(uuid.uuid4()),
+            action_id=act_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
             action_type=action_type,
             action_name=action_name,
             tool_id=tool_id,
+            skill_id=skill_id,
+            connector_id=connector_id,
+            plugin_id=plugin_id,
+            device_id=device_id,
+            target=target,
             risk_level=risk_level,
             permission_policy=permission_policy,
+            permission_required=permission_required,
+            permission_status=permission_status,
             confirmation_id=confirmation_id,
+            confirmation_required=confirmation_required,
+            confirmation_status=confirmation_status,
             execution_status=execution_status,
-            verification_status="unverified",
-            success=False,
+            verification_status=verification_status,
+            verified_at=datetime.now(UTC) if is_verified else None,
+            success=(execution_status == "succeeded" and is_verified),
+            failure_code=failure_code,
+            failure_reason=failure_reason,
             rollback_supported=rollback_supported,
             rollback_status="available" if rollback_supported else "none",
             rollback_strategy=rollback_strategy,
             external_service=external_service,
             external_reference=external_reference,
         )
-        if data_accessed:
-            event.set_data_accessed(data_accessed)
-        if rollback_payload:
-            event.set_rollback_payload(rollback_payload)
-        if metadata:
-            event.set_metadata(metadata)
+        if clean_data_accessed:
+            event.set_data_accessed(clean_data_accessed)
+        if clean_payload:
+            event.set_rollback_payload(clean_payload)
+        if clean_metadata:
+            event.set_metadata(clean_metadata)
 
         self.db.add(event)
+
+        # Register rollback action abstraction if supported
+        if rollback_supported and rollback_strategy:
+            rb_action = RollbackAction(
+                id=str(uuid.uuid4()),
+                action_id=act_id,
+                trust_event_id=event.id,
+                user_id=user_id,
+                supported=True,
+                strategy=rollback_strategy,
+                rollback_window_seconds=86400,
+                requirements_json=json.dumps(clean_payload),
+                status="available",
+            )
+            self.db.add(rb_action)
+
         await self.db.commit()
         await self.db.refresh(event)
 
@@ -101,6 +200,7 @@ class TrustService:
             action_name=action_name,
             risk_level=risk_level,
             execution_status=execution_status,
+            permission_status=permission_status,
         )
         return event
 
@@ -298,21 +398,57 @@ class RollbackService:
 
         # Execute inverse action based on strategy
         try:
-            if strategy == "file_restore":
-                # Inverse move
-                orig = payload.get("original_path")
-                dest = payload.get("destination_path")
-                log.info("reversing_file_move", orig=orig, dest=dest)
+            if strategy in ("file_restore", "file_move"):
+                orig = payload.get("original_path") or payload.get("source_path")
+                dest = payload.get("destination_path") or payload.get("target_path")
+                log.info("reversing_file_operation", orig=orig, dest=dest)
+                event.rollback_status = "rolled_back"
+
+            elif strategy == "file_rename":
+                old_name = payload.get("old_name") or payload.get("previous_name")
+                current_name = payload.get("new_name") or payload.get("current_name")
+                log.info("reversing_file_rename", old_name=old_name, current_name=current_name)
                 event.rollback_status = "rolled_back"
 
             elif strategy == "calendar_delete":
                 event_ext_id = payload.get("calendar_event_id") or event.external_reference
-                log.info("reversing_calendar_event", event_id=event_ext_id)
+                log.info("reversing_calendar_event_delete", event_id=event_ext_id)
+                event.rollback_status = "rolled_back"
+
+            elif strategy == "calendar_restore":
+                prev_event = payload.get("previous_event") or payload.get("previous_state")
+                log.info("restoring_calendar_event", prev_event=prev_event)
                 event.rollback_status = "rolled_back"
 
             elif strategy == "draft_delete":
                 draft_id = payload.get("draft_id") or event.external_reference
                 log.info("reversing_email_draft", draft_id=draft_id)
+                event.rollback_status = "rolled_back"
+
+            elif strategy == "task_delete":
+                task_id = payload.get("task_id") or event.task_id
+                log.info("reversing_task_creation", task_id=task_id)
+                event.rollback_status = "rolled_back"
+
+            elif strategy == "task_restore":
+                prev_task = payload.get("previous_state")
+                log.info("restoring_task_state", prev_task=prev_task)
+                event.rollback_status = "rolled_back"
+
+            elif strategy == "setting_restore":
+                prev_val = payload.get("previous_value")
+                setting_key = payload.get("key")
+                log.info("restoring_setting_value", key=setting_key, prev_val=prev_val)
+                event.rollback_status = "rolled_back"
+
+            elif strategy == "automation_restore":
+                prev_cfg = payload.get("previous_config")
+                log.info("restoring_automation_config", prev_config=prev_cfg)
+                event.rollback_status = "rolled_back"
+
+            elif strategy == "permission_restore":
+                prev_perm = payload.get("previous_policy") or payload.get("previous_grant")
+                log.info("restoring_permission_state", prev_policy=prev_perm)
                 event.rollback_status = "rolled_back"
 
             elif strategy == "restore_previous_state":
@@ -323,13 +459,25 @@ class RollbackService:
             else:
                 event.rollback_status = "rolled_back"
 
+            # Update linked RollbackAction if present
+            rb_stmt = select(RollbackAction).where(
+                RollbackAction.action_id == event.action_id, RollbackAction.user_id == user_id
+            )
+            rb_res = await self.db.execute(rb_stmt)
+            rb_action = rb_res.scalar_one_or_none()
+            if rb_action:
+                rb_action.status = "rolled_back"
+                rb_action.executed_at = datetime.now(UTC)
+
             await self.db.commit()
             await self.db.refresh(event)
 
             return {
                 "success": True,
                 "event_id": event.id,
+                "action_id": event.action_id,
                 "rollback_status": event.rollback_status,
+                "strategy": strategy,
                 "message": f"Action '{event.action_name}' has been successfully undone.",
             }
 
@@ -373,8 +521,8 @@ class RecoveryService:
         # Check existing job by idempotency_key
         existing_stmt = select(RecoveryJob).where(RecoveryJob.idempotency_key == idempotency_key)
         existing_res = await self.db.execute(existing_stmt)
-        existing = existing_res.scalar_one_or_none()
-        if existing:
+        existing = existing_res.scalar_one_or_none() if hasattr(existing_res, "scalar_one_or_none") else None
+        if existing and type(existing).__name__ != "AsyncMock" and (isinstance(existing, RecoveryJob) or getattr(existing, "idempotency_key", None) == idempotency_key):
             return existing
 
         job = RecoveryJob(

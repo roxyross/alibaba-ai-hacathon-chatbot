@@ -101,7 +101,7 @@ class PersonalizationService:
             pref_stmt = select(UserPreference).where(UserPreference.user_id == user_id)
             pref_res = await self.db.execute(pref_stmt)
             pref = pref_res.scalar_one_or_none()
-            if not pref:
+            if not pref or not isinstance(pref, UserPreference):
                 pref = UserPreference(user_id=user_id)
                 self.db.add(pref)
 
@@ -148,3 +148,64 @@ class PersonalizationService:
             "success": True,
             "message": "Personalization preferences have been reset to factory defaults.",
         }
+
+    async def get_personalization_profile(self, user_id: str) -> dict[str, Any]:
+        """Inspect all explainable learned and configured personalization preferences."""
+        pref_stmt = select(UserPreference).where(UserPreference.user_id == user_id)
+        pref_res = await self.db.execute(pref_stmt)
+        pref = pref_res.scalar_one_or_none()
+        extra = dict(pref.extra_settings or {}) if pref else {}
+
+        return {
+            "response_style": extra.get("response_style", "concise"),
+            "preferred_language": pref.language if pref else "en",
+            "roman_urdu_preference": extra.get("roman_urdu_preference", True),
+            "notification_timing": extra.get("notification_timing", "business_hours"),
+            "frequently_used_tools": extra.get("frequently_used_tools", ["calendar", "email", "device"]),
+            "frequently_used_workflows": extra.get("frequently_used_workflows", ["daily_standup_briefing"]),
+            "confirmation_preferences": extra.get("confirmation_preferences", "standard"),
+            "preferred_models": extra.get("preferred_models", ["gemini-2.0-flash"]),
+            "preferred_devices": extra.get("preferred_devices", ["workstation"]),
+            "preferred_apps": extra.get("preferred_apps", ["code", "whatsapp", "browser"]),
+            "recurring_tasks": extra.get("recurring_tasks", []),
+            "work_personal_context": extra.get("work_personal_context", "balanced"),
+            "is_disabled": extra.get("is_disabled", False),
+            "explainability": "Preferences explicitly defined by user or confirmed via Personalization Proposals. No sensitive inferences made.",
+        }
+
+    async def update_personalization_profile(
+        self, user_id: str, updates: dict[str, Any]
+    ) -> dict[str, Any]:
+        """User directly edits and controls their preferences."""
+        pref_stmt = select(UserPreference).where(UserPreference.user_id == user_id)
+        pref_res = await self.db.execute(pref_stmt)
+        pref = pref_res.scalar_one_or_none()
+        if not pref:
+            pref = UserPreference(user_id=user_id)
+            self.db.add(pref)
+
+        extra = dict(pref.extra_settings or {})
+        for k, v in updates.items():
+            if k == "preferred_language":
+                pref.language = str(v)
+            elif k == "theme":
+                pref.theme = str(v)
+            else:
+                extra[k] = v
+
+        pref.extra_settings = extra
+        await self.db.commit()
+        return {"success": True, "updated": updates, "message": "Personalization preferences updated."}
+
+    async def delete_preference(self, user_id: str, key: str) -> dict[str, Any]:
+        """Delete a specific personalized preference key."""
+        pref_stmt = select(UserPreference).where(UserPreference.user_id == user_id)
+        pref_res = await self.db.execute(pref_stmt)
+        pref = pref_res.scalar_one_or_none()
+        if pref and pref.extra_settings and key in pref.extra_settings:
+            extra = dict(pref.extra_settings)
+            del extra[key]
+            pref.extra_settings = extra
+            await self.db.commit()
+            return {"success": True, "message": f"Preference '{key}' removed."}
+        return {"success": False, "message": f"Preference '{key}' not found."}

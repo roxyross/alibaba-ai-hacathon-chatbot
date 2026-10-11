@@ -115,6 +115,17 @@ async def health_check() -> dict[str, str]:
         "environment": os.environ.get("APP_ENV", "development"),
     }
 
+
+@app.get("/system-health")
+@app.get("/api/health")
+@app.get("/api/health/system")
+@app.get("/api/v1/system-health")
+async def system_health_check() -> dict[str, Any]:
+    """Phase K: Roxy Health Center diagnostic probing across 22 subsystems."""
+    from app.diagnostics.service import DiagnosticsService
+    svc = DiagnosticsService(db=None)
+    return await svc.get_system_health()
+
 # Register all routes under /api/v1
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(model_provider_router, prefix="/api/v1")

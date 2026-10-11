@@ -12,9 +12,17 @@ class OpenWorkTaskStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     PAUSED = "paused"
+    INTERRUPTED = "interrupted"
+    RECOVERING = "recovering"
+    RESUMED = "resumed"
+    VERIFIED = "verified"
+    QUEUED = "queued"
+    WAITING = "waiting"
+    PARTIAL = "partial"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
+    UNKNOWN = "unknown"
 
 
 class OpenWorkSubtask(BaseModel):

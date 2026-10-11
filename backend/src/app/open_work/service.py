@@ -329,15 +329,20 @@ class OpenWorkAgentService:
         log.info("open_work.task_paused", task_id=task_id, step=task.current_subtask_index)
         return task
 
-    async def resume_task(self, task_id: str, user_id: str) -> OpenWorkTask:
+    async def resume_task(self, task_id: str, user_id: str = "") -> OpenWorkTask:
         """Resume execution from saved checkpoint."""
         task = self._tasks.get(task_id)
         if not task:
             raise KeyError(f"Open Work task '{task_id}' not found.")
-        if task.user_id != user_id:
+        if user_id and task.user_id != user_id:
             raise PermissionError("Access denied.")
 
-        if task.status in (OpenWorkTaskStatus.PAUSED, OpenWorkTaskStatus.FAILED):
+        if task.status in (
+            OpenWorkTaskStatus.PAUSED,
+            OpenWorkTaskStatus.FAILED,
+            OpenWorkTaskStatus.INTERRUPTED,
+            OpenWorkTaskStatus.RECOVERING,
+        ):
             task.status = OpenWorkTaskStatus.RUNNING
             task.error = None
             task.updated_at = datetime.now(timezone.utc).isoformat()
@@ -348,22 +353,24 @@ class OpenWorkAgentService:
         log.info("open_work.task_resumed", task_id=task_id, step=task.current_subtask_index)
         return task
 
-    async def cancel_task(self, task_id: str, user_id: str) -> OpenWorkTask:
+    async def cancel_task(self, task_id: str, user_id: str = "", reason: str | None = None) -> OpenWorkTask:
         """Cancel task and stop background runner immediately."""
         task = self._tasks.get(task_id)
         if not task:
             raise KeyError(f"Open Work task '{task_id}' not found.")
-        if task.user_id != user_id:
+        if user_id and task.user_id != user_id:
             raise PermissionError("Access denied.")
 
         task.status = OpenWorkTaskStatus.CANCELLED
         task.updated_at = datetime.now(timezone.utc).isoformat()
+        if reason:
+            task.error = f"Cancelled: {reason}"
         _save_tasks_to_disk(self._tasks)
         runner = self._active_runners.pop(task_id, None)
         if runner and not runner.done():
             runner.cancel()
 
-        log.info("open_work.task_cancelled", task_id=task_id)
+        log.info("open_work.task_cancelled", task_id=task_id, reason=reason)
         return task
 
     def get_task(self, task_id: str, user_id: str) -> OpenWorkTask:

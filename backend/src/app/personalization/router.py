@@ -84,3 +84,36 @@ async def reset_personalization(
     """Reset all learned personalization to default settings."""
     svc = PersonalizationService(db)
     return await svc.reset_personalization(user_id=str(user.id))
+
+
+@router.get("/profile")
+async def get_personalization_profile(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Retrieve full inspectable personalization profile."""
+    svc = PersonalizationService(db)
+    return await svc.get_personalization_profile(user_id=str(user.id))
+
+
+@router.patch("/profile")
+async def update_personalization_profile(
+    body: dict[str, Any],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Directly update personal preferences."""
+    svc = PersonalizationService(db)
+    return await svc.update_personalization_profile(user_id=str(user.id), updates=body)
+
+
+@router.delete("/preferences/{key}")
+async def delete_personalization_preference(
+    key: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Delete a specific personalized preference key."""
+    svc = PersonalizationService(db)
+    return await svc.delete_preference(user_id=str(user.id), key=key)
+

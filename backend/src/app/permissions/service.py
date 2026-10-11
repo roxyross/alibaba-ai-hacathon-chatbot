@@ -736,6 +736,10 @@ class PermissionService:
 
         return PermissionGrantResponse(**record_dict)
 
+    async def revoke_grant(self, grant_id: str, user_id: str) -> bool:
+        """Revoke a specific permission grant by ID."""
+        return await self.revoke_permission(user_id=user_id, grant_id=grant_id)
+
     async def revoke_permission(
         self,
         user_id: str,
@@ -846,3 +850,5 @@ class PermissionService:
             results.append(PermissionGrantResponse(**resp_dict))
 
         return results
+
+    list_user_grants = list_grants

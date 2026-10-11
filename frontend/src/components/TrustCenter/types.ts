@@ -85,13 +85,41 @@ export interface ConfirmationResolution {
   audit_signature: string;
 }
 
+export interface PermissionGrantItem {
+  id: string;
+  application: string;
+  capability: string;
+  target: string;
+  why_needed: string;
+  granted_by: string;
+  scope: string;
+  duration: string;
+  confirmation_policy: 'always_ask' | 'ask_once' | 'allow_automatically' | 'never_allow' | string;
+  status: 'active' | 'revoked';
+  can_revoke: boolean;
+}
+
 export interface TrustEvent {
   id: string;
+  user_id?: string;
+  session_id?: string | null;
+  correlation_id?: string | null;
+  actor_type?: string;
+  actor_id?: string | null;
   action_type: string;
   action_name: string;
   tool_id: string | null;
+  skill_id?: string | null;
+  connector_id?: string | null;
+  plugin_id?: string | null;
+  device_id?: string | null;
+  target?: string | null;
   risk_level: string;
-  permission_policy: string;
+  permission_required?: boolean;
+  permission_status?: string;
+  confirmation_required?: boolean;
+  confirmation_status?: string;
+  permission_policy?: string;
   execution_status: string;
   verification_status: string;
   success: boolean;
@@ -101,6 +129,7 @@ export interface TrustEvent {
   rollback_status: string;
   external_service: string | null;
   external_reference: string | null;
+  metadata?: Record<string, any>;
   created_at: string;
   verified_at: string | null;
 }

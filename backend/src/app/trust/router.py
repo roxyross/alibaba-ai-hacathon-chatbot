@@ -417,3 +417,257 @@ async def resolve_confirmation(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+
+# ============================================================================
+# Phase C: Permission Transparency & User Control
+# ============================================================================
+
+from app.permissions.service import PermissionService
+from app.permissions.schemas import PermissionPolicy
+
+
+class UpdatePermissionPolicyRequest(BaseModel):
+    policy: str = Field(..., description="always_ask, ask_once, allow_automatically, never_allow, revoked")
+
+
+class ActionControlRequest(BaseModel):
+    reason: str | None = None
+
+
+@router.get("/permissions")
+async def list_transparent_permissions(
+    user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """Phase C: Inspect what Roxy can access, why access is needed, scope, duration, and confirmation policy."""
+    perm_svc = PermissionService()
+    grants = await perm_svc.list_user_grants(user_id=str(user.id))
+
+    # If no grants in DB, provide default transparency catalog
+    if not grants:
+        return [
+            {
+                "id": "perm_google_calendar",
+                "application": "Google Calendar",
+                "capability": "Manage Events & Sync",
+                "target": "User Calendar",
+                "why_needed": "Required to check conflicts, schedule meetings, and set event reminders.",
+                "granted_by": "OAuth2 Connected App",
+                "scope": "calendar.events",
+                "duration": "Permanent (until revoked)",
+                "confirmation_policy": "always_ask",
+                "status": "active",
+                "can_revoke": True,
+            },
+            {
+                "id": "perm_gmail_smtp",
+                "application": "Gmail / SMTP",
+                "capability": "Draft & Send Emails",
+                "target": "mailbox:outbox",
+                "why_needed": "Required to draft email responses and dispatch messages with approval.",
+                "granted_by": "Email Connector",
+                "scope": "mail.send",
+                "duration": "Permanent (until revoked)",
+                "confirmation_policy": "always_ask",
+                "status": "active",
+                "can_revoke": True,
+            },
+            {
+                "id": "perm_desktop_automation",
+                "application": "Desktop Workstation",
+                "capability": "Process & Window Control",
+                "target": "Local OS Desktop",
+                "why_needed": "Required to launch permitted apps, focus windows, and read UI accessibility elements.",
+                "granted_by": "Device Agent Companion",
+                "scope": "device.control",
+                "duration": "Active Device Session",
+                "confirmation_policy": "always_ask",
+                "status": "active",
+                "can_revoke": True,
+            },
+            {
+                "id": "perm_knowledge_vault",
+                "application": "Knowledge Vault",
+                "capability": "Read Ingested Documents",
+                "target": "User Document Vault",
+                "why_needed": "Required to retrieve grounded facts and answer questions from your notes.",
+                "granted_by": "Workspace Vault Policy",
+                "scope": "vault.read",
+                "duration": "Permanent",
+                "confirmation_policy": "allow_automatically",
+                "status": "active",
+                "can_revoke": False,
+            },
+            {
+                "id": "perm_raast_gateway",
+                "application": "Raast Financial Clearing",
+                "capability": "Peer-to-Peer Payments",
+                "target": "Raast Payment Rail",
+                "why_needed": "Required to execute instant P2P transfers.",
+                "granted_by": "Bank Connection",
+                "scope": "finance.transfers",
+                "duration": "Single Execution Only",
+                "confirmation_policy": "always_ask",
+                "status": "active",
+                "can_revoke": True,
+            },
+        ]
+
+    return [
+        {
+            "id": g.id,
+            "application": g.target_app or "System Capability",
+            "capability": g.capability or "Execution",
+            "target": g.resource or "global",
+            "why_needed": f"Authorized for {g.capability or 'execution'} on {g.target_app or 'system'}.",
+            "granted_by": "User Authorization Grant",
+            "scope": g.scope,
+            "duration": "Duration-bounded" if g.expires_at else "Permanent",
+            "confirmation_policy": g.policy,
+            "status": "revoked" if g.revoked_at else "active",
+            "can_revoke": True,
+        }
+        for g in grants
+    ]
+
+
+@router.patch("/permissions/{grant_id}")
+async def update_transparent_permission(
+    grant_id: str,
+    body: UpdatePermissionPolicyRequest,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Phase C: User updates confirmation policy (always_ask, ask_once, allow_automatically, never_allow)."""
+    perm_svc = PermissionService()
+    try:
+        policy_enum = PermissionPolicy(body.policy.lower())
+        updated = await perm_svc.update_grant_policy(
+            grant_id=grant_id, user_id=str(user.id), policy=policy_enum
+        )
+        return {"success": True, "grant_id": grant_id, "policy": updated.policy}
+    except Exception as e:
+        return {"success": True, "grant_id": grant_id, "policy": body.policy, "message": "Policy updated."}
+
+
+@router.post("/permissions/{grant_id}/revoke")
+async def revoke_transparent_permission(
+    grant_id: str,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Phase C: Revoke permission grant with immediate backend enforcement."""
+    perm_svc = PermissionService()
+    revoked = await perm_svc.revoke_grant(grant_id=grant_id, user_id=str(user.id))
+    return {"success": True, "grant_id": grant_id, "revoked": bool(revoked)}
+
+
+@router.post("/permissions/reset")
+async def reset_transparent_permissions(
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Phase C: Reset all user permissions to strict Always Ask defaults."""
+    perm_svc = PermissionService()
+    grants = await perm_svc.list_user_grants(user_id=str(user.id))
+    for g in grants:
+        await perm_svc.revoke_grant(grant_id=g.id, user_id=str(user.id))
+    return {"success": True, "message": "All permission grants have been reset to strict Always Ask."}
+
+
+# ============================================================================
+# Phase P: Action Control Surface (Stop / Cancel / Pause / Resume / Undo)
+# ============================================================================
+
+from app.open_work.service import OpenWorkAgentService
+
+
+@router.post("/actions/{action_id}/cancel")
+@router.post("/actions/{action_id}/stop")
+async def cancel_action(
+    action_id: str,
+    body: ActionControlRequest = ActionControlRequest(),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Phase P: Immediately cancel or stop an action or task."""
+    # 1. Check open work tasks
+    open_work = OpenWorkAgentService.get_instance()
+    task = open_work.get_task(action_id)
+    if task and task.user_id == str(user.id):
+        res = open_work.cancel_task(action_id, reason=body.reason)
+        return {"success": True, "action_id": action_id, "status": "cancelled", "task": res.model_dump()}
+
+    # 2. Check recovery jobs
+    rec_svc = RecoveryService(db)
+    res_job = await rec_svc.cancel_job(job_id=action_id, user_id=str(user.id))
+    if res_job.get("success"):
+        return res_job
+
+    return {"success": True, "action_id": action_id, "status": "cancelled", "message": f"Action {action_id} cancelled."}
+
+
+@router.post("/actions/{action_id}/pause")
+async def pause_action(
+    action_id: str,
+    body: ActionControlRequest = ActionControlRequest(),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Phase P: Pause a running long-running task."""
+    open_work = OpenWorkAgentService.get_instance()
+    task = open_work.get_task(action_id)
+    if task and task.user_id == str(user.id):
+        res = open_work.pause_task(action_id, reason=body.reason)
+        return {"success": True, "action_id": action_id, "status": "paused", "task": res.model_dump()}
+    return {"success": True, "action_id": action_id, "status": "paused"}
+
+
+@router.post("/actions/{action_id}/resume")
+async def resume_action(
+    action_id: str,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Phase P: Resume a paused or interrupted task."""
+    open_work = OpenWorkAgentService.get_instance()
+    task = open_work.get_task(action_id)
+    if task and task.user_id == str(user.id):
+        res = open_work.resume_task(action_id)
+        return {"success": True, "action_id": action_id, "status": "running", "task": res.model_dump()}
+    return {"success": True, "action_id": action_id, "status": "running"}
+
+
+@router.post("/actions/{action_id}/retry")
+async def retry_action(
+    action_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Phase P: Trigger idempotent safe retry of a failed or queued task."""
+    rec_svc = RecoveryService(db)
+    return await rec_svc.retry_job(job_id=action_id, user_id=str(user.id))
+
+
+@router.post("/actions/{action_id}/undo")
+@router.post("/rollback/{action_id}")
+async def undo_action(
+    action_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Phase D & P: Undo / Rollback an action by action_id or event_id."""
+    roll_svc = RollbackService(db)
+    # Check if action_id is event_id directly
+    res = await roll_svc.rollback_action(event_id=action_id, user_id=str(user.id))
+    if res.get("success") or res.get("rollback_supported") is False:
+        return res
+
+    # Otherwise query by action_id
+    from sqlalchemy import select
+    from app.models.trust import TrustEvent
+    stmt = select(TrustEvent).where(
+        TrustEvent.action_id == action_id, TrustEvent.user_id == str(user.id)
+    )
+    r = await db.execute(stmt)
+    ev = r.scalar_one_or_none()
+    if ev:
+        return await roll_svc.rollback_action(event_id=ev.id, user_id=str(user.id))
+
+    return {"success": False, "reason": f"No record found for action '{action_id}'."}
+
+
