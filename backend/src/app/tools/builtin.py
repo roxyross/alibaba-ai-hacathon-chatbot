@@ -227,6 +227,75 @@ async def _handle_code_eval(
         return {"language": "python", "stdout": "", "stderr": str(exc), "success": False}
 
 
+async def _handle_code_execute(
+    code: str = "",
+    language: str = "python",
+    stdin: str = "",
+    test_command: str | None = None,
+    cwd: str | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Execute code or run test suite in a sandboxed subprocess with timeouts."""
+    import asyncio
+    import shlex
+
+    # CLI test execution if requested (e.g. pytest, npm test, cargo test)
+    active_cmd = test_command or kwargs.get("cli_command") or kwargs.get("command")
+    active_cwd = cwd or kwargs.get("working_directory")
+    if active_cmd:
+        try:
+            import shutil
+            import sys
+            raw_parts = shlex.split(active_cmd, posix=(sys.platform != "win32"))
+            cmd_parts = [
+                p.strip('"\'') if sys.platform == "win32" and (p.startswith('"') or p.startswith("'")) else p
+                for p in raw_parts
+            ]
+            if cmd_parts:
+                exe = cmd_parts[0].lower()
+                if exe == "pytest" and not shutil.which("pytest"):
+                    cmd_parts = [sys.executable, "-m", "pytest"] + cmd_parts[1:]
+                elif exe in ("python", "python3") and not shutil.which(cmd_parts[0]):
+                    cmd_parts[0] = sys.executable
+
+            proc = await asyncio.create_subprocess_exec(
+                cmd_parts[0],
+                *cmd_parts[1:],
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=active_cwd,
+            )
+            out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            return {
+                "command": active_cmd,
+                "stdout": out_b.decode("utf-8", errors="replace"),
+                "stderr": err_b.decode("utf-8", errors="replace"),
+                "exit_code": proc.returncode,
+                "success": proc.returncode == 0,
+            }
+        except Exception as exc:
+            return {"command": active_cmd, "stdout": "", "stderr": str(exc), "exit_code": 1, "success": False}
+
+    try:
+        from app.coding.schemas import CodeExecuteRequest
+        from app.coding.service import CodingService
+
+        coding_service = CodingService()
+        req = CodeExecuteRequest(language=language, code=code, stdin=stdin)
+        resp = await coding_service.execute_code(user_id="system", request=req)
+        return {
+            "language": resp.language,
+            "stdout": resp.stdout,
+            "stderr": resp.stderr,
+            "exit_code": resp.exit_code,
+            "status": resp.status,
+            "execution_time_ms": resp.execution_time_ms,
+            "success": resp.status == "success",
+        }
+    except Exception as exc:
+        return {"language": language, "stdout": "", "stderr": str(exc), "exit_code": 1, "status": "error", "success": False}
+
+
 def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
     """Register all default core system tools into the provided or singleton ToolRegistry."""
     reg = registry or ToolRegistry.get_instance()
@@ -414,7 +483,32 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
         _handle_code_eval,
     )
 
-    # 9. Register Knowledge Vault tools (vault_search, vault_read_document, etc.)
+    # 9. Real Sandboxed Code & Test Execution Runner (code_execute)
+    reg.register(
+        AgentTool(
+            id="code_execute",
+            name="Execute Code / Run Tests",
+            description="Execute code in Python, Node.js, Go, or Rust, or execute automated test suites (pytest, npm test) in an isolated sandbox with timeouts.",
+            source=ToolSource.SYSTEM,
+            capabilities=["code", "execute", "python", "test", "runner"],
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Source code to execute"},
+                    "language": {"type": "string", "default": "python", "description": "Programming language (python, javascript, go, rust)"},
+                    "stdin": {"type": "string", "default": "", "description": "Standard input to pass to process"},
+                    "test_command": {"type": "string", "description": "Optional CLI test command e.g. 'pytest -q'"},
+                    "cwd": {"type": "string", "description": "Working directory for test runner execution"},
+                },
+            },
+            permissions=["code:execute"],
+            risk_level=RiskLevel.MEDIUM,
+            requires_confirmation=False,
+        ),
+        _handle_code_execute,
+    )
+
+    # 10. Register Knowledge Vault tools (vault_search, vault_read_document, etc.)
     try:
         from app.vault.service import VaultService
 
@@ -501,6 +595,24 @@ def register_builtin_tools(registry: ToolRegistry | None = None) -> None:
         StudyService.get_instance().register_tutor_tools()
     except Exception as exc:
         log.warning("register_builtin_tools.tutor_failed", error=str(exc))
+
+    # 20. Register Sandboxed File & Folder Intelligence tools (file_list, file_read, file_write, file_edit, file_search, folder_analyze)
+    try:
+        from app.files.service import FileSystemService
+
+        FileSystemService.get_instance().register_file_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.files_failed", error=str(exc))
+
+    # 21. Register Universal WhatsApp Integration tools
+    try:
+        from app.integrations.whatsapp.service import WhatsAppService
+
+        WhatsAppService.get_instance().register_tools()
+    except Exception as exc:
+        log.warning("register_builtin_tools.whatsapp_failed", error=str(exc))
+
+
 
 
 

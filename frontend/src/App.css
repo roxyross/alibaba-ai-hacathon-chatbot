@@ -226,6 +226,55 @@ html[dir="rtl"] .session-sidebar__nav-link {
   border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
+.app__header-quick-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 0.55rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid var(--color-border, #e2e8e6);
+  background: var(--color-input-bg, #f0f4f3);
+  color: var(--color-text, #1e292b);
+}
+
+.app__header-quick-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.app__header-quick-action--task {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.06));
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #d97706;
+}
+
+.app__header-quick-action--cowork {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.12), rgba(99, 102, 241, 0.08));
+  border-color: rgba(6, 182, 212, 0.3);
+  color: #0891b2;
+}
+
+.app__header-quick-action--active {
+  background: linear-gradient(135deg, #06b6d4, #6366f1);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(6, 182, 212, 0.35);
+}
+
+.app__header-quick-icon {
+  font-size: 0.85rem;
+}
+
+.app__chat--cowork {
+  height: 100%;
+  border-radius: 0;
+  border: none;
+}
+
 .app__title {
   margin: 0;
   font-size: 1rem;

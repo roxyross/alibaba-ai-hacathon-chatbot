@@ -182,6 +182,7 @@ async def test_full_lifecycle_multiphase_autonomous_workflow() -> None:
                 "folder": "Notes",
             },
             user_id=user_a_id,
+            bypass_confirmation=True,
         )
     )
     assert vault_exec.success is True
@@ -206,6 +207,7 @@ async def test_full_lifecycle_multiphase_autonomous_workflow() -> None:
                 "transaction_type": "debit",
             },
             user_id=user_a_id,
+            bypass_confirmation=True,
         )
     )
     assert tx_exec.success is True
@@ -305,6 +307,7 @@ async def test_absolute_multi_tenant_anti_idor_matrix() -> None:
                 "transaction_type": "credit",
             },
             user_id=alpha_id,
+            bypass_confirmation=True,
         )
     )
     assert f_res.success is True

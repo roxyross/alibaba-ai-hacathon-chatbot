@@ -612,9 +612,18 @@ async def fetch_live_maps(query: str) -> str | None:
 def classify_intent(message: str) -> str:
     """Classify user message into an agent slug using keyword matching.
 
-    Returns one of: image_generator | finance | critic | automation | research | coding | study | browser | general
+    Returns one of: image_generator | finance | critic | automation | research | coding | study | browser | device_fleet | general
     """
     msg = message.strip()
+
+    # Phase 11: Conversational Device & Multi-Device Fleet Intent Detection
+    try:
+        from app.device.intent_parser import DeviceIntentParser, DeviceIntentType
+        dev_intent = DeviceIntentParser.parse(msg)
+        if dev_intent.intent_type != DeviceIntentType.UNKNOWN:
+            return "device_fleet"
+    except Exception:
+        pass
 
     if check_image_intent(msg)[0]:
         return "image_generator"
@@ -971,9 +980,39 @@ async def _call_ai_for_agent(
             )
         return img_res, "roxy_vision", "flux-diffusion"
 
+    # Phase 11: Conversational Device & Multi-Device Fleet Grounding
+    if agent_slug in ("device_fleet", "device") or (
+        user_message and any(w in user_message.lower() for w in ("device", "fleet", "laptop", "desktop", "workstation", "handover", "play ", "launch ", "terminate ", "confirm", "approve", "cancel", "deny"))
+    ):
+        try:
+            from app.device.conversational_grounding import DeviceConversationalGrounder
+            handled, dev_reply, meta = await DeviceConversationalGrounder.handle_conversational_request(
+                user_id=user_id or "guest_trial",
+                message=user_message,
+                session_id=session_id,
+            )
+            if handled:
+                if session_id:
+                    await _persist_runtime_interaction(
+                        session_id, user_id or "", user_message, dev_reply, "device_fleet_orchestrator", "fleet_grounder"
+                    )
+                return dev_reply, "device_fleet", "fleet_grounder"
+        except Exception as exc:
+            log.warning("runtime.device_grounding_failed", error=str(exc))
+
     system_prompt = _get_agent_prompt(agent_slug)
 
     history_messages: list[Message] = [Message(role=MessageRole.SYSTEM, content=system_prompt)]
+
+    # Phase 11: Live Fleet Context Injection for background hardware awareness
+    if user_id:
+        try:
+            from app.device.conversational_grounding import DeviceConversationalGrounder
+            fleet_ctx = await DeviceConversationalGrounder.get_fleet_grounding_system_prompt(user_id)
+            if fleet_ctx:
+                history_messages.append(Message(role=MessageRole.SYSTEM, content=fleet_ctx))
+        except Exception:
+            pass
     if session_id and user_id:
         try:
             from app.chat_history.repository import ChatMessageRepository
@@ -2319,6 +2358,65 @@ async def runtime_chat_stream(
         )
 
     agent_slug = body.agent_override or classify_intent(body.message)
+
+    # Phase 11: Streaming fast-path for conversational fleet/device actions
+    if agent_slug in ("device_fleet", "device") or (
+        body.message and any(w in body.message.lower() for w in ("device", "fleet", "laptop", "desktop", "workstation", "handover", "play ", "launch ", "terminate "))
+    ):
+        try:
+            from app.device.conversational_grounding import DeviceConversationalGrounder
+            handled, dev_reply, meta = await DeviceConversationalGrounder.handle_conversational_request(
+                user_id=effective_user_id,
+                message=body.message,
+                session_id=body.session_id,
+            )
+            if handled:
+                async def device_stream() -> AsyncGenerator[bytes, None]:
+                    if body.session_id:
+                        await _persist_runtime_interaction(
+                            body.session_id, effective_user_id, body.message, dev_reply, "device_fleet_orchestrator", "fleet_grounder"
+                        )
+                    words = dev_reply.split(" ")
+                    for idx, word in enumerate(words):
+                        chunk = word if idx == len(words) - 1 else word + " "
+                        data = json.dumps({
+                            "delta": chunk,
+                            "provider": "device_fleet_orchestrator",
+                            "model": "fleet_grounder",
+                            "done": False,
+                            "agent_slug": "device_fleet",
+                        })
+                        yield f"data: {data}\n\n".encode()
+                        await asyncio.sleep(0.01)
+                    done_data = json.dumps({
+                        "delta": "",
+                        "response": dev_reply,
+                        "provider": "device_fleet_orchestrator",
+                        "model": "fleet_grounder",
+                        "done": True,
+                        "agent_slug": "device_fleet",
+                    })
+                    yield f"data: {done_data}\n\n".encode()
+                    final_attr = json.dumps({
+                        "event": "attribution",
+                        "done": True,
+                        "provider": "device_fleet_orchestrator",
+                        "model": "fleet_grounder",
+                        "agent_slug": "device_fleet",
+                    })
+                    yield f"data: {final_attr}\n\n".encode()
+
+                return StreamingResponse(
+                    device_stream(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-Accel-Buffering": "no",
+                    },
+                )
+        except Exception as exc:
+            log.warning("runtime.stream_device_grounding_failed", error=str(exc))
 
     log.info(
         "runtime.chat.stream",

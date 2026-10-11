@@ -35,9 +35,59 @@ import { CodingStudio } from './components/CodingStudio/CodingStudio';
 import { MemoryStudio } from './components/MemoryStudio/MemoryStudio';
 import { AuditStudio } from './components/AuditStudio/AuditStudio';
 import { ConnectorsHub } from './components/ConnectorsHub/ConnectorsHub';
-import { DeviceHub } from './components/DeviceHub';
+import { DeviceHub, type DeviceInfo } from './components/DeviceHub';
+import { ControlCenter } from './components/ControlCenter/ControlCenter';
+import { TrustCenter } from './components/TrustCenter/TrustCenter';
+import { RoxyCommandBar } from './components/CommandBar';
+import { NewTaskModal, type NewTaskConfig } from './components/NewTaskModal';
+import { CoworkWorkspace } from './components/CoworkWorkspace';
 import './App.css';
 import './components/DocumentUpload/DocumentUpload.css';
+
+const DEFAULT_DEVICES: DeviceInfo[] = [
+  {
+    id: 'dev-desktop-host',
+    user_id: 'usr-default',
+    device_name: 'Workstation Host (Windows)',
+    device_type: 'desktop',
+    os_platform: 'windows',
+    os_version: '11 Pro',
+    architecture: 'x86_64',
+    hostname: 'DESKTOP-ROXY',
+    ip_address: '127.0.0.1',
+    status: 'online',
+    is_current_host: true,
+    capabilities: ['screen_capture', 'app_discovery', 'process_control', 'ocr'],
+    telemetry: {
+      cpu_percent: 24,
+      memory_percent: 48,
+      disk_free_gb: 128,
+      active_window: 'Visual Studio Code',
+      os_platform: 'windows',
+    },
+  },
+  {
+    id: 'dev-android-mobile',
+    user_id: 'usr-default',
+    device_name: 'Pixel 8 Pro (Android)',
+    device_type: 'mobile',
+    os_platform: 'android',
+    os_version: 'Android 14',
+    architecture: 'arm64-v8a',
+    hostname: 'pixel-8-pro',
+    ip_address: '192.168.1.142',
+    status: 'online',
+    is_current_host: false,
+    capabilities: ['adb_bridge', 'screen_mirror', 'apk_install'],
+    telemetry: {
+      cpu_percent: 18,
+      memory_percent: 42,
+      disk_free_gb: 64,
+      active_window: 'com.whatsapp',
+      os_platform: 'android',
+    },
+  },
+];
 
 const API_BASE =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
@@ -195,7 +245,16 @@ export function ChatScreen() {
     setToasts((prev) => [...prev, { id, type, message }]);
   }, []);
 
-  // Global shortcuts: Ctrl+K (search), Ctrl+, (settings), ? (help/shortcuts)
+  // Universal Command Bar & Omnibar (Ctrl+K)
+  const [isCommandBarOpen, setIsCommandBarOpen] = useState(false);
+
+  // New Task Configuration Modal (Ctrl+N)
+  const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
+
+  // Cowork Split-Screen Workspace Mode
+  const [isCoworkMode, setIsCoworkMode] = useState(false);
+
+  // Global shortcuts: Ctrl+K (Command Bar), Ctrl+N (New Task), Ctrl+, (settings), ? (help/shortcuts)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -203,12 +262,10 @@ export function ChatScreen() {
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setSidebarCollapsed(false);
-        setSidebarOpen(true);
-        setTimeout(() => {
-          const input = document.querySelector<HTMLInputElement>('.session-sidebar__search-input');
-          input?.focus();
-        }, 60);
+        setIsCommandBarOpen((v) => !v);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setIsNewTaskModalOpen(true);
       } else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault();
         setIsSettingsOpen(true);
@@ -413,6 +470,34 @@ export function ChatScreen() {
     [activeSession, modelSelection, createSession, chat, history, mode, accessToken, user, openAuth, refreshSessions],
   );
 
+  // Phase 20: Launch structured autonomous / guided task session
+  const handleLaunchNewTask = useCallback(
+    async (taskConfig: NewTaskConfig) => {
+      try {
+        const title = `[Task] ${taskConfig.title}`;
+        const newSession = await createSession({
+          provider: modelSelection?.provider || 'gemini',
+          model: modelSelection?.model || 'gemini-2.0-flash',
+          title,
+          session_type: 'task',
+        });
+        setActiveSession(newSession);
+        setMode('task');
+        setActiveView('chat');
+        localStorage.setItem('roxy_active_session_id', newSession.id);
+        addToast('success', `Task session "${taskConfig.title}" initiated`);
+
+        const promptText = `Initiating Task: ${taskConfig.title}\nCategory: ${taskConfig.category}\nExecution Strategy: ${taskConfig.mode}\nTarget Device: ${taskConfig.targetDevice || 'host'}\n\nObjective & Instructions:\n${taskConfig.initialPrompt}`;
+        setTimeout(() => {
+          void handleSend(promptText);
+        }, 120);
+      } catch (err) {
+        addToast('error', `Failed to initialize task: ${(err as Error).message}`);
+      }
+    },
+    [addToast, createSession, handleSend, modelSelection],
+  );
+
   // Message pinning persistent state (survives refresh and logout/login)
   const [pinnedMessageIds, setPinnedMessageIds] = useState<Set<string>>(() => {
     try {
@@ -560,7 +645,7 @@ export function ChatScreen() {
         onModeChange={handleModeChange}
         onSelect={(s) => { handleSelectSession(s); setSidebarOpen(false); }}
         onNewChat={() => { handleNewChat(); setSidebarOpen(false); }}
-        onNewTask={() => { handleNewTask(); setSidebarOpen(false); }}
+        onNewTask={() => { handleNewTask(); setIsNewTaskModalOpen(true); setSidebarOpen(false); }}
         onViewChange={(view) => {
           if (!accessToken && !user && view !== 'chat') {
             const viewLabels: Record<AppView, string> = {
@@ -588,6 +673,8 @@ export function ChatScreen() {
               audit: 'Audit & Security Studio',
               connectors: 'Connectors & MCP Hub',
               device_hub: 'Device & App Control',
+              control_center: 'Control Center',
+              trust_center: 'Trust & Safety Center',
             };
             openAuth('signin', `Please sign in to access ${viewLabels[view] || 'this feature'}.`);
             return;
@@ -654,27 +741,42 @@ export function ChatScreen() {
               </div>
             )}
 
-            {/* Prominent Search button in top bar */}
+            {/* Prominent Command Omnibar trigger button in top bar */}
             <button
               type="button"
               className="app__header-search-btn"
-              onClick={() => {
-                setSidebarCollapsed(false);
-                setSidebarOpen(true);
-                setTimeout(() => {
-                  const input = document.querySelector<HTMLInputElement>('.session-sidebar__search-input');
-                  input?.focus();
-                }, 60);
-              }}
-              title="Search previous conversations & messages (Ctrl+K)"
-              aria-label="Search conversations"
+              onClick={() => setIsCommandBarOpen(true)}
+              title="Open ROXY Command Omnibar (Ctrl+K)"
+              aria-label="Roxy Command Omnibar"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8"/>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
-              <span className="app__header-search-text">Search chats…</span>
+              <span className="app__header-search-text">Command / Search…</span>
               <kbd className="app__header-search-kbd">Ctrl+K</kbd>
+            </button>
+
+            {/* Quick Action: New Task */}
+            <button
+              type="button"
+              className="app__header-quick-action app__header-quick-action--task"
+              onClick={() => setIsNewTaskModalOpen(true)}
+              title="Launch Autonomous / Guided Task (Ctrl+N)"
+            >
+              <span className="app__header-quick-icon">⚡</span>
+              <span>New Task</span>
+            </button>
+
+            {/* Quick Action: Cowork Mode Toggle */}
+            <button
+              type="button"
+              className={`app__header-quick-action app__header-quick-action--cowork ${isCoworkMode ? 'app__header-quick-action--active' : ''}`}
+              onClick={() => setIsCoworkMode((prev) => !prev)}
+              title={isCoworkMode ? 'Exit Cowork Mode' : 'Enter Cowork Pair Copilot Mode'}
+            >
+              <span className="app__header-quick-icon">👥</span>
+              <span>{isCoworkMode ? 'Exit Cowork' : 'Cowork'}</span>
             </button>
           </div>
           <div className="app__header-right">
@@ -935,6 +1037,76 @@ export function ChatScreen() {
             onBack={() => setActiveView('chat')}
             onSendToChat={(text) => handleSend(text)}
           />
+        ) : activeView === 'control_center' ? (
+          <ControlCenter
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+            onNavigate={(view) => setActiveView(view)}
+          />
+        ) : activeView === 'trust_center' ? (
+          <TrustCenter
+            accessToken={accessToken}
+            onBack={() => setActiveView('chat')}
+          />
+        ) : isCoworkMode ? (
+          <CoworkWorkspace
+            accessToken={accessToken}
+            onExitCowork={() => setIsCoworkMode(false)}
+            onSendToChat={(text) => handleSend(text)}
+            chatChildren={
+              <div className="app__chat app__chat--cowork">
+                {warmGreeting && (
+                  <div className="app__warm-greeting-banner" role="status">
+                    <span className="app__warm-greeting-icon">👋</span>
+                    <span className="app__warm-greeting-text">{warmGreeting}</span>
+                    <button
+                      type="button"
+                      className="app__warm-greeting-close"
+                      onClick={() => setWarmGreeting(null)}
+                      aria-label="Dismiss greeting"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+                <ChatWindow
+                  messages={renderedMessages}
+                  attribution={chat.attribution}
+                  isStreaming={chat.isStreaming}
+                  error={chat.error}
+                  needsClarification={chat.needsClarification}
+                  nextActions={chat.nextActions}
+                  onSend={handleSend}
+                  onStop={chat.abort}
+                  onPinMessage={handlePinMessage}
+                  onDeleteMessage={handleDeleteMessage}
+                  modelSelection={modelSelection}
+                  onModelChange={setModelSelection}
+                  onVoiceClick={() => {
+                    if (!accessToken && !user) {
+                      openAuth('signin', 'Please sign in to access Voice Mode.');
+                      return;
+                    }
+                    setActiveView('voice');
+                  }}
+                  onAttachmentClick={() => {
+                    if (!accessToken && !user) {
+                      openAuth('signin', 'Please sign in to upload and analyze documents.');
+                      return;
+                    }
+                    setActiveView('documents');
+                  }}
+                  disabledNoModel={!modelSelection}
+                  mode={mode}
+                  accessToken={accessToken}
+                  activeSessionId={activeSession?.id ?? null}
+                  taskTitle={activeSession?.title ? activeSession.title.replace(/^\[Task\]\s*/, '') : undefined}
+                  onNavigateView={setActiveView}
+                  onClearConversation={handleNewChat}
+                />
+              </div>
+            }
+          />
         ) : (
           <div className="app__chat">
             {warmGreeting && (
@@ -1027,6 +1199,49 @@ export function ChatScreen() {
           handleNewChat();
           addToast('info', 'Local chat and settings cache cleared');
         }}
+      />
+
+      {/* Roxy Universal Command Bar & Omnibar (Ctrl+K) */}
+      <RoxyCommandBar
+        isOpen={isCommandBarOpen}
+        onClose={() => setIsCommandBarOpen(false)}
+        onNavigateView={(view) => {
+          setActiveView(view as any);
+        }}
+        onSendChatQuery={(query) => {
+          setActiveView('chat');
+          void handleSend(query);
+        }}
+        onOpenNewTask={() => {
+          setIsNewTaskModalOpen(true);
+        }}
+        onEnterCowork={() => {
+          setIsCoworkMode(true);
+          setActiveView('chat');
+          addToast('info', 'Entered Cowork Mode (Pair Copilot Workspace)');
+        }}
+        onStartVoice={() => {
+          if (!accessToken && !user) {
+            openAuth('signin', 'Please sign in to access Voice Mode.');
+            return;
+          }
+          setActiveView('voice');
+        }}
+        onToggleTheme={toggleTheme}
+        currentTheme={theme}
+        onClearChat={() => {
+          chat.clearMessages();
+          handleNewChat();
+          addToast('info', 'Chat conversation reset');
+        }}
+      />
+
+      {/* New Task Configuration Modal (Ctrl+N) */}
+      <NewTaskModal
+        isOpen={isNewTaskModalOpen}
+        onClose={() => setIsNewTaskModalOpen(false)}
+        devices={DEFAULT_DEVICES}
+        onSubmitTask={handleLaunchNewTask}
       />
 
       {/* Global Toast Notification System */}

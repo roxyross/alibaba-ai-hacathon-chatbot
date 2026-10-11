@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite';
+/// <reference types="vitest" />
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
@@ -7,7 +8,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: process.env.VITE_RUNTIME_URL || 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/static': {
+        target: process.env.VITE_RUNTIME_URL || 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },
@@ -15,5 +20,6 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 });

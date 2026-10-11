@@ -282,15 +282,42 @@ class MCPService:
             if old_name:
                 self._tool_registry.unregister(f"{prefix}_{old_name}")
 
-        # 1. Initialize Handshake
-        await client.initialize()
+        # 1. Initialize Handshake and Discover Tools, Resources, Prompts
+        try:
+            await client.initialize()
+            mcp_tools = await client.list_tools()
+            mcp_resources = await client.list_resources()
+            mcp_prompts = await client.list_prompts()
+        except Exception as exc:
+            err_msg = str(exc)
+            log.warning("mcp_service.sync_handshake_failed", server_id=server_id, error=err_msg)
+            now = datetime.now(UTC)
+            factory = get_session_factory()
+            if factory is not None:
+                try:
+                    async with factory() as session:
+                        stmt = select(MCPServerConfig).where(
+                            MCPServerConfig.id == server_id,
+                            MCPServerConfig.user_id == user_id,
+                        )
+                        res = await session.execute(stmt)
+                        item = res.scalars().first()
+                        if item:
+                            item.status = MCPServerStatus.ERROR.value
+                            item.error_message = err_msg
+                            item.last_synced_at = now
+                            await session.commit()
+                except Exception as db_exc:
+                    log.warning("mcp_service.db_error_save_failed", error=str(db_exc))
 
-        # 2. Discover Tools, Resources, Prompts
-        mcp_tools = await client.list_tools()
-        mcp_resources = await client.list_resources()
-        mcp_prompts = await client.list_prompts()
+            mem = self._mem_servers.get(server_id, {})
+            mem["status"] = MCPServerStatus.ERROR.value
+            mem["error_message"] = err_msg
+            mem["last_synced_at"] = now.isoformat()
+            self._mem_servers[server_id] = mem
+            raise
 
-        # 3. Convert and register into ToolRegistry
+        # 2. Convert and register into ToolRegistry
         agent_tools = client.convert_to_agent_tools(mcp_tools)
         for atool, mtool in zip(agent_tools, mcp_tools, strict=False):
             target_tool_name = mtool.name

@@ -57,6 +57,30 @@ class AgentTool(BaseModel):
         }
 
 
+class ToolExecutionStatus(StrEnum):
+    COMPLETED = "completed"
+    FAILED = "failed"
+    DENIED = "denied"
+    TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
+    UNSUPPORTED = "unsupported"
+    REQUIRES_CONFIRMATION = "requires_confirmation"
+    REQUIRES_PERMISSION = "requires_permission"
+    VERIFICATION_FAILED = "verification_failed"
+
+
+class ToolExecutionError(BaseModel):
+    code: str
+    message: str
+    retryable: bool = False
+
+
+class ToolVerificationResult(BaseModel):
+    attempted: bool = False
+    passed: bool = False
+    evidence: Any = None
+
+
 class ToolExecutionRequest(BaseModel):
     tool_id: str
     arguments: dict[str, Any] = Field(default_factory=dict)
@@ -65,6 +89,10 @@ class ToolExecutionRequest(BaseModel):
     workspace_id: str | None = None
     task_id: str | None = None
     step_id: str | None = None
+    target_app: str | None = None
+    target_device: str | None = None
+    bypass_confirmation: bool = False
+    confirmation_token: str | None = None
 
     def model_post_init(self, __context: Any) -> None:
         if not self.arguments and self.input:
@@ -74,6 +102,23 @@ class ToolExecutionRequest(BaseModel):
 class ToolExecutionResult(BaseModel):
     tool_id: str
     success: bool
+    status: ToolExecutionStatus = ToolExecutionStatus.COMPLETED
+    target_app: str | None = None
+    target_device: str | None = None
     output: Any = None
     error: str | None = None
+    error_details: ToolExecutionError | None = None
+    verification: ToolVerificationResult | None = None
     duration_ms: int = 0
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.success and self.status == ToolExecutionStatus.COMPLETED:
+            self.status = ToolExecutionStatus.FAILED
+        if self.error and self.error_details is None:
+            self.error_details = ToolExecutionError(
+                code=self.status.value,
+                message=self.error,
+                retryable=self.status in (ToolExecutionStatus.TIMEOUT, ToolExecutionStatus.REQUIRES_CONFIRMATION),
+            )
+        elif self.error_details and not self.error:
+            self.error = self.error_details.message

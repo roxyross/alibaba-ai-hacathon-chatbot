@@ -60,12 +60,26 @@ class VoiceService:
             )
             recording_id = created["id"]
 
+        # Typed + Voice Parity: Normalize transcript into canonical semantic intent
+        semantic_intent = None
+        normalized_query = raw_text
+        if raw_text:
+            try:
+                from app.multilingual.service import MultilingualInputService
+                intent_obj = MultilingualInputService.get_instance().process_input(raw_text, input_mode="voice")
+                semantic_intent = intent_obj.model_dump()
+                normalized_query = intent_obj.normalized_query
+            except Exception as exc:
+                log.warning("voice.semantic_intent_failed", error=str(exc))
+
         return {
             "text": raw_text,
             "language": res.language or language,
             "confidence": res.confidence,
             "duration_seconds": res.duration_seconds,
             "recording_id": recording_id,
+            "semantic_intent": semantic_intent,
+            "normalized_query": normalized_query,
         }
 
     async def synthesize_speech(

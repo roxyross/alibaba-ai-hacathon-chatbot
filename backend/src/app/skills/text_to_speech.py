@@ -157,7 +157,7 @@ class TextToSpeechSkill(SkillExecutor[TextToSpeechRequest, TextToSpeechResponse]
 
         api_key = os.environ.get("OPENAI_API_KEY", "")
         if not api_key:
-            return self._mock_tts(), "mp3", None
+            return self._unconfigured_fallback_tts(), "mp3", None
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
@@ -185,7 +185,7 @@ class TextToSpeechSkill(SkillExecutor[TextToSpeechRequest, TextToSpeechResponse]
 
         api_key = os.environ.get("ELEVENLABS_API_KEY", "")
         if not api_key:
-            return self._mock_tts(), "mp3", None
+            return self._unconfigured_fallback_tts(), "mp3", None
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
@@ -211,9 +211,9 @@ class TextToSpeechSkill(SkillExecutor[TextToSpeechRequest, TextToSpeechResponse]
         return base64.b64encode(audio_bytes).decode(), "mp3", round(duration, 1)
 
     @staticmethod
-    def _mock_tts() -> str:
-        """Fallback when no TTS API key is configured."""
-        return base64.b64encode(b"MOCK_TTS_AUDIO").decode()
+    def _unconfigured_fallback_tts() -> str:
+        """Fallback when no TTS API key is configured. Return empty so caller knows speech synthesis is unconfigured."""
+        return ""
 
 
 def get_executor() -> TextToSpeechSkill:

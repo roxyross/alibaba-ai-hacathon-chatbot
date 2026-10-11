@@ -30,6 +30,8 @@ out/
 build/
 *.tsbuildinfo
 .npmrc.local
+vite.config.ts.timestamp-*
+*.timestamp-*.mjs
 
 # Editors
 .vscode/

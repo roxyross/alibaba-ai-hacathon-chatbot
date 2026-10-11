@@ -54,6 +54,8 @@
     "payment_methods": "Payment Methods",
     "connectors": "Connectors Hub",
     "device_hub": "Device Hub",
+    "control_center": "Control Center",
+    "trust_center": "Trust & Safety",
     "pricing": "Pricing & Plans",
     "settings": "Settings"
   },

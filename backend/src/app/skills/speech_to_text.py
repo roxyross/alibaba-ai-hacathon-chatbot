@@ -72,7 +72,7 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
         openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
         if not groq_key and not openai_key:
-            return self._mock_transcribe(), None
+            return self._unconfigured_fallback_transcribe(), None
 
         # Determine audio filename & mime type
         is_webm = audio_bytes.startswith(b"\x1a\x45\xdf\xa3") or (len(audio_bytes) > 4 and audio_bytes[:4] != b"RIFF")
@@ -165,7 +165,7 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
         if gemini_text:
             return gemini_text, 0.95
 
-        return self._mock_transcribe(), None
+        return self._unconfigured_fallback_transcribe(), None
 
     async def _gemini_transcribe(self, audio_bytes: bytes, language: str | None) -> tuple[str, float | None]:
         """Transcribe audio via Google Gemini multimodal audio API.
@@ -242,7 +242,7 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
 
         api_key = os.environ.get("DEEPGRAM_API_KEY", "")
         if not api_key:
-            return self._mock_transcribe(), None
+            return self._unconfigured_fallback_transcribe(), None
 
         import httpx
 
@@ -268,8 +268,8 @@ class SpeechToTextSkill(SkillExecutor[SpeechToTextRequest, SpeechToTextResponse]
             return "", None
 
     @staticmethod
-    def _mock_transcribe() -> str:
-        """Fallback when no STT API key is configured. Return empty so browser STT can take over."""
+    def _unconfigured_fallback_transcribe() -> str:
+        """Fallback when no cloud STT API key is configured. Return empty so browser native Web Speech API can take over."""
         return ""
 
 

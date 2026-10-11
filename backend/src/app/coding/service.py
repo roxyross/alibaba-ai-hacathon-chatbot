@@ -17,6 +17,8 @@ from app.ai_gateway.models.schemas import AIRequest, Message, MessageRole, TaskT
 from app.ai_gateway.services.router import AIRouter
 from app.coding.repository import CodeRepository
 from app.coding.schemas import (
+    AutonomousCodingRequest,
+    AutonomousCodingResponse,
     CodeDebugRequest,
     CodeDebugResponse,
     CodeExecuteRequest,
@@ -68,8 +70,20 @@ You MUST output valid JSON ONLY with no surrounding markdown or explanation, mat
 class CodingService:
     """Service handling code generation, explanation, debugging, and execution."""
 
-    def __init__(self, repo: CodeRepository) -> None:
-        self.repo = repo
+    def __init__(self, repo: CodeRepository | None = None) -> None:
+        self.repo = repo or CodeRepository()
+
+    async def run_autonomous_engineering_task(
+        self,
+        user_id: str,
+        request: AutonomousCodingRequest,
+    ) -> AutonomousCodingResponse:
+        """Execute a full Claude Code-style autonomous software-engineering task."""
+        from app.coding.autonomous import AutonomousCodingEngine
+
+        engine = AutonomousCodingEngine(coding_service=self)
+        return await engine.run_task(user_id=user_id, request=request)
+
 
     # ---------------------------------------------------------------------------
     # AI Code Generation
@@ -351,14 +365,89 @@ class CodingService:
                     exit_code = 1
                     status = "error"
             else:
-                stdout_str = f"// [Sandbox Simulation: Node.js runtime not installed on host]\n// Executed logic for {len(code.splitlines())} lines."
-                status = "success"
-                exit_code = 0
+                stderr_str = "Node.js runtime ('node') is not installed on this host environment. Execution cannot proceed."
+                stdout_str = ""
+                status = "unsupported"
+                exit_code = 127
+        elif lang in ("go", "golang"):
+            go_path = shutil.which("go")
+            if not go_path:
+                stderr_str = "Go compiler ('go') is not installed on this host environment."
+                stdout_str = ""
+                status = "unsupported"
+                exit_code = 127
+            else:
+                # Real Go compilation & execution
+                import tempfile
+                import os
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    src_file = os.path.join(tmpdir, "main.go")
+                    with open(src_file, "w", encoding="utf-8") as f:
+                        f.write(code)
+                    proc = None
+                    try:
+                        proc = await asyncio.create_subprocess_exec(
+                            go_path, "run", src_file,
+                            stdin=asyncio.subprocess.PIPE,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                        )
+                        stdin_bytes = stdin_text.encode("utf-8")
+                        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(stdin_bytes), timeout=10.0)
+                        stdout_str = stdout_b.decode("utf-8", errors="replace")[:65536]
+                        stderr_str = stderr_b.decode("utf-8", errors="replace")[:65536]
+                        exit_code = proc.returncode or 0
+                        status = "success" if exit_code == 0 else "error"
+                    except TimeoutError:
+                        if proc:
+                            with contextlib.suppress(Exception):
+                                proc.kill()
+                        stderr_str = "Go execution timed out after 10.0 seconds."
+                        exit_code = 124
+                        status = "timeout"
+                    except Exception as exc:
+                        stderr_str = f"Go execution failed: {exc}"
+                        exit_code = 1
+                        status = "error"
+        elif lang in ("rust", "rs"):
+            rustc_path = shutil.which("rustc")
+            if not rustc_path:
+                stderr_str = "Rust compiler ('rustc') is not installed on this host environment."
+                stdout_str = ""
+                status = "unsupported"
+                exit_code = 127
+            else:
+                import tempfile
+                import os
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    src_file = os.path.join(tmpdir, "main.rs")
+                    bin_file = os.path.join(tmpdir, "main.exe" if sys.platform == "win32" else "main")
+                    with open(src_file, "w", encoding="utf-8") as f:
+                        f.write(code)
+                    compile_proc = await asyncio.create_subprocess_exec(
+                        rustc_path, src_file, "-o", bin_file,
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                    )
+                    c_out, c_err = await compile_proc.communicate()
+                    if compile_proc.returncode != 0:
+                        stderr_str = f"Rust compilation error:\n{c_err.decode('utf-8', errors='replace')}"
+                        exit_code = compile_proc.returncode or 1
+                        status = "error"
+                    else:
+                        proc = await asyncio.create_subprocess_exec(
+                            bin_file, stdin=asyncio.subprocess.PIPE,
+                            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                        )
+                        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(stdin_text.encode("utf-8")), timeout=5.0)
+                        stdout_str = stdout_b.decode("utf-8", errors="replace")[:65536]
+                        stderr_str = stderr_b.decode("utf-8", errors="replace")[:65536]
+                        exit_code = proc.returncode or 0
+                        status = "success" if exit_code == 0 else "error"
         else:
-            # Unsupported or compiled language simulation
-            stdout_str = f"[{lang.upper()} Sandbox] Simulated execution complete. Syntax parsed successfully."
-            status = "success"
-            exit_code = 0
+            stderr_str = f"Execution runtime for language '{lang}' is not supported or not installed on this host."
+            stdout_str = ""
+            status = "unsupported"
+            exit_code = 127
 
         execution_time_ms = max(1, int((time.monotonic() - start_time) * 1000))
 
@@ -386,6 +475,18 @@ class CodingService:
             execution_time_ms=execution_time_ms,
             created_at=record.get("created_at"),
         )
+
+    @classmethod
+    def get_available_runtimes(cls) -> dict[str, bool]:
+        """Detect available installed language runtimes and compilers on this host."""
+        return {
+            "python": True,
+            "node": shutil.which("node") is not None,
+            "typescript": shutil.which("node") is not None or shutil.which("tsc") is not None,
+            "go": shutil.which("go") is not None,
+            "rust": shutil.which("rustc") is not None,
+            "c_cpp": (shutil.which("gcc") is not None) or (shutil.which("clang") is not None),
+        }
 
     # ---------------------------------------------------------------------------
     # Helper & Fallback Methods
@@ -467,17 +568,21 @@ class CodingService:
 
     def _fallback_debug(self, code: str, lang: str, error_msg: str | None) -> tuple[str, str, str, str, str, list[str]]:
         """Deterministic offline fallback code diagnostics."""
+        clean_err = re.sub(r"[\r\n]+", " ", str(error_msg or "syntax or boundary error"))[:120]
         hypothesis = (
-            f"Potential runtime exception detected in {lang} snippet: {error_msg or 'syntax or boundary error'}."
+            f"Potential runtime exception detected in {lang} snippet: {clean_err}."
         )
         evidence = "Examination of code statements indicates variable resolution or missing guard checks."
         fix = "Wrapped operations in safe guard conditions and validated variable bounds before execution."
 
-        # Add safe guard comments
-        if lang in ("python", "py"):
-            fixed_code = f"# Fixed and guarded against {error_msg or 'exceptions'}\ntry:\n" + "\n".join(f"    {line}" for line in code.splitlines()) + "\nexcept Exception as e:\n    print(f'Handled gracefully: {e}')\n"
+        # If code contains definitions (functions/classes/exports), avoid destructive top-level wrapping
+        if any(keyword in code for keyword in ("def ", "class ", "function ", "export ", "module.exports")):
+            comment_prefix = "#" if lang in ("python", "py") else "//"
+            fixed_code = f"{comment_prefix} Diagnostic Note: {clean_err}\n" + code
+        elif lang in ("python", "py"):
+            fixed_code = f"# Fixed and guarded against {clean_err}\ntry:\n" + "\n".join(f"    {line}" for line in code.splitlines()) + "\nexcept Exception as e:\n    print(f'Handled gracefully: {e}')\n"
         else:
-            fixed_code = f"// Fixed and guarded against {error_msg or 'exceptions'}\ntry {{\n" + "\n".join(f"  {line}" for line in code.splitlines()) + "\n} catch (err) {\n  console.error('Handled:', err);\n}\n"
+            fixed_code = f"// Fixed and guarded against {clean_err}\ntry {{\n" + "\n".join(f"  {line}" for line in code.splitlines()) + "\n} catch (err) {\n  console.error('Handled:', err);\n}\n"
 
         verification = "Run snippet in sandboxed playground to confirm exit code 0."
         alternatives = [
@@ -485,3 +590,159 @@ class CodingService:
             "Verify environment variables and permissions.",
         ]
         return hypothesis, evidence, fix, fixed_code, verification, alternatives
+
+    @classmethod
+    def get_language_capability_matrix(cls) -> dict[str, dict[str, bool]]:
+        """Return honest per-language capability matrix across the development lifecycle."""
+        languages = [
+            "Python", "JavaScript", "TypeScript", "Go", "Rust", "Java",
+            "C", "C++", "C#", "PHP", "Ruby", "Kotlin", "Swift", "Dart",
+            "SQL", "HTML", "CSS", "Shell", "PowerShell", "YAML", "JSON", "Markdown",
+        ]
+        matrix: dict[str, dict[str, bool]] = {}
+        for lang in languages:
+            is_declarative = lang in ("SQL", "HTML", "CSS", "YAML", "JSON", "Markdown")
+            is_compiled = lang in ("Go", "Rust", "Java", "C", "C++", "C#", "Kotlin", "Swift")
+
+            runtime_available = False
+            if lang == "Python":
+                runtime_available = True
+            elif lang in ("JavaScript", "TypeScript"):
+                runtime_available = bool(shutil.which("node"))
+            elif lang == "Go":
+                runtime_available = bool(shutil.which("go"))
+            elif lang == "Rust":
+                runtime_available = bool(shutil.which("rustc"))
+            elif lang in ("Shell", "PowerShell"):
+                runtime_available = True
+
+            compiler_available = False
+            if lang == "Go":
+                compiler_available = bool(shutil.which("go"))
+            elif lang == "Rust":
+                compiler_available = bool(shutil.which("rustc"))
+            elif lang in ("C", "C++"):
+                compiler_available = bool(shutil.which("gcc") or shutil.which("clang") or shutil.which("cl"))
+            elif lang in ("Java", "Kotlin"):
+                compiler_available = bool(shutil.which("javac") or shutil.which("kotlinc"))
+            elif lang == "C#":
+                compiler_available = bool(shutil.which("dotnet"))
+
+            matrix[lang] = {
+                "understanding": True,
+                "editing": True,
+                "linting": not is_declarative,
+                "compilation": compiler_available if is_compiled else False,
+                "execution": False if is_declarative else runtime_available,
+                "testing": runtime_available and not is_declarative,
+            }
+        return matrix
+
+    @classmethod
+    def detect_project(cls, project_path: str = ".") -> dict[str, Any]:
+        """Detect language, runtime, compiler, package manager, framework, and test runner."""
+        from pathlib import Path
+        root = Path(project_path)
+        if not root.exists() or not root.is_dir():
+            return {"error": f"Invalid project directory: {project_path}"}
+
+        detected_languages: list[str] = []
+        package_managers: list[str] = []
+        frameworks: list[str] = []
+        test_runners: list[str] = []
+        compilers: list[str] = []
+
+        # Python detection
+        if (root / "pyproject.toml").exists() or (root / "requirements.txt").exists() or (root / "setup.py").exists():
+            detected_languages.append("Python")
+            if (root / "poetry.lock").exists():
+                package_managers.append("poetry")
+            else:
+                package_managers.append("pip")
+            test_runners.append("pytest")
+
+            reqs = ""
+            for fn in ("requirements.txt", "pyproject.toml"):
+                p = root / fn
+                if p.exists():
+                    with contextlib.suppress(Exception):
+                        reqs += p.read_text(encoding="utf-8", errors="ignore").lower()
+            if "fastapi" in reqs:
+                frameworks.append("FastAPI")
+            if "django" in reqs:
+                frameworks.append("Django")
+            if "flask" in reqs:
+                frameworks.append("Flask")
+
+        # JS / TS detection
+        pkg_json = root / "package.json"
+        if pkg_json.exists():
+            detected_languages.append("JavaScript")
+            if (root / "tsconfig.json").exists():
+                detected_languages.append("TypeScript")
+                if shutil.which("tsc"):
+                    compilers.append("tsc")
+
+            if (root / "pnpm-lock.yaml").exists():
+                package_managers.append("pnpm")
+            elif (root / "yarn.lock").exists():
+                package_managers.append("yarn")
+            elif (root / "bun.lockb").exists():
+                package_managers.append("bun")
+            else:
+                package_managers.append("npm")
+
+            with contextlib.suppress(Exception):
+                pkg_data = json.loads(pkg_json.read_text(encoding="utf-8", errors="ignore"))
+                deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
+                deps_lower = {k.lower(): v for k, v in deps.items()}
+                if "next" in deps_lower:
+                    frameworks.append("Next.js")
+                if "react" in deps_lower and "next" not in deps_lower:
+                    frameworks.append("React")
+                if "vue" in deps_lower:
+                    frameworks.append("Vue")
+                if "@angular/core" in deps_lower:
+                    frameworks.append("Angular")
+                if "express" in deps_lower:
+                    frameworks.append("Express")
+
+                scripts = pkg_data.get("scripts", {})
+                if "test" in scripts:
+                    test_str = str(scripts["test"]).lower()
+                    if "vitest" in test_str:
+                        test_runners.append("vitest")
+                    elif "jest" in test_str:
+                        test_runners.append("jest")
+                    else:
+                        test_runners.append("npm test")
+
+        # Rust detection
+        if (root / "Cargo.toml").exists():
+            detected_languages.append("Rust")
+            package_managers.append("cargo")
+            test_runners.append("cargo test")
+            if shutil.which("rustc"):
+                compilers.append("rustc")
+
+        # Go detection
+        if (root / "go.mod").exists():
+            detected_languages.append("Go")
+            package_managers.append("go mod")
+            test_runners.append("go test")
+            if shutil.which("go"):
+                compilers.append("go")
+
+        # Docker detection
+        if (root / "Dockerfile").exists() or (root / "docker-compose.yml").exists():
+            frameworks.append("Docker")
+
+        return {
+            "project_path": str(root.resolve()),
+            "detected_languages": list(set(detected_languages)),
+            "package_managers": list(set(package_managers)),
+            "frameworks": list(set(frameworks)),
+            "test_runners": list(set(test_runners)),
+            "compilers": list(set(compilers)),
+            "capability_matrix": cls.get_language_capability_matrix(),
+        }

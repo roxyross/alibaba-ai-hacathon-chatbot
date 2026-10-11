@@ -166,4 +166,6 @@ async def execute_tool(
     """Directly execute a registered tool within the sandbox (for authorized callers)."""
     # Enforce caller's user_id
     req.user_id = user.id
-    return await _registry.execute(req)
+    # CRITICAL P0: Public external callers must NEVER be able to set bypass_confirmation=True.
+    req.bypass_confirmation = False
+    return await _registry.execute(req, _trusted_internal=False)

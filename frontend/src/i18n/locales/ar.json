@@ -54,6 +54,8 @@
     "payment_methods": "طرق الدفع",
     "connectors": "مركز الروابط",
     "device_hub": "مركز الأجهزة",
+    "control_center": "مركز التحكم",
+    "trust_center": "الثقة والأمان",
     "pricing": "الأسعار والخطط",
     "settings": "الإعدادات"
   },

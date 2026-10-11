@@ -1,5 +1,6 @@
 """ROXY JARVIS AI Gateway — FastAPI application entry point."""
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,18 @@ from app.mcp.router import router as mcp_router
 from app.tools.builtin import register_builtin_tools
 from app.vault.router import router as vault_router
 from app.artifacts.router import router as artifacts_router
+from app.trust.router import router as trust_router
+from app.account.router import router as account_router
+from app.personalization.router import router as personalization_router
+from app.diagnostics.router import router as diagnostics_router
+from app.evaluation.router import router as evaluation_router
+from app.observability.router import router as observability_router
+from app.testing_matrix.router import testing_matrix_router
+from app.adversarial_security.router import router as adversarial_security_router
+from app.production_readiness.router import router as production_readiness_router
+from app.open_work.router import router as open_work_router
+from app.plugins.router import router as plugins_router
+from app.core.middleware import CorrelationMiddleware
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(
@@ -68,28 +81,39 @@ app = FastAPI(
 )
 
 # CORS — allow frontend to call the gateway
+_default_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+_extra_origins = [o.strip() for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+_allowed_origins = list(dict.fromkeys(_default_origins + _extra_origins))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ],
-    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|https://.*\.vercel\.app)$",
+    allow_origins=_allowed_origins,
+    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|https://.*\.vercel\.app|https://.*\.roxy\.ai)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(CorrelationMiddleware)
 
 @app.get("/api/v1/health")
 @app.get("/health")
 @app.get("/health/live")
 @app.get("/health/ready")
 async def health_check() -> dict[str, str]:
-    return {"status": "ok", "service": "roxy-ai-gateway"}
+    return {
+        "status": "ok",
+        "service": "roxy-ai-gateway",
+        "version": os.environ.get("ROXY_VERSION", "2.0.0"),
+        "commit_sha": os.environ.get("COMMIT_SHA", os.environ.get("GIT_SHA", "unknown")),
+        "environment": os.environ.get("APP_ENV", "development"),
+    }
 
 # Register all routes under /api/v1
 app.include_router(auth_router, prefix="/api/v1")
@@ -130,6 +154,21 @@ app.include_router(mcp_router, prefix="/api/v1")
 app.include_router(device_router, prefix="/api/v1")
 app.include_router(vault_router, prefix="/api/v1")
 app.include_router(artifacts_router, prefix="/api/v1")
+app.include_router(trust_router, prefix="/api/v1")
+app.include_router(account_router, prefix="/api/v1")
+app.include_router(personalization_router, prefix="/api/v1")
+app.include_router(diagnostics_router, prefix="/api/v1")
+app.include_router(evaluation_router, prefix="/api/v1")
+app.include_router(observability_router, prefix="/api/v1")
+app.include_router(testing_matrix_router, prefix="/api/v1")
+app.include_router(adversarial_security_router, prefix="/api/v1")
+app.include_router(production_readiness_router, prefix="/api/v1")
+
+# Unversioned aliases for device and trust services
+app.include_router(device_router, prefix="/api")
+app.include_router(trust_router, prefix="/api")
+app.include_router(open_work_router, prefix="/api/v1")
+app.include_router(plugins_router, prefix="/api/v1")
 
 _static_dir = Path(__file__).resolve().parents[2] / "static"
 try:
@@ -222,6 +261,8 @@ async def on_startup() -> None:
         FinanceService.get_instance().register_finance_tools()
         from app.study.service import StudyService
         StudyService.get_instance().register_tutor_tools()
+        from app.files.service import FileSystemService
+        FileSystemService.get_instance().register_file_tools()
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("builtin_tools.startup_failed", error=str(exc))

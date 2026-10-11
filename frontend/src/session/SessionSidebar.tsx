@@ -38,6 +38,7 @@ import {
   CreditCard,
   Film,
   Monitor,
+  Sliders,
 } from 'lucide-react';
 import { useSessions, ChatSession } from './useSessions';
 import { useTranslation, LOCALES, Locale } from '../i18n';
@@ -67,9 +68,13 @@ export type AppView =
   | 'memory'
   | 'audit'
   | 'connectors'
-  | 'device_hub';
+  | 'device_hub'
+  | 'control_center'
+  | 'trust_center';
 
 export const SECONDARY_VIEWS: AppView[] = [
+  'control_center',
+  'trust_center',
   'device_hub',
   'connectors',
   'finance',
@@ -831,6 +836,28 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   <div className="session-sidebar__rail-popover-list">
                     <button
                       type="button"
+                      className={`session-sidebar__rail-popover-item ${activeView === 'control_center' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      onClick={() => {
+                        onViewChange('control_center');
+                        setRailToolsMenuOpen(false);
+                      }}
+                    >
+                      <Sliders size={15} strokeWidth={1.8} />
+                      <span>Control Center</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`session-sidebar__rail-popover-item ${activeView === 'trust_center' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      onClick={() => {
+                        onViewChange('trust_center');
+                        setRailToolsMenuOpen(false);
+                      }}
+                    >
+                      <ShieldCheck size={15} strokeWidth={1.8} />
+                      <span>Trust & Safety</span>
+                    </button>
+                    <button
+                      type="button"
                       className={`session-sidebar__rail-popover-item ${activeView === 'finance' ? 'session-sidebar__rail-popover-item--active' : ''}`}
                       onClick={() => {
                         onViewChange('finance');
@@ -1224,7 +1251,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             <div className="session-sidebar__tools-toggle-left">
               <Layers size={14} strokeWidth={1.8} className="session-sidebar__tools-icon" />
               <span className="session-sidebar__tools-title">{t('sidebar.all_studios')}</span>
-              <span className="session-sidebar__tools-count">14</span>
+              <span className="session-sidebar__tools-count">17</span>
             </div>
             <ChevronDown
               size={14}
@@ -1355,6 +1382,22 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                 >
                   <CreditCard size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
                   <span className="session-sidebar__nav-text">{t('nav.payment_methods')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`session-sidebar__nav-link ${activeView === 'control_center' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('control_center')}
+                >
+                  <Sliders size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">{t('nav.control_center')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`session-sidebar__nav-link ${activeView === 'trust_center' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('trust_center')}
+                >
+                  <ShieldCheck size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">{t('nav.trust_center')}</span>
                 </button>
               </nav>
             </div>

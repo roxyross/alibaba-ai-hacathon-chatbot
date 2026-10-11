@@ -764,6 +764,7 @@ async def test_workspace_tools_direct_execution() -> None:
             tool_id="workspace_delete_project",
             arguments={"project_id": proj_id},
             user_id=user_id,
+            bypass_confirmation=True,
         )
     )
     assert res_del_proj.success is True

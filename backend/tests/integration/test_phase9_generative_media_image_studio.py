@@ -335,6 +335,7 @@ async def test_direct_execution_of_image_tools() -> None:
             tool_id="image_delete_generation",
             arguments={"image_id": img_id},
             user_id=user_id,
+            bypass_confirmation=True,
         )
     )
     assert res_del.success is True

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
@@ -78,15 +78,17 @@ async def update_connector(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.delete("/{connector_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{connector_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_connector(
     connector_id: str,
     user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     """Delete a connector instance and unregister its tools."""
     deleted = await _service.delete_connector(user_id=user.id, connector_id=connector_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Connector '{connector_id}' not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 
 @router.post("/{connector_id}/test", response_model=ConnectionTestResult)

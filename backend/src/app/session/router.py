@@ -146,3 +146,54 @@ async def share_session(
         "url": f"/share/{token}",
         "share_url": f"/share/{token}",
     }
+
+
+# -----------------------------------------------------------------------------
+# Cross-Surface Context Continuity Endpoints
+# -----------------------------------------------------------------------------
+@router.get("/context/active")
+async def get_active_cross_surface_context(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Any:
+    """Retrieve current cross-surface context for the authenticated user."""
+    from app.session.continuity import CrossSurfaceContinuityEngine
+
+    engine = CrossSurfaceContinuityEngine.get_instance()
+    return engine.get_context(current_user.id).model_dump()
+
+
+@router.post("/context/update")
+async def update_cross_surface_context(
+    payload: dict[str, Any],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Any:
+    """Update active surface, folder, file, app, or task context."""
+    from app.session.continuity import CrossSurfaceContinuityEngine
+
+    engine = CrossSurfaceContinuityEngine.get_instance()
+    ctx = engine.update_context(
+        user_id=current_user.id,
+        surface=payload.get("surface"),
+        folder=payload.get("folder"),
+        file=payload.get("file"),
+        app=payload.get("app"),
+        task_id=payload.get("task_id"),
+        language=payload.get("language"),
+        entity=payload.get("entity"),
+    )
+    return ctx.model_dump()
+
+
+@router.post("/context/resolve")
+async def resolve_cross_surface_reference(
+    payload: dict[str, str],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Any:
+    """Resolve pronouns ('iska', 'this', 'it') against active cross-surface context."""
+    from app.session.continuity import CrossSurfaceContinuityEngine
+
+    utterance = payload.get("utterance", "")
+    engine = CrossSurfaceContinuityEngine.get_instance()
+    res = engine.resolve_reference(current_user.id, utterance)
+    return res.model_dump()
+

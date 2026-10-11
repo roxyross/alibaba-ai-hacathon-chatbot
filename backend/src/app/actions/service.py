@@ -214,15 +214,16 @@ class ActionService:
 
         now = datetime.now(UTC)
 
-        # Execute via central ToolRegistry
+        # Execute via central ToolRegistry with explicit user confirmation verified
         exec_request = ToolExecutionRequest(
             tool_id=action.tool_id,
             arguments=action.input_parameters,
             user_id=user_id,
             task_id=action.task_id,
             step_id=action.step_id,
+            bypass_confirmation=True,
         )
-        exec_result = await self._tool_registry.execute(exec_request)
+        exec_result = await self._tool_registry.execute(exec_request, _trusted_internal=True)
 
         final_status = ActionStatus.EXECUTED.value if exec_result.success else ActionStatus.FAILED.value
         output_data = exec_result.output if exec_result.success else None

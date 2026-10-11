@@ -1,0 +1,72 @@
+name: ROXY-AI Production Release & Deployment
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Target Deployment Environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      dry_run:
+        description: 'Dry run execution (validate artifacts without updating production traffic)'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-package:
+    name: Package Release Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Release Metadata
+        id: meta
+        run: |
+          GIT_SHA=$(git rev-parse --short HEAD)
+          RELEASE_TAG=${GITHUB_REF_NAME:-v2.0.0-manual}
+          echo "git_sha=$GIT_SHA" >> $GITHUB_OUTPUT
+          echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+          echo "Packaging release: Tag=$RELEASE_TAG, SHA=$GIT_SHA, Target=${{ github.event.inputs.target_env || 'production' }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate Docker Production Build
+        run: |
+          docker build --build-arg COMMIT_SHA=${{ steps.meta.outputs.git_sha }} \
+                       -t ghcr.io/${{ github.repository }}/backend:${{ steps.meta.outputs.git_sha }} \
+                       -f backend/Dockerfile backend/
+          docker build --target production \
+                       -t ghcr.io/${{ github.repository }}/frontend-prod:${{ steps.meta.outputs.git_sha }} \
+                       -f frontend/Dockerfile frontend/
+
+      - name: Report Release Manifest
+        run: |
+          echo "=========================================================="
+          echo "ROXY-AI RELEASE MANIFEST READY"
+          echo "Tag:         ${{ steps.meta.outputs.release_tag }}"
+          echo "Git SHA:     ${{ steps.meta.outputs.git_sha }}"
+          echo "Target Env:  ${{ github.event.inputs.target_env || 'production' }}"
+          echo "Dry Run:     ${{ github.event.inputs.dry_run || 'false' }}"
+          echo "Images:      ghcr.io/${{ github.repository }}/backend:${{ steps.meta.outputs.git_sha }}"
+          echo "             ghcr.io/${{ github.repository }}/frontend-prod:${{ steps.meta.outputs.git_sha }}"
+          echo "=========================================================="

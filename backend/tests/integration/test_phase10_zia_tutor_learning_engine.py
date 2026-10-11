@@ -422,12 +422,34 @@ async def test_tutor_reset_progress_destructive_confirmation() -> None:
     assert deck_mid is not None
     assert deck_mid["mastery_percentage"] == 25.0
 
-    # Execute reset via tool
+    # Execute reset via tool without token -> must require confirmation
+    res_reset_unconfirmed = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="tutor_reset_progress",
+            arguments={"deck_id": deck["id"], "delete_deck": False},
+            user_id=user_id,
+        )
+    )
+    assert res_reset_unconfirmed.success is False
+    assert res_reset_unconfirmed.output.get("challenge") is not None
+    challenge = res_reset_unconfirmed.output["challenge"]
+    token = challenge["challenge_token"]
+
+    # Approve challenge and execute with token
+    from app.trust.confirmation_gate import ConfirmationGate
+    ConfirmationGate.resolve_challenge(
+        challenge_id=challenge["challenge_id"],
+        user_id=user_id,
+        decision="approve",
+        challenge_token=token,
+    )
+
     res_reset = await registry.execute(
         ToolExecutionRequest(
             tool_id="tutor_reset_progress",
             arguments={"deck_id": deck["id"], "delete_deck": False},
             user_id=user_id,
+            confirmation_token=token,
         )
     )
     assert res_reset.success is True
@@ -448,12 +470,30 @@ async def test_tutor_reset_progress_destructive_confirmation() -> None:
     assert deck_after is not None
     assert deck_after["mastery_percentage"] == 0.0
 
-    # Test delete_deck option
+    # Test delete_deck option (also requires confirmation)
+    res_del_unconfirmed = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="tutor_reset_progress",
+            arguments={"deck_id": deck["id"], "delete_deck": True},
+            user_id=user_id,
+        )
+    )
+    assert res_del_unconfirmed.success is False
+    del_challenge = res_del_unconfirmed.output["challenge"]
+    del_token = del_challenge["challenge_token"]
+    ConfirmationGate.resolve_challenge(
+        challenge_id=del_challenge["challenge_id"],
+        user_id=user_id,
+        decision="approve",
+        challenge_token=del_token,
+    )
+
     res_del = await registry.execute(
         ToolExecutionRequest(
             tool_id="tutor_reset_progress",
             arguments={"deck_id": deck["id"], "delete_deck": True},
             user_id=user_id,
+            confirmation_token=del_token,
         )
     )
     assert res_del.success is True

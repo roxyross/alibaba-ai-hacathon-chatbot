@@ -39,6 +39,8 @@ if not logging.getLogger().handlers:
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 logging.getLogger().setLevel(logging.INFO)
 
+from app.observability.masking import structlog_zero_leakage_processor
+
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
@@ -49,6 +51,7 @@ structlog.configure(
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
+        structlog_zero_leakage_processor,
         structlog.processors.JSONRenderer(),
     ],
     wrapper_class=structlog.stdlib.BoundLogger,

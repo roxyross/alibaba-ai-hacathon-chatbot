@@ -6,10 +6,13 @@ Attribution is included in every response (streaming and non-streaming).
 
 from __future__ import annotations
 
-import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request as StarletteRequest, status
-from fastapi.responses import StreamingResponse
+from collections.abc import AsyncGenerator
+from typing import Any
+
 import pybreaker
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 
 from app.ai_gateway.adapters.base import (
     AllProvidersUnavailableError,
@@ -43,9 +46,9 @@ _router = AIRouter()
 
 @router.post("/chat", response_model=AIResponse)
 async def chat(
+    request: Request,
     body: AIRequest,
     current_user: User = Depends(get_current_user),
-    http_request: StarletteRequest = None,
 ) -> AIResponse:
     """Non-streaming chat completion.
 
@@ -54,8 +57,7 @@ async def chat(
     Spec §10.7: per-user rate limit of 60 msg/min (429 + Retry-After on excess).
     """
     # Per-user rate limit (spec §10.7)
-    if http_request is not None:
-        _check_rate_limit(http_request, user_id=str(current_user.id))
+    _check_rate_limit(request, user_id=str(current_user.id))
 
     # Stamp the authenticated user onto the request for persistence.
     body.user_id = current_user.id
@@ -95,10 +97,10 @@ async def chat(
 
 @router.post("/chat/stream")
 async def chat_stream(
+    request: Request,
     body: AIRequest,
     current_user: User = Depends(get_current_user),
-    http_request: StarletteRequest = None,
-):
+) -> StreamingResponse:
     """Streaming chat completion over SSE.
 
     First comment line: attribution header (provider, model)
@@ -112,8 +114,7 @@ async def chat_stream(
             detail="stream=true is required for this endpoint",
         )
     # Per-user rate limit (spec §10.7)
-    if http_request is not None:
-        _check_rate_limit(http_request, user_id=str(current_user.id))
+    _check_rate_limit(request, user_id=str(current_user.id))
 
     body.user_id = current_user.id
 
@@ -124,7 +125,7 @@ async def chat_stream(
         user_id=current_user.id,
     )
 
-    async def event_generator():
+    async def event_generator() -> AsyncGenerator[bytes, None]:
         provider_name = "unknown"
         model_name = "unknown"
         chunks_yielded = False
@@ -200,7 +201,7 @@ async def chat_stream(
 # GET /api/v1/ai/providers
 # -----------------------------------------------------------------------------
 
-def _get_adapter_for_provider(name: str):
+def _get_adapter_for_provider(name: str) -> Any:
     """Return the correct adapter instance for a named provider."""
     if name == "deepseek":
         from app.ai_gateway.adapters.deepseek import DeepSeekAdapter
@@ -233,9 +234,9 @@ async def list_providers() -> ProviderHealthResponse:
         try:
             adapter = _get_adapter_for_provider(cfg.name)
             cb = adapter.circuit_breaker
-            if cb.current_state == pybreaker.CIRCUIT_OPEN:
+            if cb.current_state in (pybreaker.STATE_OPEN, "open"):
                 circuit_state = CircuitState.OPEN
-            elif cb.current_state == pybreaker.CIRCUIT_HALF_OPEN:
+            elif cb.current_state in (pybreaker.STATE_HALF_OPEN, "half-open"):
                 circuit_state = CircuitState.HALF_OPEN
             else:
                 circuit_state = CircuitState.CLOSED
@@ -267,7 +268,7 @@ async def list_providers() -> ProviderHealthResponse:
 # -----------------------------------------------------------------------------
 
 @router.patch("/providers/{name}")
-async def toggle_provider(name: str):
+async def toggle_provider(name: str) -> dict[str, Any]:
     """Enable or disable a provider by name.
 
     Requires admin or operator role (enforced at gateway layer).
@@ -309,9 +310,9 @@ async def health_check() -> ProviderHealthResponse:
         try:
             adapter = _get_adapter_for_provider(cfg.name)
             cb = adapter.circuit_breaker
-            if cb.current_state == pybreaker.CIRCUIT_OPEN:
+            if cb.current_state in (pybreaker.STATE_OPEN, "open"):
                 circuit_state = CircuitState.OPEN
-            elif cb.current_state == pybreaker.CIRCUIT_HALF_OPEN:
+            elif cb.current_state in (pybreaker.STATE_HALF_OPEN, "half-open"):
                 circuit_state = CircuitState.HALF_OPEN
             else:
                 circuit_state = CircuitState.CLOSED
@@ -343,7 +344,7 @@ async def health_check() -> ProviderHealthResponse:
 # -----------------------------------------------------------------------------
 
 @router.get("/usage")
-async def token_usage(limit: int = 100, provider: str | None = None):
+async def token_usage(limit: int = 100, provider: str | None = None) -> dict[str, Any]:
     """Return recent token usage logs.
 
     Requires authentication.
@@ -355,3 +356,26 @@ async def token_usage(limit: int = 100, provider: str | None = None):
         "provider_filter": provider,
         "limit": limit,
     }
+
+
+from pydantic import BaseModel
+
+
+class RouteIntentRequest(BaseModel):
+    prompt: str = ""
+    modality: str | None = None
+
+
+@router.post("/route-intent")
+async def route_intent(
+    body: RouteIntentRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Analyze prompt complexity, modality and intent to select optimal model with fallback chain."""
+    from app.ai_gateway.services.model_intelligence import ModelIntelligenceRouter
+
+    router_inst = ModelIntelligenceRouter()
+    decision = router_inst.analyze_and_route(prompt=body.prompt, requested_modality=body.modality)
+    return decision.model_dump()
+
+

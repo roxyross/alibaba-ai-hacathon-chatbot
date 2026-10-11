@@ -1662,6 +1662,61 @@ class AgentPlanner:
                 }
             ]
 
+        # Single-intent: Multi-Device Fleet Summary & Inventory
+        if (
+            "devices are online" in lower
+            or "list my devices" in lower
+            or "list devices" in lower
+            or "show my fleet" in lower
+            or "show fleet" in lower
+            or "fleet summary" in lower
+            or "status of my devices" in lower
+            or "my connected devices" in lower
+        ):
+            tool_id = (
+                "device_fleet_summary"
+                if "device_fleet_summary" in tools or self._tool_registry.get("device_fleet_summary")
+                else "device_list_apps"
+            )
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Query multi-device fleet health and application inventory",
+                    "tool_id": tool_id,
+                    "tool_input": {},
+                    "depends_on": [],
+                }
+            ]
+
+        # Single-intent: Media Playback & App Control on Multi-Device Fleet
+        if lower.startswith("play ") and (" on " in lower or " in " in lower or len(lower.split()) >= 2):
+            try:
+                from app.device.intent_parser import DeviceIntentParser, DeviceIntentType
+                parsed_intent = DeviceIntentParser.parse(text)
+                if parsed_intent.intent_type == DeviceIntentType.APP_CONTROL:
+                    tool_id = (
+                        "device_fleet_execute"
+                        if "device_fleet_execute" in tools or self._tool_registry.get("device_fleet_execute")
+                        else "device_orchestrate_app_control"
+                    )
+                    return [
+                        {
+                            "step_number": 1,
+                            "description": f"Execute '{parsed_intent.capability}' for '{parsed_intent.application}' across fleet (target: {parsed_intent.target_device_hint or 'auto'})",
+                            "tool_id": tool_id,
+                            "tool_input": {
+                                "application": parsed_intent.application,
+                                "capability": parsed_intent.capability,
+                                "parameters": parsed_intent.parameters,
+                                "preferred_device_id": parsed_intent.target_device_hint,
+                                "allow_failover": True,
+                            },
+                            "depends_on": [],
+                        }
+                    ]
+            except Exception:
+                pass
+
         # Single-intent: Device Agent - List Installed & Running Apps
         if (
             "list apps" in lower
@@ -2435,22 +2490,26 @@ class AgentPlanner:
             or lower.startswith("handover to ")
             or lower.startswith("transfer chat to ")
             or lower.startswith("transfer session to ")
+            or lower.startswith("transfer this session to ")
+            or ("transfer" in lower and "to" in lower)
+            or ("handover" in lower and "to" in lower)
             or lower.startswith("continue this on ")
             or lower.startswith("continue chat on ")
             or (lower.startswith("switch to ") and any(w in lower for w in ("device", "phone", "macbook", "laptop", "desktop", "tablet", "ipad", "iphone")))
         ):
             target_dev = re.sub(
-                r"(?i)^(?:handover\s+(?:session\s+)?to\s+|transfer\s+(?:chat|session)?\s*(?:to\s*)?|continue\s+(?:this|chat)\s+on\s+|switch\s+to\s+)",
+                r"(?i)^(?:handover\s+(?:(?:this\s+)?session\s+)?to\s+|transfer\s+(?:(?:this\s+)?chat|(?:this\s+)?session)?\s*(?:to\s*)?|continue\s+(?:this|chat)\s+on\s+|switch\s+to\s+)",
                 "",
                 text,
             ).strip().strip("'\"")
+            target_dev = re.sub(r"^(?:my|the)\s+", "", target_dev, flags=re.I).strip()
             if not target_dev:
                 target_dev = "Companion Device"
 
             tool_id = (
-                "device_handover_session"
-                if "device_handover_session" in tools or self._tool_registry.get("device_handover_session")
-                else "device_list_apps"
+                "device_fleet_handover"
+                if "device_fleet_handover" in tools or self._tool_registry.get("device_fleet_handover")
+                else ("device_handover_session" if "device_handover_session" in tools or self._tool_registry.get("device_handover_session") else "device_list_apps")
             )
             return [
                 {
@@ -2459,6 +2518,8 @@ class AgentPlanner:
                     "tool_id": tool_id,
                     "tool_input": {
                         "target_device_id": target_dev,
+                        "application": "session",
+                        "capability": "resume_task",
                         "session_id": str(ctx_dict.get("session_id", "active_session")),
                     },
                     "depends_on": [],

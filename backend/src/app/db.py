@@ -45,7 +45,7 @@ def normalize_database_url(raw: str) -> tuple[str, dict[str, object]]:
       rely on the server default and don't fail the connection over it).
     """
     if not raw:
-        return ("postgresql+asyncpg://user:pass@localhost:5432/roxy", {})
+        return ("postgresql+asyncpg://postgres:postgres@localhost:5432/roxy_dev", {})
 
     if raw.startswith("postgresql://"):
         raw = "postgresql+asyncpg://" + raw[len("postgresql://") :]

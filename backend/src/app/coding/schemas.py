@@ -174,3 +174,48 @@ class CodeStatsResponse(BaseModel):
     total_executions: int
     successful_executions: int
     success_rate_percentage: float
+
+
+# ---------------------------------------------------------------------------
+# Autonomous Coding Agent Schemas (Claude-Level Software Engineering)
+# ---------------------------------------------------------------------------
+
+class AutonomousCodingRequest(BaseModel):
+    """Schema for Claude-style autonomous software-engineering tasks."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    prompt: str = Field(min_length=1, max_length=5000)
+    project_path: str = Field(default=".", max_length=500)
+    test_command: str | None = None
+    build_command: str | None = None
+    max_recovery_iterations: int = Field(default=3, ge=1, le=10)
+    context_files: list[str] | None = None
+
+
+class AutonomousCodingStep(BaseModel):
+    """Single stage execution step in the autonomous engineering loop."""
+
+    step_number: int
+    stage: str
+    description: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    status: str = "success"
+
+
+class AutonomousCodingResponse(BaseModel):
+    """Structured result of an autonomous software engineering workflow."""
+
+    success: bool
+    task: str
+    project_type: dict[str, Any] = Field(default_factory=dict)
+    steps: list[AutonomousCodingStep] = Field(default_factory=list)
+    root_cause_analysis: str = ""
+    modified_files: list[str] = Field(default_factory=list)
+    created_files: list[str] = Field(default_factory=list)
+    diff_summary: str = ""
+    test_results: dict[str, Any] = Field(default_factory=dict)
+    build_results: dict[str, Any] | None = None
+    final_status: str
+    duration_seconds: float = 0.0
+

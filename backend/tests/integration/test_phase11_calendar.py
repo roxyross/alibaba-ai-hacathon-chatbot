@@ -663,11 +663,12 @@ async def test_calendar_tools_direct_execution() -> None:
     assert parsed["category"] == "hackathon"
     assert parsed["location"] == "Google Meet"
 
-    # 8. Delete Event
+    # 8. Delete Event (requires confirmation gate approval)
     del_req = ToolExecutionRequest(
         tool_id="calendar_delete_event",
         arguments={"event_id": event_id},
         user_id=user_id,
+        bypass_confirmation=True,
     )
     del_res = await registry.execute(del_req)
     assert del_res.success is True
@@ -775,12 +776,33 @@ async def test_calendar_tool_multitenant_isolation() -> None:
     )
     assert upd_b.output["success"] is False
 
-    # User B attempts to delete User A's event
+    # User B attempts to delete User A's event -> triggers confirmation gate
+    del_b_unconfirmed = await registry.execute(
+        ToolExecutionRequest(
+            tool_id="calendar_delete_event",
+            arguments={"event_id": event_id},
+            user_id=user_b,
+        )
+    )
+    assert del_b_unconfirmed.success is False
+    assert del_b_unconfirmed.output.get("challenge") is not None
+    del_challenge = del_b_unconfirmed.output["challenge"]
+    del_token = del_challenge["challenge_token"]
+
+    from app.trust.confirmation_gate import ConfirmationGate
+    ConfirmationGate.resolve_challenge(
+        challenge_id=del_challenge["challenge_id"],
+        user_id=user_b,
+        decision="approve",
+        challenge_token=del_token,
+    )
+
     del_b = await registry.execute(
         ToolExecutionRequest(
             tool_id="calendar_delete_event",
             arguments={"event_id": event_id},
             user_id=user_b,
+            confirmation_token=del_token,
         )
     )
     assert del_b.output["deleted"] is False

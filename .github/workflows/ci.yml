@@ -1,0 +1,186 @@
+name: ROXY-AI CI Pipeline
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # 1. Security & Secret Exposure Audit
+  # ----------------------------------------------------------------------------
+  security-audit:
+    name: Security & Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify no unencrypted production secrets in repo
+        run: |
+          echo "Scanning for accidental committed secret files..."
+          FOUND=0
+          for f in .env .env.local backend/.env backend/.env.local frontend/.env frontend/.env.local; do
+            if [ -f "$f" ]; then
+              if grep -Eq "(sk_live_|whsec_|AIzaSy[A-Za-z0-9_-]{33})" "$f"; then
+                echo "CRITICAL: Live credential pattern discovered in $f"
+                FOUND=1
+              fi
+            fi
+          done
+          if [ $FOUND -eq 1 ]; then
+            echo "Security audit FAILED: Live secrets found in working tree."
+            exit 1
+          fi
+          echo "Security audit PASSED: No committed live secrets detected."
+
+  # ----------------------------------------------------------------------------
+  # 2. Frontend CI Pipeline (Typecheck, Lint, Tests, Production Build, Bundle Audit)
+  # ----------------------------------------------------------------------------
+  frontend-ci:
+    name: Frontend Quality & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: ESLint audit
+        run: npm run lint
+
+      - name: Frontend unit & i18n tests
+        run: npm test -- --run
+
+      - name: Production Vite build
+        run: npm run build
+
+      - name: Frontend Bundle Secret Audit
+        run: |
+          echo "Auditing production bundle for leaked private credentials..."
+          BUNDLE_DIR="dist/assets"
+          if grep -Eq "(postgresql\+asyncpg://|JWT_SECRET=|sk_live_|whsec_)" $BUNDLE_DIR/*.js; then
+            echo "CRITICAL: Detected server secrets in client javascript bundle!"
+            exit 1
+          fi
+          echo "Bundle audit clean: Zero backend secrets embedded in frontend build."
+
+  # ----------------------------------------------------------------------------
+  # 3. Backend CI Pipeline (Dependencies, Syntax, Migrations, Pytest Suite)
+  # ----------------------------------------------------------------------------
+  backend-ci:
+    name: Backend Quality & Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_test_password
+          POSTGRES_DB: roxy_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify Python syntax and bytecode compilation
+        run: python -m compileall src
+
+      - name: Validate Alembic migrations determinism
+        run: python scripts/validate_migrations.py
+
+      - name: Run database migration head against test database
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres_test_password@localhost:5432/roxy_test
+        run: |
+          alembic upgrade head
+
+      - name: Run backend pytest suite
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres_test_password@localhost:5432/roxy_test
+          REDIS_URL: redis://localhost:6379/0
+          APP_ENV: test
+          JWT_SECRET: ci_test_jwt_secret_must_be_thirty_two_bytes_long!
+          JWT_SERVICE_SECRET: ci_test_service_secret_thirty_two_bytes_long!
+        run: |
+          pytest tests/integration/test_phase20_docker_compose.py \
+                 tests/integration/test_phase1_auth_session.py \
+                 tests/integration/test_phase2_agent_runtime.py \
+                 tests/integration/test_phase3_chat_persistence.py \
+                 tests/integration/test_phase12_production_hardening_e2e.py \
+                 tests/integration/test_phase34_settings_all_15_sections.py \
+                 tests/integration/test_phase35_media_registry_and_jobs.py \
+                 tests/integration/test_phase36_video_studio_and_canvas.py \
+                 -v --tb=short
+
+  # ----------------------------------------------------------------------------
+  # 4. Docker & Compose Validation Pipeline
+  # ----------------------------------------------------------------------------
+  docker-validation:
+    name: Docker & Container Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose Configuration
+        run: docker compose config
+
+      - name: Build Backend Docker Image
+        run: docker build -t roxy-backend:ci -f backend/Dockerfile backend/
+
+      - name: Build Frontend Production Nginx Image
+        run: docker build --target production -t roxy-frontend-prod:ci -f frontend/Dockerfile frontend/

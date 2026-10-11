@@ -122,3 +122,6 @@ export function useTranslation(): I18nContextValue {
   }
   return ctx;
 }
+
+export const useI18n = useTranslation;
+

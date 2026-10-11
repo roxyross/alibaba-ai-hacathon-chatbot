@@ -262,12 +262,22 @@ class PermissionGrant(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
-    tool_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    permission: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    tool_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    permission: Mapped[str] = mapped_column(String(128), index=True, nullable=False, default="execute")
     policy: Mapped[str] = mapped_column(
         String(32), default="always_ask", nullable=False
-    )  # always_ask, ask_once, allow_automatically, never_allow
+    )  # always_ask, ask_once, allow_automatically, never_allow, allow_once, allow_for_duration, allow_for_device, allow_for_app, allow_for_resource, revoked
     scope: Mapped[str] = mapped_column(String(64), default="global", nullable=False)
+
+    device_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    target_app: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    capability: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    resource: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
+    parameter_constraints_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    risk_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    grant_source: Mapped[str] = mapped_column(String(64), default="user_manual", nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     granted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
@@ -280,8 +290,31 @@ class PermissionGrant(Base):
     )
 
     __table_args__ = (
-        Index("idx_perm_user_tool_perm", "user_id", "tool_id", "permission", unique=True),
+        Index("idx_perm_user_tool", "user_id", "tool_id"),
+        Index("idx_perm_user_app", "user_id", "target_app"),
+        Index("idx_perm_user_device", "user_id", "device_id"),
     )
+
+    def get_parameter_constraints(self) -> dict[str, Any]:
+        try:
+            val = json.loads(self.parameter_constraints_json)
+            return val if isinstance(val, dict) else {}
+        except Exception:
+            return {}
+
+    def set_parameter_constraints(self, data: dict[str, Any]) -> None:
+        self.parameter_constraints_json = json.dumps(data)
+
+    def is_expired(self) -> bool:
+        if self.expires_at is None:
+            return False
+        exp = self.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=UTC)
+        return datetime.now(UTC) > exp
+
+    def is_revoked(self) -> bool:
+        return self.revoked_at is not None or self.policy == "revoked"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -291,6 +324,17 @@ class PermissionGrant(Base):
             "permission": self.permission,
             "policy": self.policy,
             "scope": self.scope,
+            "device_id": self.device_id,
+            "target_app": self.target_app,
+            "capability": self.capability,
+            "resource": self.resource,
+            "parameter_constraints": self.get_parameter_constraints(),
+            "risk_level": self.risk_level,
+            "grant_source": self.grant_source,
+            "expires_at": self.expires_at.isoformat() if self.expires_at is not None else None,
+            "revoked_at": self.revoked_at.isoformat() if self.revoked_at is not None else None,
             "granted_at": self.granted_at.isoformat() if self.granted_at is not None else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at is not None else None,
+            "is_active": not self.is_expired() and not self.is_revoked(),
         }
+

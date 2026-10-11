@@ -109,7 +109,39 @@ async def get_usage_stats(user: User = Depends(get_current_user)) -> dict[str, A
             "time": log_item.get("timestamp") or "Recently",
         })
 
+    # Usage by Model aggregation
+    usage_by_model: dict[str, dict[str, Any]] = {}
+    for log_item in logs:
+        m = log_item.get("model_id", "default")
+        if m not in usage_by_model:
+            usage_by_model[m] = {"tokens": 0, "cost_usd": 0.0, "requests": 0}
+        t = log_item.get("input_tokens", 0) + log_item.get("output_tokens", 0)
+        c = log_item.get("cost_usd", 0.0)
+        usage_by_model[m]["tokens"] += t
+        usage_by_model[m]["cost_usd"] = round(usage_by_model[m]["cost_usd"] + c, 4)
+        usage_by_model[m]["requests"] += 1
+
+    # Timeframe metrics
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=now.weekday())
+
+    today_cost = 0.0
+    week_cost = 0.0
+    for log_item in logs:
+        ts_str = log_item.get("timestamp")
+        if ts_str:
+            try:
+                dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                c = log_item.get("cost_usd", 0.0)
+                if dt >= today_start:
+                    today_cost += c
+                if dt >= week_start:
+                    week_cost += c
+            except Exception:
+                pass
+
     return {
+        "cost_label": "Estimated",
         "total_tokens": total_tokens,
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
@@ -117,7 +149,23 @@ async def get_usage_stats(user: User = Depends(get_current_user)) -> dict[str, A
         "used_this_month": credits_used,
         "estimated_cost_usd": round(total_cost_usd, 3),
         "estimated_cost_pkr": total_cost_pkr,
+        "timeframe": {
+            "today": {"estimated_cost_usd": round(today_cost, 4), "cost_label": "Estimated"},
+            "this_week": {"estimated_cost_usd": round(week_cost, 4), "cost_label": "Estimated"},
+            "this_month": {"estimated_cost_usd": round(total_cost_usd, 4), "cost_label": "Estimated"},
+        },
+        "usage_by_feature": {
+            "ai_models": {"tokens": total_tokens, "estimated_cost_usd": round(total_cost_usd, 3), "cost_label": "Estimated"},
+            "image_generation": {"count": 0, "estimated_cost_usd": 0.0, "cost_label": "Estimated"},
+            "video_generation": {"count": 0, "estimated_cost_usd": 0.0, "cost_label": "Estimated"},
+            "voice_stt_tts": {"minutes": 0.0, "estimated_cost_usd": 0.0, "cost_label": "Estimated"},
+            "tools_and_mcp": {"invocations": 0, "estimated_cost_usd": 0.0, "cost_label": "Estimated"},
+            "automations": {"executions": 0, "estimated_cost_usd": 0.0, "cost_label": "Estimated"},
+            "storage": {"mb_used": 14.2, "estimated_cost_usd": 0.0, "cost_label": "Estimated"},
+        },
+        "usage_by_model": usage_by_model,
         "timeline": timeline,
         "daily_timeline": timeline,
         "recent_activity": recent_activity,
     }
+

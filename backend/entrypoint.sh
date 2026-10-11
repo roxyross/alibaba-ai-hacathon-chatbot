@@ -48,7 +48,11 @@ EOF
   # Run Alembic migrations if alembic.ini is present
   if [ -f "alembic.ini" ]; then
     echo "==> [ROXY Backend] Running Alembic database migrations (alembic upgrade head)..."
-    alembic upgrade head || echo "==> [ROXY Backend] Warning: Alembic migrations returned a non-zero exit code, proceeding..."
+    if [ "$APP_ENV" = "production" ] || [ "$STRICT_MIGRATIONS" = "true" ]; then
+      alembic upgrade head || { echo "==> [ROXY Backend] FATAL: Alembic migrations failed in production mode! Halting startup to prevent data corruption."; exit 1; }
+    else
+      alembic upgrade head || echo "==> [ROXY Backend] Warning: Alembic migrations returned a non-zero exit code, proceeding in development mode..."
+    fi
   fi
 fi
 

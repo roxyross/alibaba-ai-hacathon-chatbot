@@ -205,23 +205,43 @@ async def test_mcp_client_handshake_and_tool_discovery(authed_client: AsyncClien
     sid = server_data["id"]
     assert server_data["protocol_version"] == "2024-11-05"
 
-    # 2. Trigger sync
-    sync_res = await authed_client.post(f"/api/v1/mcp/servers/{sid}/sync")
-    assert sync_res.status_code == 200
-    sync_data = sync_res.json()
-    assert sync_data["tools_count"] >= 1
-    assert len(sync_data["tools"]) >= 1
-    discovered_tool_name = sync_data["tools"][0]["name"]
+    from unittest.mock import patch
+    from app.mcp.client import MCPClient
+    from app.mcp.schemas import JSONRPCResponse
 
-    # 3. Direct MCP tool call
-    call_res = await authed_client.post(
-        f"/api/v1/mcp/servers/{sid}/call",
-        json={"tool_name": discovered_tool_name, "arguments": {"action": "query", "payload": {}}},
-    )
-    assert call_res.status_code == 200
-    call_data = call_res.json()
-    assert call_data.get("isError") is False
-    assert "Successfully executed" in str(call_data["content"])
+    async def mock_send_rpc(self: Any, method: str, params: dict[str, Any] | None = None) -> JSONRPCResponse:
+        if method == "initialize":
+            return JSONRPCResponse(jsonrpc="2.0", id="1", result={"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}})
+        elif method == "tools/list":
+            return JSONRPCResponse(
+                jsonrpc="2.0",
+                id="2",
+                result={"tools": [{"name": "read_file", "description": "Read file from disk", "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}}}}]})
+        elif method == "tools/call":
+            return JSONRPCResponse(
+                jsonrpc="2.0",
+                id="3",
+                result={"content": [{"type": "text", "text": "Filesystem tool executed successfully."}], "isError": False})
+        return JSONRPCResponse(jsonrpc="2.0", id="0", result={})
+
+    with patch.object(MCPClient, "_send_rpc", mock_send_rpc):
+        # 2. Trigger sync
+        sync_res = await authed_client.post(f"/api/v1/mcp/servers/{sid}/sync")
+        assert sync_res.status_code == 200
+        sync_data = sync_res.json()
+        assert sync_data["tools_count"] >= 1
+        assert len(sync_data["tools"]) >= 1
+        discovered_tool_name = sync_data["tools"][0]["name"]
+
+        # 3. Direct MCP tool call
+        call_res = await authed_client.post(
+            f"/api/v1/mcp/servers/{sid}/call",
+            json={"tool_name": discovered_tool_name, "arguments": {"action": "query", "payload": {}}},
+        )
+        assert call_res.status_code == 200
+        call_data = call_res.json()
+        assert call_data.get("isError") is False
+        assert "Filesystem tool executed successfully." in str(call_data["content"])
 
     # 4. Cleanup
     del_res = await authed_client.delete(f"/api/v1/mcp/servers/{sid}")

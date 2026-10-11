@@ -590,12 +590,13 @@ async def test_billing_tools_direct_execution() -> None:
     assert res_inv.success is True
     assert "invoices" in res_inv.output
 
-    # 7. billing_cancel_subscription
+    # 7. billing_cancel_subscription (requires confirmation)
     res_cancel = await reg.execute(
         ToolExecutionRequest(
             tool_id="billing_cancel_subscription",
             arguments={},
             user_id=user_id,
+            bypass_confirmation=True,
         )
     )
     assert res_cancel.success is True

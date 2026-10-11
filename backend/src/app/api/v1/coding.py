@@ -14,6 +14,8 @@ from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.coding.repository import CodeRepository
 from app.coding.schemas import (
+    AutonomousCodingRequest,
+    AutonomousCodingResponse,
     CodeDebugRequest,
     CodeDebugResponse,
     CodeExecuteRequest,
@@ -250,3 +252,21 @@ async def get_code_stats(
     """Aggregate developer studio metrics."""
     stats = await service.repo.get_user_stats(current_user.id)
     return CodeStatsResponse(**stats)
+
+
+# ---------------------------------------------------------------------------
+# Claude-Level Autonomous Software Engineering Endpoint
+# ---------------------------------------------------------------------------
+
+@router.post("/autonomous", response_model=AutonomousCodingResponse)
+async def run_autonomous_coding(
+    payload: AutonomousCodingRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[CodingService, Depends(get_coding_service)],
+) -> AutonomousCodingResponse:
+    """Execute end-to-end Claude-style autonomous software engineering workflow."""
+    return await service.run_autonomous_engineering_task(
+        user_id=current_user.id,
+        request=payload,
+    )
+

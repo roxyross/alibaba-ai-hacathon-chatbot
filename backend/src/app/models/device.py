@@ -44,6 +44,9 @@ class DeviceRegistration(Base):
         String(32), default="online", nullable=False, index=True
     )  # online, offline, busy
     is_current_host: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    hardware_fingerprint: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    device_token_hash: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    daemon_version: Mapped[str | None] = mapped_column(String(32), default="1.0.0", nullable=True)
 
     capabilities_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     telemetry_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
@@ -103,6 +106,8 @@ class DeviceRegistration(Base):
             "ip_address": self.ip_address,
             "status": self.status,
             "is_current_host": self.is_current_host,
+            "hardware_fingerprint": self.hardware_fingerprint,
+            "daemon_version": self.daemon_version,
             "capabilities": self.get_capabilities(),
             "telemetry": self.get_telemetry(),
             "last_heartbeat_at": (
@@ -141,8 +146,15 @@ class DiscoveredApp(Base):
     bundle_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     category: Mapped[str] = mapped_column(
         String(32), default="utilities", nullable=False, index=True
-    )  # browser, development, productivity, media, system, utilities, other
+    )  # browser, development, productivity, media, communication, utilities, system, gaming, design, finance, security, other
     version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    publisher: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    capabilities_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    supported_actions_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    install_location: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    is_system_app: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     icon_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     is_running: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
@@ -166,6 +178,36 @@ class DiscoveredApp(Base):
         Index("idx_discovered_apps_device_name", "device_id", "app_name"),
     )
 
+    def get_capabilities(self) -> list[str]:
+        try:
+            val = json.loads(self.capabilities_json)
+            return [str(x) for x in val] if isinstance(val, list) else []
+        except Exception:
+            return []
+
+    def set_capabilities(self, caps: list[str]) -> None:
+        self.capabilities_json = json.dumps(caps)
+
+    def get_supported_actions(self) -> list[str]:
+        try:
+            val = json.loads(self.supported_actions_json)
+            return [str(x) for x in val] if isinstance(val, list) else []
+        except Exception:
+            return []
+
+    def set_supported_actions(self, actions: list[str]) -> None:
+        self.supported_actions_json = json.dumps(actions)
+
+    def get_metadata(self) -> dict[str, Any]:
+        try:
+            val = json.loads(self.metadata_json)
+            return val if isinstance(val, dict) else {}
+        except Exception:
+            return {}
+
+    def set_metadata(self, meta: dict[str, Any]) -> None:
+        self.metadata_json = json.dumps(meta)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -176,6 +218,13 @@ class DiscoveredApp(Base):
             "bundle_id": self.bundle_id,
             "category": self.category,
             "version": self.version,
+            "publisher": self.publisher,
+            "description": self.description,
+            "capabilities": self.get_capabilities(),
+            "supported_actions": self.get_supported_actions(),
+            "metadata": self.get_metadata(),
+            "install_location": self.install_location,
+            "is_system_app": self.is_system_app,
             "icon_url": self.icon_url,
             "is_running": self.is_running,
             "process_id": self.process_id,
@@ -461,4 +510,121 @@ class IoTDevice(Base):
             "created_at": self.created_at.isoformat() if self.created_at is not None else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at is not None else None,
         }
+
+
+# =============================================================================
+# Phase 3: Standalone Roxy Device Agent Enrollment & Command Queue Models
+# =============================================================================
+
+class DeviceEnrollmentToken(Base):
+    """Temporary, time-bounded pairing token to enroll a standalone device."""
+
+    __tablename__ = "device_enrollment_tokens"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    label: Mapped[str] = mapped_column(String(128), default="Device Enrollment Token", nullable=False)
+    is_claimed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    claimed_by_device_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    def is_valid(self) -> bool:
+        if self.is_claimed:
+            return False
+        exp = self.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=UTC)
+        return datetime.now(UTC) <= exp
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "token": self.token,
+            "label": self.label,
+            "is_claimed": self.is_claimed,
+            "claimed_by_device_id": self.claimed_by_device_id,
+            "expires_at": self.expires_at.isoformat() if self.expires_at is not None else None,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "claimed_at": self.claimed_at.isoformat() if self.claimed_at is not None else None,
+            "is_valid": self.is_valid(),
+        }
+
+
+class DeviceCommand(Base):
+    """An asynchronous command queued for execution by a standalone Roxy Device Agent."""
+
+    __tablename__ = "device_commands"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    device_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("devices.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    command_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )  # launch_app, close_app, focus_app, screen_capture, app_scan, system_telemetry, ping
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), default="pending", nullable=False, index=True
+    )  # pending, dispatched, completed, failed, expired, cancelled
+    result_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_device_commands_dev_status", "device_id", "status"),
+    )
+
+    def get_payload(self) -> dict[str, Any]:
+        try:
+            val = json.loads(self.payload_json)
+            return val if isinstance(val, dict) else {}
+        except Exception:
+            return {}
+
+    def set_payload(self, data: dict[str, Any]) -> None:
+        self.payload_json = json.dumps(data)
+
+    def get_result(self) -> dict[str, Any]:
+        try:
+            val = json.loads(self.result_json)
+            return val if isinstance(val, dict) else ({"result": val} if val is not None else {})
+        except Exception:
+            return {}
+
+    def set_result(self, data: Any) -> None:
+        self.result_json = json.dumps(data)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "device_id": self.device_id,
+            "user_id": self.user_id,
+            "command_type": self.command_type,
+            "payload": self.get_payload(),
+            "status": self.status,
+            "result": self.get_result(),
+            "error": self.error,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "dispatched_at": self.dispatched_at.isoformat() if self.dispatched_at is not None else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at is not None else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at is not None else None,
+        }
+
 

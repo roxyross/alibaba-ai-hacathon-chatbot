@@ -14,9 +14,12 @@ from typing import Any
 from app.tools.schemas import (
     AgentTool,
     RiskLevel,
+    ToolExecutionError,
     ToolExecutionRequest,
     ToolExecutionResult,
+    ToolExecutionStatus,
     ToolSource,
+    ToolVerificationResult,
 )
 
 
@@ -54,11 +57,23 @@ class ToolRegistry:
 
     def get(self, tool_id: str) -> AgentTool | None:
         """Retrieve tool specification by ID."""
-        return self._tools.get(tool_id)
+        if tool_id in self._tools:
+            return self._tools[tool_id]
+        if f"system_{tool_id}" in self._tools:
+            return self._tools[f"system_{tool_id}"]
+        if tool_id.startswith("system_") and tool_id[7:] in self._tools:
+            return self._tools[tool_id[7:]]
+        return None
 
     def get_handler(self, tool_id: str) -> Callable[..., Coroutine[Any, Any, Any]] | None:
         """Retrieve tool execution handler by ID."""
-        return self._handlers.get(tool_id)
+        if tool_id in self._handlers:
+            return self._handlers[tool_id]
+        if f"system_{tool_id}" in self._handlers:
+            return self._handlers[f"system_{tool_id}"]
+        if tool_id.startswith("system_") and tool_id[7:] in self._handlers:
+            return self._handlers[tool_id[7:]]
+        return None
 
     def list_tools(
         self,
@@ -148,29 +163,172 @@ class ToolRegistry:
             results = [t for t in self._tools.values() if t.enabled][:5]
         return results
 
-    async def execute(self, request: ToolExecutionRequest) -> ToolExecutionResult:
-        """Execute a tool handler with execution timing, error trapping, and verification."""
+    async def execute(
+        self,
+        request: ToolExecutionRequest,
+        _trusted_internal: bool = True,
+    ) -> ToolExecutionResult:
+        """Execute a tool handler with execution boundary permission enforcement and error trapping."""
+        # External callers cannot use bypass_confirmation
+        if not _trusted_internal:
+            request.bypass_confirmation = False
+
         tool = self.get(request.tool_id)
         if not tool:
             return ToolExecutionResult(
                 tool_id=request.tool_id,
+                target_app=request.target_app,
+                target_device=request.target_device,
                 success=False,
+                status=ToolExecutionStatus.UNSUPPORTED,
                 error=f"Tool '{request.tool_id}' is not registered in the Tool Registry.",
+                error_details=ToolExecutionError(
+                    code="tool_not_found",
+                    message=f"Tool '{request.tool_id}' is not registered in the Tool Registry.",
+                    retryable=False,
+                ),
             )
         if not tool.enabled:
             return ToolExecutionResult(
                 tool_id=request.tool_id,
+                target_app=request.target_app,
+                target_device=request.target_device,
                 success=False,
+                status=ToolExecutionStatus.DENIED,
                 error=f"Tool '{request.tool_id}' is currently disabled.",
+                error_details=ToolExecutionError(
+                    code="tool_disabled",
+                    message=f"Tool '{request.tool_id}' is currently disabled.",
+                    retryable=False,
+                ),
             )
 
         handler = self.get_handler(request.tool_id)
         if not handler:
             return ToolExecutionResult(
                 tool_id=request.tool_id,
+                target_app=request.target_app,
+                target_device=request.target_device,
                 success=False,
+                status=ToolExecutionStatus.UNSUPPORTED,
                 error=f"No execution handler configured for tool '{request.tool_id}'.",
+                error_details=ToolExecutionError(
+                    code="handler_missing",
+                    message=f"No execution handler configured for tool '{request.tool_id}'.",
+                    retryable=False,
+                ),
             )
+
+        # ---------------------------------------------------------------------
+        # Execution Boundary Permission Enforcement
+        # ---------------------------------------------------------------------
+        if not request.user_id:
+            return ToolExecutionResult(
+                tool_id=request.tool_id,
+                target_app=request.target_app,
+                target_device=request.target_device,
+                success=False,
+                status=ToolExecutionStatus.DENIED,
+                error="Missing user_id for authenticated tool execution.",
+                error_details=ToolExecutionError(
+                    code="unauthenticated",
+                    message="Missing user_id for authenticated tool execution.",
+                    retryable=False,
+                ),
+            )
+
+        # Lazy import to avoid circular dependency
+        from app.permissions.service import PermissionService
+
+        perm_service = PermissionService()
+        perm_res = await perm_service.check_permission(
+            user_id=request.user_id,
+            tool_id=request.tool_id,
+            target_app=request.target_app,
+            device_id=request.target_device,
+            parameters=request.arguments,
+        )
+
+        if not perm_res.granted:
+            if perm_res.requires_confirmation:
+                if _trusted_internal and request.bypass_confirmation:
+                    # Authorized internal service boundary bypass
+                    pass
+                elif request.confirmation_token:
+                    # Validate and consume token via central ConfirmationGate
+                    from app.trust.confirmation_gate import ConfirmationGate, canonicalize_parameters
+                    params_hash = canonicalize_parameters(request.arguments)
+                    ok, msg, rec = ConfirmationGate.consume_challenge(
+                        challenge_id_or_token=request.confirmation_token,
+                        user_id=request.user_id,
+                        action_type=request.tool_id,
+                        details_match={"parameters_hash": params_hash},
+                    )
+                    if not ok:
+                        return ToolExecutionResult(
+                            tool_id=request.tool_id,
+                            target_app=request.target_app,
+                            target_device=request.target_device,
+                            success=False,
+                            status=ToolExecutionStatus.REQUIRES_CONFIRMATION,
+                            error=f"Confirmation rejected: {msg}",
+                            error_details=ToolExecutionError(
+                                code="invalid_confirmation",
+                                message=f"Confirmation rejected: {msg}",
+                                retryable=False,
+                            ),
+                        )
+                else:
+                    from app.trust.confirmation_gate import ConfirmationGate, canonicalize_parameters
+                    from app.trust.schemas import RiskTier
+                    params_hash = canonicalize_parameters(request.arguments)
+                    tier = RiskTier.HIGH
+                    if tool.risk_level.value in [r.value for r in RiskTier]:
+                        tier = RiskTier(tool.risk_level.value)
+                    chal = ConfirmationGate.create_challenge(
+                        user_id=request.user_id,
+                        action_type=request.tool_id,
+                        title=f"Execute tool: {tool.name}",
+                        summary=perm_res.reason or f"Action requires explicit user confirmation for '{tool.name}'.",
+                        details={
+                            "tool_id": request.tool_id,
+                            "target_app": request.target_app,
+                            "target_device": request.target_device,
+                            "parameters_hash": params_hash,
+                            "arguments": request.arguments,
+                        },
+                        risk_tier=tier,
+                        risk_score=85 if tool.risk_level == RiskLevel.CRITICAL else 70,
+                        requires_2fa=(tool.risk_level == RiskLevel.CRITICAL),
+                    )
+                    return ToolExecutionResult(
+                        tool_id=request.tool_id,
+                        target_app=request.target_app,
+                        target_device=request.target_device,
+                        success=False,
+                        status=ToolExecutionStatus.REQUIRES_CONFIRMATION,
+                        error=perm_res.reason or f"Action requires explicit user confirmation for '{tool.name}'.",
+                        error_details=ToolExecutionError(
+                            code="requires_confirmation",
+                            message=perm_res.reason or f"Action requires explicit user confirmation for '{tool.name}'.",
+                            retryable=True,
+                        ),
+                        output={"challenge": chal.model_dump()},
+                    )
+            else:
+                return ToolExecutionResult(
+                    tool_id=request.tool_id,
+                    target_app=request.target_app,
+                    target_device=request.target_device,
+                    success=False,
+                    status=ToolExecutionStatus.DENIED,
+                    error=perm_res.reason or f"Permission denied for tool '{tool.name}'.",
+                    error_details=ToolExecutionError(
+                        code="permission_denied",
+                        message=perm_res.reason or f"Permission denied for tool '{tool.name}'.",
+                        retryable=False,
+                    ),
+                )
 
         start = time.perf_counter()
         try:
@@ -178,6 +336,7 @@ class ToolRegistry:
             sig = inspect.signature(handler)
             kwargs: dict[str, Any] = {}
             args = request.arguments or getattr(request, "input", None) or {}
+            has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
             for param_name in sig.parameters:
                 if param_name in args:
                     kwargs[param_name] = args[param_name]
@@ -192,11 +351,39 @@ class ToolRegistry:
                 elif param_name == "step_id":
                     kwargs["step_id"] = request.step_id
 
+            if has_var_keyword:
+                for k, v in args.items():
+                    if k not in kwargs:
+                        kwargs[k] = v
+
             output = await handler(**kwargs)
             duration_ms = int((time.perf_counter() - start) * 1000)
+
+            # Check if output explicitly signals a tool-level failure
+            if isinstance(output, dict) and output.get("isError") is True:
+                err_content = output.get("content") or output.get("error") or "Tool returned an error."
+                return ToolExecutionResult(
+                    tool_id=request.tool_id,
+                    target_app=request.target_app,
+                    target_device=request.target_device,
+                    success=False,
+                    status=ToolExecutionStatus.FAILED,
+                    output=output,
+                    error=str(err_content),
+                    error_details=ToolExecutionError(
+                        code=str(output.get("code", "tool_error")),
+                        message=str(err_content),
+                        retryable=bool(output.get("retryable", False)),
+                    ),
+                    duration_ms=duration_ms,
+                )
+
             return ToolExecutionResult(
                 tool_id=request.tool_id,
+                target_app=request.target_app,
+                target_device=request.target_device,
                 success=True,
+                status=ToolExecutionStatus.COMPLETED,
                 output=output,
                 duration_ms=duration_ms,
             )
@@ -204,7 +391,15 @@ class ToolRegistry:
             duration_ms = int((time.perf_counter() - start) * 1000)
             return ToolExecutionResult(
                 tool_id=request.tool_id,
+                target_app=request.target_app,
+                target_device=request.target_device,
                 success=False,
+                status=ToolExecutionStatus.FAILED,
                 error=str(exc),
+                error_details=ToolExecutionError(
+                    code="execution_exception",
+                    message=str(exc),
+                    retryable=False,
+                ),
                 duration_ms=duration_ms,
             )

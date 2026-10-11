@@ -6,7 +6,7 @@ export interface ChatSession {
   title: string | null;
   provider: string;
   model: string;
-  session_type?: 'chat' | 'task';
+  session_type?: 'chat' | 'task' | 'cowork';
   pinned?: boolean;
   archived_at?: string | null;
   created_at: string;
@@ -18,7 +18,7 @@ export interface CreateSessionInput {
   provider: string;
   model: string;
   title?: string;
-  session_type?: 'chat' | 'task';
+  session_type?: 'chat' | 'task' | 'cowork';
   pinned?: boolean;
 }
 

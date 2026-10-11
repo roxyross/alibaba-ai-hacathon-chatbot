@@ -638,6 +638,7 @@ async def test_image_studio_tools_direct_execution() -> None:
             tool_id="image_delete_generation",
             arguments={"image_id": image_id},
             user_id=user_id,
+            bypass_confirmation=True,
         )
     )
     assert res_del.success is True
@@ -770,12 +771,33 @@ async def test_image_studio_tool_multitenant_isolation() -> None:
     )
     assert res_b_fav.output["status"] == "not_found"
 
-    # User B tries to delete User A's artwork -> deleted is False
+    # User B tries to delete User A's artwork -> triggers confirmation gate
+    res_b_del_unconfirmed = await reg.execute(
+        ToolExecutionRequest(
+            tool_id="image_delete_generation",
+            arguments={"image_id": img_a_id},
+            user_id=user_b,
+        )
+    )
+    assert res_b_del_unconfirmed.success is False
+    assert res_b_del_unconfirmed.output.get("challenge") is not None
+    del_challenge = res_b_del_unconfirmed.output["challenge"]
+    del_token = del_challenge["challenge_token"]
+
+    from app.trust.confirmation_gate import ConfirmationGate
+    ConfirmationGate.resolve_challenge(
+        challenge_id=del_challenge["challenge_id"],
+        user_id=user_b,
+        decision="approve",
+        challenge_token=del_token,
+    )
+
     res_b_del = await reg.execute(
         ToolExecutionRequest(
             tool_id="image_delete_generation",
             arguments={"image_id": img_a_id},
             user_id=user_b,
+            confirmation_token=del_token,
         )
     )
     assert res_b_del.output["deleted"] is False

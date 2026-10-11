@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
@@ -70,15 +70,17 @@ async def update_server(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.delete("/servers/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/servers/{server_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_server(
     server_id: str,
     user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     """Delete an MCP server and unregister all its discovered tools."""
     deleted = await _service.delete_server(user_id=user.id, server_id=server_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"MCP server '{server_id}' not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 
 @router.post("/servers/{server_id}/sync", response_model=MCPSyncResult)
@@ -91,6 +93,8 @@ async def sync_server(
         return await _service.sync_server(user_id=user.id, server_id=server_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"MCP handshake failed: {exc}") from exc
 
 
 @router.post("/servers/{server_id}/call")
@@ -109,3 +113,5 @@ async def call_server_tool(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"MCP call failed: {exc}") from exc

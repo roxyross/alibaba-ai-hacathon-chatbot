@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, TypeVar, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi import Request as StarletteRequest
 from pydantic import BaseModel
 
@@ -668,15 +668,17 @@ async def get_custom_skill(
     return skill
 
 
-@router.delete("/custom/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/custom/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_custom_skill(
     skill_id: str,
     current_user: User = Depends(get_current_user),
-) -> None:
+) -> Response:
     """Delete a custom skill and unregister its tool from Tool Registry."""
     deleted = await _custom_skill_service.delete_skill(user_id=current_user.id, skill_id=skill_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Custom skill '{skill_id}' not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 
 @router.post("/custom/{skill_id}/execute")
