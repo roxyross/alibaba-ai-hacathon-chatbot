@@ -27,7 +27,10 @@ import sys
 import time
 from typing import Any, Literal
 
-import psutil  # type: ignore[import-untyped]
+try:
+    import psutil  # type: ignore[import-untyped]
+except ImportError:
+    psutil = None  # type: ignore[assignment]
 import structlog
 from pydantic import BaseModel, Field
 

@@ -23,7 +23,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-import psutil  # type: ignore[import-untyped]
+try:
+    import psutil  # type: ignore[import-untyped]
+except ImportError:
+    psutil = None  # type: ignore[assignment]
 import structlog
 
 from app.device.desktop_automation import DesktopAutomationEngine

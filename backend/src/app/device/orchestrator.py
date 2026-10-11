@@ -21,7 +21,10 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
-import psutil  # type: ignore[import-untyped]
+try:
+    import psutil  # type: ignore[import-untyped]
+except ImportError:
+    psutil = None  # type: ignore[assignment]
 import structlog
 
 from app.core.correlation import get_trace_id
