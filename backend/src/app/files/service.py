@@ -794,4 +794,143 @@ class FileSystemService:
             ),
             _tool_folder_analyze,
         )
-        log.info("files.tools_registered", tools=["file_list", "file_read", "file_write", "file_edit", "file_search", "folder_analyze"])
+        # 7. terminal_run
+        async def _tool_terminal_run(command: str, cwd: str = ".", timeout_seconds: int = 30) -> dict[str, Any]:
+            return await self.run_terminal_command(command=command, cwd=cwd, timeout_seconds=timeout_seconds)
+
+        reg.register(
+            AgentTool(
+                id="terminal_run",
+                name="Execute Sandboxed Terminal Command",
+                description="Run shell command in workspace sandbox with output and exit code capture.",
+                source=ToolSource.SYSTEM,
+                capabilities=["terminal", "shell", "command", "bash", "powershell", "execute"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string", "description": "Shell command to run"},
+                        "cwd": {"type": "string", "default": "."},
+                        "timeout_seconds": {"type": "integer", "default": 30},
+                    },
+                    "required": ["command"],
+                },
+                permissions=["execute:terminal"],
+                risk_level=RiskLevel.HIGH,
+            ),
+            _tool_terminal_run,
+        )
+
+        # 8. git_status
+        async def _tool_git_status(repo_path: str = ".") -> dict[str, Any]:
+            return await self.get_git_status(repo_path=repo_path)
+
+        reg.register(
+            AgentTool(
+                id="git_status",
+                name="Git Repository Status",
+                description="Inspect active branch, staged, unstaged, and untracked files.",
+                source=ToolSource.SYSTEM,
+                capabilities=["git", "status", "vcs", "branch"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "repo_path": {"type": "string", "default": "."},
+                    },
+                },
+                permissions=[],
+                risk_level=RiskLevel.LOW,
+            ),
+            _tool_git_status,
+        )
+
+        # 9. git_diff
+        async def _tool_git_diff(repo_path: str = ".", file_path: str | None = None, staged: bool = False) -> dict[str, Any]:
+            return await self.get_git_diff(repo_path=repo_path, file_path=file_path, staged=staged)
+
+        reg.register(
+            AgentTool(
+                id="git_diff",
+                name="Git Unified Diff",
+                description="View unified diff of workspace modifications before commit.",
+                source=ToolSource.SYSTEM,
+                capabilities=["git", "diff", "review", "changes"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "repo_path": {"type": "string", "default": "."},
+                        "file_path": {"type": "string"},
+                        "staged": {"type": "boolean", "default": False},
+                    },
+                },
+                permissions=[],
+                risk_level=RiskLevel.LOW,
+            ),
+            _tool_git_diff,
+        )
+
+        # 10. git_commit
+        async def _tool_git_commit(message: str, repo_path: str = ".", add_all: bool = True) -> dict[str, Any]:
+            return await self.git_commit(message=message, repo_path=repo_path, add_all=add_all)
+
+        reg.register(
+            AgentTool(
+                id="git_commit",
+                name="Git Commit",
+                description="Create a staged, verified commit in the workspace repository.",
+                source=ToolSource.SYSTEM,
+                capabilities=["git", "commit", "save", "vcs"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string"},
+                        "repo_path": {"type": "string", "default": "."},
+                        "add_all": {"type": "boolean", "default": True},
+                    },
+                    "required": ["message"],
+                },
+                permissions=["write:git"],
+                risk_level=RiskLevel.MEDIUM,
+            ),
+            _tool_git_commit,
+        )
+
+        # 11. project_test_run
+        async def _tool_project_test_run(project_path: str = ".", test_path: str = "") -> dict[str, Any]:
+            return await self.run_project_tests(project_path=project_path, test_path=test_path)
+
+        reg.register(
+            AgentTool(
+                id="project_test_run",
+                name="Run Project Test Suite",
+                description="Execute automated tests (pytest/npm) and return pass/fail metrics.",
+                source=ToolSource.SYSTEM,
+                capabilities=["test", "pytest", "unit_tests", "verification", "run"],
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "project_path": {"type": "string", "default": "."},
+                        "test_path": {"type": "string", "default": ""},
+                    },
+                },
+                permissions=["execute:tests"],
+                risk_level=RiskLevel.MEDIUM,
+            ),
+            _tool_project_test_run,
+        )
+
+        log.info(
+            "files.tools_registered",
+            tools=[
+                "file_list",
+                "file_read",
+                "file_write",
+                "file_edit",
+                "file_search",
+                "folder_analyze",
+                "terminal_run",
+                "git_status",
+                "git_diff",
+                "git_commit",
+                "project_test_run",
+            ],
+        )

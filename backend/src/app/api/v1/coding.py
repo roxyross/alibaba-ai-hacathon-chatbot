@@ -7,11 +7,15 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
+
+log = structlog.get_logger()
 
 from app.auth.dependencies import get_current_user
+from app.auth.jwt import decode_session_token
 from app.auth.models import User
 from app.coding.repository import CodeRepository
 from app.coding.schemas import (
@@ -678,5 +682,345 @@ async def coding_agent_assist(
         risk_level=risk_level,
         language_detected=detected_lang,
     )
+
+
+@router.get("/tools")
+async def list_registered_tools(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Retrieve all active tools registered in the Central Tool Registry."""
+    from app.tools.registry import ToolRegistry
+    from app.files.service import FileSystemService
+    FileSystemService.get_instance().register_file_tools()
+    reg = ToolRegistry.get_instance()
+    tools = [t.to_dict() for t in reg.list_all()]
+    return {"tools": tools, "total": len(tools)}
+
+
+# ---------------------------------------------------------------------------
+# Interactive Terminal & PTY Session Endpoints (Phase 3)
+# ---------------------------------------------------------------------------
+
+class TerminalSessionCreateRequest(BaseModel):
+    cwd: str = Field(default=".", description="Initial working directory relative to workspace")
+    shell: str | None = Field(default=None, description="Optional shell executable override")
+    cols: int = Field(default=80, ge=10, le=500)
+    rows: int = Field(default=24, ge=5, le=200)
+
+
+class TerminalInputRequest(BaseModel):
+    data: str = Field(description="Raw input text/command sent to terminal stdin")
+
+
+class TerminalResizeRequest(BaseModel):
+    cols: int = Field(default=80, ge=10, le=500)
+    rows: int = Field(default=24, ge=5, le=200)
+
+
+@router.post("/terminal/session/create")
+async def create_interactive_terminal_session(
+    payload: TerminalSessionCreateRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Create a persistent, sandboxed interactive shell session."""
+    from app.files.service import FileSystemService
+    from app.files.terminal_session import TerminalSessionManager
+
+    fs = FileSystemService.get_instance()
+    workspace_root = fs.sandbox.allowed_roots[0]
+    mgr = TerminalSessionManager.get_instance()
+    try:
+        session = await mgr.create_session(
+            user_id=current_user.id,
+            workspace_root=workspace_root,
+            initial_cwd=payload.cwd,
+            shell=payload.shell,
+            cols=payload.cols,
+            rows=payload.rows,
+        )
+        return {
+            "session_id": session.session_id,
+            "cwd": str(session.cwd),
+            "cols": session.cols,
+            "rows": session.rows,
+            "is_active": session.is_active,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/terminal/session/{session_id}/input")
+async def write_terminal_input(
+    session_id: str,
+    payload: TerminalInputRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Write input to terminal stdin with sandbox validation and policy enforcement."""
+    from app.files.terminal_session import TerminalSessionManager
+
+    mgr = TerminalSessionManager.get_instance()
+    try:
+        bytes_written = await mgr.write_input(session_id, current_user.id, payload.data)
+        return {"session_id": session_id, "bytes_written": bytes_written, "success": True}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/terminal/session/{session_id}/output")
+async def get_terminal_output(
+    session_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    start_index: int = 0,
+) -> dict[str, Any]:
+    """Retrieve streamed terminal output chunks for polling clients."""
+    from app.files.terminal_session import TerminalSessionManager
+
+    mgr = TerminalSessionManager.get_instance()
+    try:
+        return mgr.get_output(session_id, current_user.id, start_index=start_index)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.post("/terminal/session/{session_id}/resize")
+async def resize_terminal(
+    session_id: str,
+    payload: TerminalResizeRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Resize terminal dimensions."""
+    from app.files.terminal_session import TerminalSessionManager
+
+    mgr = TerminalSessionManager.get_instance()
+    try:
+        mgr.resize(session_id, current_user.id, payload.cols, payload.rows)
+        return {"session_id": session_id, "cols": payload.cols, "rows": payload.rows, "success": True}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.delete("/terminal/session/{session_id}")
+async def close_terminal_session(
+    session_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Close interactive terminal session and kill process tree."""
+    from app.files.terminal_session import TerminalSessionManager
+
+    mgr = TerminalSessionManager.get_instance()
+    try:
+        closed = await mgr.close_session(session_id, current_user.id)
+        return {"session_id": session_id, "closed": closed}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.websocket("/terminal/session/{session_id}/ws")
+async def terminal_websocket_endpoint(
+    websocket: WebSocket,
+    session_id: str,
+    token: str = Query(...),
+) -> None:
+    """Bi-directional WebSocket streaming endpoint for interactive terminal."""
+    import asyncio
+    from app.files.terminal_session import TerminalSessionManager
+
+    mgr = TerminalSessionManager.get_instance()
+    user_id = decode_session_token(token)
+    if not user_id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unauthorized")
+        return
+
+    try:
+        session = mgr.get_session(session_id, user_id)
+    except KeyError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Session not found")
+        return
+    except PermissionError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Forbidden")
+        return
+
+    await websocket.accept()
+    subscriber_q = mgr.subscribe(session_id, user_id)
+
+    async def _send_pump() -> None:
+        try:
+            while session.is_active:
+                chunk = await subscriber_q.get()
+                await websocket.send_json({"type": "output", "data": chunk})
+        except Exception:
+            pass
+
+    send_task = asyncio.create_task(_send_pump())
+
+    try:
+        while True:
+            msg = await websocket.receive_json()
+            msg_type = msg.get("type")
+            if msg_type == "input":
+                data = msg.get("data", "")
+                if data:
+                    await mgr.write_input(session_id, user_id, data)
+            elif msg_type == "resize":
+                cols = int(msg.get("cols", 80))
+                rows = int(msg.get("rows", 24))
+                mgr.resize(session_id, user_id, cols, rows)
+            elif msg_type == "cancel":
+                await mgr.write_input(session_id, user_id, "\x03")
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        log.warning("terminal_ws.error", session_id=session_id, error=str(exc))
+    finally:
+        send_task.cancel()
+        mgr.unsubscribe(session_id, subscriber_q)
+
+
+# ---------------------------------------------------------------------------
+# Interactive Sandboxed Debugger Endpoints (Phase 5)
+# ---------------------------------------------------------------------------
+
+class DebugSessionStartRequest(BaseModel):
+    file_path: str = Field(description="Relative path to Python file in workspace")
+    breakpoints: list[dict[str, Any]] | None = Field(default=None, description="Initial breakpoints list")
+
+
+class DebugBreakpointRequest(BaseModel):
+    line_number: int = Field(ge=1, description="Line number for breakpoint")
+    enabled: bool = Field(default=True)
+
+
+class DebugActionRequest(BaseModel):
+    action: str = Field(description="Debugger action: continue, step_over, step_into, step_out, stop")
+
+
+@router.post("/debug/session/start")
+async def start_debug_session(
+    payload: DebugSessionStartRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Launch interactive debug session on target workspace script."""
+    from app.files.service import FileSystemService
+    from app.coding.debugger import PythonDebuggerManager
+
+    fs = FileSystemService.get_instance()
+    workspace_root = fs.sandbox.allowed_roots[0]
+    mgr = PythonDebuggerManager.get_instance()
+    try:
+        session = mgr.start_session(
+            user_id=current_user.id,
+            workspace_root=workspace_root,
+            relative_file_path=payload.file_path,
+            initial_breakpoints=payload.breakpoints,
+        )
+        return session.to_state_dict()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/debug/session/{session_id}/breakpoint")
+async def set_debug_breakpoint(
+    session_id: str,
+    payload: DebugBreakpointRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Add or update a breakpoint in an active debug session."""
+    from app.coding.debugger import PythonDebuggerManager
+
+    mgr = PythonDebuggerManager.get_instance()
+    try:
+        bp = mgr.set_breakpoint(session_id, current_user.id, payload.line_number, payload.enabled)
+        return {"session_id": session_id, "breakpoint": bp.__dict__}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.delete("/debug/session/{session_id}/breakpoint/{line_number}")
+async def clear_debug_breakpoint(
+    session_id: str,
+    line_number: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Remove a breakpoint from the debug session."""
+    from app.coding.debugger import PythonDebuggerManager
+
+    mgr = PythonDebuggerManager.get_instance()
+    try:
+        cleared = mgr.clear_breakpoint(session_id, current_user.id, line_number)
+        return {"session_id": session_id, "cleared": cleared}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.post("/debug/session/{session_id}/action")
+async def execute_debug_action(
+    session_id: str,
+    payload: DebugActionRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Dispatch stepping control: continue, step_over, step_into, step_out, stop."""
+    from app.coding.debugger import PythonDebuggerManager
+
+    mgr = PythonDebuggerManager.get_instance()
+    try:
+        return mgr.send_action(session_id, current_user.id, payload.action)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/debug/session/{session_id}/state")
+async def get_debug_state(
+    session_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Inspect current debug state, variables, call stack, and output."""
+    from app.coding.debugger import PythonDebuggerManager
+
+    mgr = PythonDebuggerManager.get_instance()
+    try:
+        session = mgr.get_session(session_id, current_user.id)
+        return session.to_state_dict()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.delete("/debug/session/{session_id}")
+async def stop_debug_session(
+    session_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Stop active debug session and release worker thread."""
+    from app.coding.debugger import PythonDebuggerManager
+
+    mgr = PythonDebuggerManager.get_instance()
+    try:
+        stopped = mgr.stop_session(session_id, current_user.id)
+        return {"session_id": session_id, "stopped": stopped}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
 
 

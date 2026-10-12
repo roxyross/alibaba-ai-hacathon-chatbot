@@ -207,6 +207,67 @@ class AgentPlanner:
                 }
             ]
 
+        # Single-intent & Multi-step: Workspace Coding & Terminal / Test Workflows
+        if any(w in lower for w in ["run test", "run pytest", "execute tests", "test project", "test suite"]):
+            target_path = ""
+            m_path = re.search(r"(?:tests?/|test_)\w+\.py", text)
+            if m_path:
+                target_path = m_path.group(0)
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Execute project test suite ({target_path or 'all tests'})",
+                    "tool_id": "project_test_run",
+                    "tool_input": {"project_path": ".", "test_path": target_path},
+                    "depends_on": [],
+                }
+            ]
+
+        if lower.startswith("run terminal") or lower.startswith("exec command") or lower.startswith("terminal:"):
+            cmd = re.sub(r"(?i)^(?:run terminal(?: command)?|exec command|terminal:)\s*", "", text).strip()
+            return [
+                {
+                    "step_number": 1,
+                    "description": f"Execute sandboxed terminal command '{cmd}'",
+                    "tool_id": "terminal_run",
+                    "tool_input": {"command": cmd, "cwd": "."},
+                    "depends_on": [],
+                }
+            ]
+
+        if "git status" in lower or "git diff" in lower or "git commit" in lower:
+            if "diff" in lower:
+                return [
+                    {
+                        "step_number": 1,
+                        "description": "Inspect Git unified diff for workspace modifications",
+                        "tool_id": "git_diff",
+                        "tool_input": {"repo_path": "."},
+                        "depends_on": [],
+                    }
+                ]
+            if "commit" in lower:
+                m_msg = re.search(r"['\"]([^'\"]+)['\"]", text)
+                msg_val = m_msg.group(1) if m_msg else "Update project files via Roxy Coding Agent"
+                return [
+                    {
+                        "step_number": 1,
+                        "description": f"Create Git commit: '{msg_val}'",
+                        "tool_id": "git_commit",
+                        "tool_input": {"message": msg_val, "repo_path": ".", "add_all": True},
+                        "depends_on": [],
+                    }
+                ]
+            return [
+                {
+                    "step_number": 1,
+                    "description": "Inspect Git source control status of workspace",
+                    "tool_id": "git_status",
+                    "tool_input": {"repo_path": "."},
+                    "depends_on": [],
+                }
+            ]
+
         # Single-intent: Vault / Knowledge search
         if (
             lower.startswith("vault search")

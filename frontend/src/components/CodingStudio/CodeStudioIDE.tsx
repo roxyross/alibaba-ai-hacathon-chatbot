@@ -32,6 +32,7 @@ import {
   Smartphone,
   Tablet,
   Layers,
+  Split,
   ExternalLink,
 } from 'lucide-react';
 import './CodeStudioIDE.css';
@@ -160,9 +161,23 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
   const [isAgentProcessing, setIsAgentProcessing] = useState(false);
   const [isVoiceListening, setIsVoiceListening] = useState(false);
 
-  // Command Palette
+  // Command Palette & Go To Line
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [commandPaletteQuery, setCommandPaletteQuery] = useState('');
+  const [isGoToLineOpen, setIsGoToLineOpen] = useState(false);
+  const [goToLineNumber, setGoToLineNumber] = useState('');
+
+  // Editor Settings & Split Pane
+  const [editorSettings, setEditorSettings] = useState({
+    fontSize: 14,
+    tabSize: 4,
+    wordWrap: true,
+    autoSave: false,
+    lineNumbers: true,
+    autonomyMode: 'supervised' as 'ask' | 'supervised' | 'autonomous',
+  });
+  const [isSplitEditor, setIsSplitEditor] = useState(false);
+  const [registeredTools, setRegisteredTools] = useState<Array<{ name: string; description: string; risk_level: string }>>([]);
 
   // Mobile layout state
   const [mobileActiveView, setMobileActiveView] = useState<'editor' | 'files' | 'agent' | 'terminal'>('editor');
@@ -259,6 +274,22 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
     loadGitStatus();
   }, [loadWorkspaceTree, loadGitStatus]);
 
+  // Dynamic Tools fetch when extensions tab is selected
+  useEffect(() => {
+    if (activeActivity === 'extensions' && accessToken) {
+      fetch(`${API_BASE}/coding/tools`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.tools) {
+            setRegisteredTools(data.tools);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [activeActivity, accessToken]);
+
   // Open default readme or app file on mount
   useEffect(() => {
     if (!activeTabPath && fileTree) {
@@ -266,7 +297,7 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
     }
   }, [fileTree, activeTabPath]);
 
-  // Global Keyboard Shortcuts (Ctrl+P, Ctrl+S, Ctrl+Alt+I)
+  // Global Keyboard Shortcuts (Ctrl+P, Ctrl+S, Ctrl+`, Ctrl+G)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
@@ -278,6 +309,9 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
       } else if ((e.ctrlKey || e.metaKey) && e.key === '`') {
         e.preventDefault();
         setIsBottomPanelCollapsed((prev) => !prev);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'g') {
+        e.preventDefault();
+        setIsGoToLineOpen((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -833,6 +867,16 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
 
           <button
             type="button"
+            className={`btn-topbar-action ${isSplitEditor ? 'is-active' : ''}`}
+            title="Toggle Split Editor"
+            onClick={() => setIsSplitEditor((prev) => !prev)}
+          >
+            <Split size={14} />
+            <span>Split</span>
+          </button>
+
+          <button
+            type="button"
             className={`btn-topbar-action btn-agent-toggle ${isAgentPanelOpen ? 'is-active' : ''}`}
             title="Toggle Roxy Coding Agent"
             onClick={() => setIsAgentPanelOpen((prev) => !prev)}
@@ -1023,6 +1067,7 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
             <div className="sidebar-pane">
               <div className="sidebar-pane-header">
                 <span className="pane-title">MCP &amp; SKILLS</span>
+                <span className="pane-badge">{registeredTools.length + 3} Tools</span>
               </div>
               <div className="extensions-list">
                 <div className="extension-card">
@@ -1039,6 +1084,128 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
                   <h4>Gemini Code Assist</h4>
                   <p>Multilingual code understanding, completion &amp; unit tests</p>
                   <span className="ext-pill active">Active</span>
+                </div>
+                {registeredTools.map((t) => (
+                  <div key={t.name} className="extension-card">
+                    <h4>{t.name}</h4>
+                    <p>{t.description}</p>
+                    <span className={`ext-pill risk-${t.risk_level || 'low'}`}>
+                      {t.risk_level?.toUpperCase() || 'LOW'} RISK
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeActivity === 'settings' && (
+            <div className="sidebar-pane">
+              <div className="sidebar-pane-header">
+                <span className="pane-title">EDITOR SETTINGS</span>
+              </div>
+              <div className="settings-pane-content" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div className="setting-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600 }}>Font Size</label>
+                  <select
+                    style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--roxy-border, #cbd5e1)', background: 'var(--roxy-surface-card, #fff)', color: 'inherit' }}
+                    value={editorSettings.fontSize}
+                    onChange={(e) =>
+                      setEditorSettings((prev) => ({
+                        ...prev,
+                        fontSize: Number(e.target.value),
+                      }))
+                    }
+                  >
+                    <option value={12}>12 px</option>
+                    <option value={14}>14 px (Default)</option>
+                    <option value={16}>16 px</option>
+                    <option value={18}>18 px</option>
+                  </select>
+                </div>
+
+                <div className="setting-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600 }}>Tab Size</label>
+                  <select
+                    style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--roxy-border, #cbd5e1)', background: 'var(--roxy-surface-card, #fff)', color: 'inherit' }}
+                    value={editorSettings.tabSize}
+                    onChange={(e) =>
+                      setEditorSettings((prev) => ({
+                        ...prev,
+                        tabSize: Number(e.target.value),
+                      }))
+                    }
+                  >
+                    <option value={2}>2 spaces</option>
+                    <option value={4}>4 spaces (Default)</option>
+                  </select>
+                </div>
+
+                <div className="setting-group-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    id="chk-word-wrap"
+                    checked={editorSettings.wordWrap}
+                    onChange={(e) =>
+                      setEditorSettings((prev) => ({
+                        ...prev,
+                        wordWrap: e.target.checked,
+                      }))
+                    }
+                  />
+                  <label htmlFor="chk-word-wrap" style={{ fontSize: '13px', cursor: 'pointer' }}>Word Wrap</label>
+                </div>
+
+                <div className="setting-group-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    id="chk-line-nums"
+                    checked={editorSettings.lineNumbers}
+                    onChange={(e) =>
+                      setEditorSettings((prev) => ({
+                        ...prev,
+                        lineNumbers: e.target.checked,
+                      }))
+                    }
+                  />
+                  <label htmlFor="chk-line-nums" style={{ fontSize: '13px', cursor: 'pointer' }}>Show Line Numbers</label>
+                </div>
+
+                <div className="setting-group-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    id="chk-auto-save"
+                    checked={editorSettings.autoSave}
+                    onChange={(e) =>
+                      setEditorSettings((prev) => ({
+                        ...prev,
+                        autoSave: e.target.checked,
+                      }))
+                    }
+                  />
+                  <label htmlFor="chk-auto-save" style={{ fontSize: '13px', cursor: 'pointer' }}>Auto Save</label>
+                </div>
+
+                <div className="setting-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600 }}>Agent Autonomy Mode</label>
+                  <select
+                    style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--roxy-border, #cbd5e1)', background: 'var(--roxy-surface-card, #fff)', color: 'inherit' }}
+                    value={editorSettings.autonomyMode}
+                    onChange={(e) =>
+                      setEditorSettings((prev) => ({
+                        ...prev,
+                        autonomyMode: e.target.value as 'ask' | 'supervised' | 'autonomous',
+                      }))
+                    }
+                  >
+                    <option value="ask">Ask Before Changes</option>
+                    <option value="supervised">Supervised Coding (Default)</option>
+                    <option value="autonomous">Authorized Autonomous Task</option>
+                  </select>
+                  <small style={{ fontSize: '11px', color: 'var(--roxy-text-muted, #64748b)' }}>
+                    {editorSettings.autonomyMode === 'ask' && 'Inspect and propose; require approval for all file edits.'}
+                    {editorSettings.autonomyMode === 'supervised' && 'Make scoped edits, request approval for sensitive shell/git actions.'}
+                    {editorSettings.autonomyMode === 'autonomous' && 'Execute bounded plan within sandbox boundaries.'}
+                  </small>
                 </div>
               </div>
             </div>
@@ -1091,21 +1258,65 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
           {/* CODE EDITOR TEXTAREA & GUTTER */}
           <div className="editor-code-surface">
             {activeTab ? (
-              <div className="code-editor-wrapper">
-                <div className="code-line-numbers" aria-hidden="true">
-                  {activeTab.content.split('\n').map((_, i) => (
-                    <div key={i} className="line-num">
-                      {i + 1}
+              <div className={`code-editor-wrapper ${isSplitEditor ? 'is-split' : ''}`} style={{ display: 'flex', width: '100%', height: '100%' }}>
+                <div className="code-editor-pane primary-pane" style={{ flex: isSplitEditor ? '1 1 50%' : '1 1 100%', display: 'flex', height: '100%', minWidth: 0 }}>
+                  {editorSettings.lineNumbers && (
+                    <div className="code-line-numbers" aria-hidden="true">
+                      {activeTab.content.split('\n').map((_, i) => (
+                        <div key={i} className="line-num">
+                          {i + 1}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+                  <textarea
+                    className="code-textarea"
+                    style={{
+                      fontSize: `${editorSettings.fontSize}px`,
+                      whiteSpace: editorSettings.wordWrap ? 'pre-wrap' : 'pre',
+                      tabSize: editorSettings.tabSize,
+                    }}
+                    value={activeTab.content}
+                    spellCheck={false}
+                    onChange={(e) => {
+                      updateActiveContent(e.target.value);
+                      if (editorSettings.autoSave) {
+                        saveActiveFile();
+                      }
+                    }}
+                    placeholder="Start coding here..."
+                  />
                 </div>
-                <textarea
-                  className="code-textarea"
-                  value={activeTab.content}
-                  spellCheck={false}
-                  onChange={(e) => updateActiveContent(e.target.value)}
-                  placeholder="Start coding here..."
-                />
+
+                {isSplitEditor && (
+                  <div className="code-editor-pane secondary-pane" style={{ flex: '1 1 50%', display: 'flex', flexDirection: 'column', height: '100%', borderLeft: '1px solid var(--roxy-border, #cbd5e1)', minWidth: 0, background: 'var(--roxy-surface-alt, #f8fafc)' }}>
+                    <div className="split-pane-header" style={{ height: '28px', padding: '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--roxy-border, #e2e8f0)', fontSize: '11px', fontWeight: 600, color: 'var(--roxy-text-muted, #64748b)' }}>
+                      <span>SPLIT PANE / REFERENCE</span>
+                      <button type="button" className="btn-tab-close" onClick={() => setIsSplitEditor(false)}>
+                        <X size={12} />
+                      </button>
+                    </div>
+                    {openTabs.length > 1 ? (
+                      (() => {
+                        const secTab = openTabs.find((t) => t.path !== activeTabPath) || openTabs[0];
+                        return (
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                            <div style={{ padding: '4px 12px', fontSize: '11px', borderBottom: '1px solid var(--roxy-border, #e2e8f0)', color: '#0d9488', fontWeight: 600 }}>
+                              {secTab.name} ({secTab.path})
+                            </div>
+                            <pre style={{ flex: 1, margin: 0, padding: '12px', overflow: 'auto', fontFamily: 'monospace', fontSize: `${editorSettings.fontSize}px`, lineHeight: 1.5 }}>
+                              {secTab.content}
+                            </pre>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--roxy-text-muted, #64748b)', fontSize: '12px' }}>
+                        Open another file from the explorer to compare side-by-side.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="editor-placeholder-empty">
@@ -1115,6 +1326,7 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
                 <div className="placeholder-shortcuts">
                   <div><span>Open File</span> <kbd>Ctrl+P</kbd></div>
                   <div><span>Save</span> <kbd>Ctrl+S</kbd></div>
+                  <div><span>Go to Line</span> <kbd>Ctrl+G</kbd></div>
                   <div><span>Toggle Terminal</span> <kbd>Ctrl+`</kbd></div>
                 </div>
               </div>
@@ -1512,12 +1724,75 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
                 className="palette-item"
                 onClick={() => {
                   setIsCommandPaletteOpen(false);
+                  setIsGoToLineOpen(true);
+                }}
+              >
+                <span>Go to Line</span>
+                <kbd>Ctrl+G</kbd>
+              </div>
+              <div
+                className="palette-item"
+                onClick={() => {
+                  setIsCommandPaletteOpen(false);
+                  setIsSplitEditor((prev) => !prev);
+                }}
+              >
+                <span>View: Toggle Split Editor</span>
+                <kbd>Split</kbd>
+              </div>
+              <div
+                className="palette-item"
+                onClick={() => {
+                  setIsCommandPaletteOpen(false);
+                  setActiveActivity('settings');
+                }}
+              >
+                <span>Preferences: Open Editor Settings</span>
+                <kbd>Settings</kbd>
+              </div>
+              <div
+                className="palette-item"
+                onClick={() => {
+                  setIsCommandPaletteOpen(false);
                   setIsAgentPanelOpen(true);
                 }}
               >
                 <span>Roxy Agent: Ask Assistant</span>
                 <kbd>Ctrl+Alt+A</kbd>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── 6b. GO TO LINE MODAL (Ctrl+G) ─────────────────────────────────── */}
+      {isGoToLineOpen && (
+        <div className="command-palette-overlay" onClick={() => setIsGoToLineOpen(false)}>
+          <div className="command-palette-modal animate-scale-up" style={{ width: '380px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="palette-input-row">
+              <span style={{ fontSize: '13px', fontWeight: 600 }}>Line:</span>
+              <input
+                autoFocus
+                type="number"
+                min="1"
+                placeholder="Enter line number..."
+                value={goToLineNumber}
+                onChange={(e) => setGoToLineNumber(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setIsGoToLineOpen(false);
+                  } else if (e.key === 'Escape') {
+                    setIsGoToLineOpen(false);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="btn-save-breadcrumb"
+                onClick={() => setIsGoToLineOpen(false)}
+              >
+                Jump
+              </button>
             </div>
           </div>
         </div>

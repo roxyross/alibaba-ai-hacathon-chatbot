@@ -15,6 +15,7 @@ Validates:
 from __future__ import annotations
 
 import io
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest
@@ -44,7 +45,7 @@ def auth_headers(test_user: User) -> dict[str, str]:
 
 
 @pytest.fixture
-async def async_client() -> AsyncClient:
+async def async_client() -> AsyncGenerator[AsyncClient, None]:
     """Async HTTP test client bound to FastAPI application."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

@@ -20,6 +20,7 @@ describe('ROXY Code Studio / Full IDE Component Suite', () => {
     expect(html).toContain('Roxy Agent');
     expect(html).toContain('Test');
     expect(html).toContain('Run');
+    expect(html).toContain('Split');
 
     // Activity Bar
     expect(html).toContain('Explorer');
