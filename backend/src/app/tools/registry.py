@@ -341,7 +341,11 @@ class ToolRegistry:
                 if param_name in args:
                     kwargs[param_name] = args[param_name]
                 elif param_name == "arguments":
-                    kwargs["arguments"] = args
+                    param_type = sig.parameters[param_name].annotation
+                    if param_type in (dict, "dict", "dict[str, Any]", Any) or isinstance(sig.parameters[param_name].default, dict):
+                        kwargs["arguments"] = args
+                    elif isinstance(args, dict) and "arguments" in args:
+                        kwargs["arguments"] = args["arguments"]
                 elif param_name == "user_id":
                     kwargs["user_id"] = request.user_id
                 elif param_name == "workspace_id":

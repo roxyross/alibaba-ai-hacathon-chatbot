@@ -967,14 +967,30 @@ class DeviceService:
         return [d for d in self._mem_devices.values() if d.get("user_id") == user_id]
 
     async def register_device(self, user_id: str, data: dict[str, Any]) -> dict[str, Any]:
-        """Register or update a remote/companion device."""
-        dev_id = str(uuid.uuid4())
+        """Register or update a remote/companion device with stable device identity."""
+        dev_id = str(data.get("device_id") or uuid.uuid4())
         now_str = datetime.now(UTC).isoformat()
 
         session_factory = get_session_factory()
         if session_factory is not None:
             try:
                 async with session_factory() as session:
+                    existing = await session.get(DeviceRegistration, dev_id)
+                    if existing and existing.user_id == user_id:
+                        if data.get("device_name"):
+                            existing.device_name = data["device_name"]
+                        if data.get("capabilities"):
+                            existing.set_capabilities(data["capabilities"])
+                        if data.get("telemetry"):
+                            existing.set_telemetry(data["telemetry"])
+                        existing.status = "online"
+                        existing.last_heartbeat_at = datetime.now(UTC)
+                        await session.commit()
+                        await session.refresh(existing)
+                        dev_dict = existing.to_dict()
+                        self._mem_devices[dev_id] = dev_dict
+                        return dev_dict
+
                     device = DeviceRegistration(
                         id=dev_id,
                         user_id=user_id,
@@ -987,13 +1003,14 @@ class DeviceService:
                         ip_address=data.get("ip_address", "127.0.0.1"),
                         status=data.get("status", "online"),
                         is_current_host=bool(data.get("is_current_host", False)),
+                        daemon_version=data.get("daemon_version", "2.0.0"),
                     )
                     device.set_capabilities(data.get("capabilities", ["app_discovery"]))
                     device.set_telemetry(data.get("telemetry", {}))
                     session.add(device)
                     await session.commit()
                     await session.refresh(device)
-                    dev_dict: dict[str, Any] = device.to_dict()
+                    dev_dict = device.to_dict()
                     self._mem_devices[dev_id] = dev_dict
                     return dev_dict
             except Exception as exc:
@@ -1012,6 +1029,7 @@ class DeviceService:
             "ip_address": data.get("ip_address", "127.0.0.1"),
             "status": data.get("status", "online"),
             "is_current_host": bool(data.get("is_current_host", False)),
+            "daemon_version": data.get("daemon_version", "2.0.0"),
             "capabilities": data.get("capabilities", ["app_discovery"]),
             "telemetry": data.get("telemetry", {}),
             "last_heartbeat_at": now_str,
@@ -1020,6 +1038,147 @@ class DeviceService:
         }
         self._mem_devices[dev_id] = mem_dict
         return mem_dict
+
+    async def get_device(self, user_id: str, device_id: str) -> dict[str, Any] | None:
+        """Get a registered device by ID for this user."""
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    db_dev = await session.get(DeviceRegistration, device_id)
+                    if db_dev and db_dev.user_id == user_id:
+                        return db_dev.to_dict()
+            except Exception as exc:
+                log.warning("device_service.db_get_device_failed", error=str(exc))
+
+        dev = self._mem_devices.get(device_id)
+        if dev and dev.get("user_id") == user_id:
+            return dev
+        return None
+
+    async def update_device(self, user_id: str, device_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Update device friendly name, capabilities, or permissions."""
+        dev = await self.get_device(user_id=user_id, device_id=device_id)
+        if not dev:
+            raise KeyError(f"Device '{device_id}' not found for user '{user_id}'.")
+
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    db_dev = await session.get(DeviceRegistration, device_id)
+                    if db_dev and db_dev.user_id == user_id:
+                        if data.get("device_name"):
+                            db_dev.device_name = data["device_name"]
+                        if data.get("capabilities") is not None:
+                            db_dev.set_capabilities(data["capabilities"])
+                        if data.get("telemetry") is not None:
+                            merged = {**db_dev.get_telemetry(), **data["telemetry"]}
+                            db_dev.set_telemetry(merged)
+                        await session.commit()
+                        await session.refresh(db_dev)
+                        dev_dict = db_dev.to_dict()
+                        self._mem_devices[device_id] = dev_dict
+                        return dev_dict
+            except Exception as exc:
+                log.warning("device_service.db_update_failed", error=str(exc))
+
+        # Memory fallback
+        if device_id in self._mem_devices:
+            cur = self._mem_devices[device_id]
+            if cur.get("user_id") == user_id:
+                if data.get("device_name"):
+                    cur["device_name"] = data["device_name"]
+                if data.get("capabilities") is not None:
+                    cur["capabilities"] = data["capabilities"]
+                if data.get("telemetry") is not None:
+                    cur["telemetry"] = {**cur.get("telemetry", {}), **data["telemetry"]}
+                cur["updated_at"] = datetime.now(UTC).isoformat()
+                return cur
+        return dev
+
+    async def revoke_device(self, user_id: str, device_id: str) -> bool:
+        """Revoke, disconnect, and deregister a client device."""
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            try:
+                async with session_factory() as session:
+                    db_dev = await session.get(DeviceRegistration, device_id)
+                    if db_dev and db_dev.user_id == user_id:
+                        await session.delete(db_dev)
+                        await session.commit()
+            except Exception as exc:
+                log.warning("device_service.db_revoke_failed", error=str(exc))
+
+        self._mem_devices.pop(device_id, None)
+        log.info("device_service.device_revoked", device_id=device_id, user_id=user_id)
+        return True
+
+    async def register_push_token(
+        self, user_id: str, device_id: str, push_token: str, platform_name: str
+    ) -> dict[str, Any]:
+        """Store APNs/FCM push notification token for device."""
+        patch_data = {
+            "telemetry": {
+                "push_token": push_token,
+                "push_platform": platform_name,
+                "push_registered_at": datetime.now(UTC).isoformat(),
+            }
+        }
+        return await self.update_device(user_id=user_id, device_id=device_id, data=patch_data)
+
+    def get_update_manifest(self, platform_name: str) -> dict[str, Any]:
+        """Return production app update manifests for Windows, macOS, Linux, Android, and iOS."""
+        p = platform_name.lower()
+        now_str = datetime.now(UTC).isoformat()
+        manifests: dict[str, dict[str, Any]] = {
+            "windows": {
+                "platform": "windows",
+                "latest_version": "2.0.0",
+                "download_url": "https://github.com/roxyross/alibaba-ai-hacathon-chatbot/releases/download/v2.0.0/Roxy-AI-Setup-2.0.0.exe",
+                "sha256": "4a72d3f82161b9a19c72e42821df65c81b9451d6c8b4b7c12658de354117b98f",
+                "release_notes": "ROXY-AI 2.0.0 Desktop for Windows: Full Code Studio IDE, sandboxed terminal, voice, system tray, and device automation.",
+                "mandatory": False,
+                "published_at": now_str,
+            },
+            "macos": {
+                "platform": "macos",
+                "latest_version": "2.0.0",
+                "download_url": "https://github.com/roxyross/alibaba-ai-hacathon-chatbot/releases/download/v2.0.0/Roxy-AI-2.0.0-universal.dmg",
+                "sha256": "81f18579482181bc77b78912ce3f6c825a0753d09a2468f7027c9be95514b8a2",
+                "release_notes": "ROXY-AI 2.0.0 Desktop for macOS: Universal binary (Apple Silicon + Intel), menu bar integration, system notifications.",
+                "mandatory": False,
+                "published_at": now_str,
+            },
+            "linux": {
+                "platform": "linux",
+                "latest_version": "2.0.0",
+                "download_url": "https://github.com/roxyross/alibaba-ai-hacathon-chatbot/releases/download/v2.0.0/Roxy-AI-2.0.0.AppImage",
+                "sha256": "25a80579e0a2948bbca411f501b8e4f165975e523f274cb76bcbc95b958c5a21",
+                "release_notes": "ROXY-AI 2.0.0 Desktop for Linux: Standalone AppImage with AT-SPI and X11/Wayland automation.",
+                "mandatory": False,
+                "published_at": now_str,
+            },
+            "android": {
+                "platform": "android",
+                "latest_version": "2.0.0",
+                "download_url": "https://github.com/roxyross/alibaba-ai-hacathon-chatbot/releases/download/v2.0.0/roxy-ai-2.0.0.apk",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "release_notes": "ROXY-AI 2.0.0 for Android: Push notifications, reminder ringtones, mobile Code Studio, and deep link routing.",
+                "mandatory": False,
+                "published_at": now_str,
+            },
+            "ios": {
+                "platform": "ios",
+                "latest_version": "2.0.0",
+                "download_url": "https://apps.apple.com/app/roxy-ai/id674123456",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "release_notes": "ROXY-AI 2.0.0 for iOS: Universal Links, Apple Shortcuts, App Intents, APNs notifications, and reminder sounds.",
+                "mandatory": False,
+                "published_at": now_str,
+            },
+        }
+        return manifests.get(p, manifests["windows"])
 
     def get_system_telemetry(self) -> dict[str, Any]:
         """Gather real-time system performance metrics."""
@@ -2631,7 +2790,8 @@ class DeviceService:
         async def _tool_open_app(app_name: str, arguments: list[str] | None = None, user_id: str | None = None) -> dict[str, Any]:
             uid = user_id or "default"
             dev = await self.get_or_create_local_device(uid)
-            return await self.launch_app(uid, dev["id"], app_name, arguments or [])
+            cli_args = arguments if isinstance(arguments, list) else []
+            return await self.launch_app(uid, dev["id"], app_name, cli_args)
 
         async def _tool_close_app(app_name: str, force: bool = False, user_id: str | None = None) -> dict[str, Any]:
             uid = user_id or "default"

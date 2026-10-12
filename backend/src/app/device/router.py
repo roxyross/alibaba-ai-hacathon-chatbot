@@ -42,12 +42,15 @@ from app.device.schemas import (
     DeviceActionLogResponse,
     DeviceCommandQueueRequest,
     DeviceCommandResponse,
+    AppUpdateManifest,
     DeviceCommandResultSubmission,
     DeviceHeartbeatRequest,
     DeviceHeartbeatResponse,
+    DevicePushTokenRequest,
     DeviceRegisterRequest,
     DeviceResponse,
     DeviceTelemetryResponse,
+    DeviceUpdateRequest,
     DiscoverCapabilitiesRequest,
     DiscoveredAppBulkSyncRequest,
     DiscoveredAppBulkSyncResponse,
@@ -353,13 +356,57 @@ async def register_device(
     return await _service.register_device(user_id=user.id, data=req.model_dump())
 
 
+@router.get("/updates", response_model=AppUpdateManifest)
+async def get_app_updates(
+    platform: str = Query(default="windows", description="Target platform: windows, macos, linux, android, ios"),
+) -> dict[str, Any]:
+    """Retrieve production release version manifest, download URL, checksums, and changelog."""
+    return _service.get_update_manifest(platform_name=platform)
+
+
+@router.patch("/{device_id}", response_model=DeviceResponse)
+async def update_device(
+    device_id: str,
+    req: DeviceUpdateRequest,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Update device friendly name, capabilities, or permissions."""
+    try:
+        return await _service.update_device(user_id=user.id, device_id=device_id, data=req.model_dump(exclude_unset=True))
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.delete("/{device_id}")
+async def revoke_device(
+    device_id: str,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Revoke and disconnect a registered device."""
+    success = await _service.revoke_device(user_id=user.id, device_id=device_id)
+    return {"device_id": device_id, "revoked": success, "message": "Device successfully disconnected and revoked."}
+
+
+@router.post("/{device_id}/push-token")
+async def register_device_push_token(
+    device_id: str,
+    req: DevicePushTokenRequest,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Register APNs or FCM push notification token for a client device."""
+    updated = await _service.register_push_token(
+        user_id=user.id, device_id=device_id, push_token=req.push_token, platform_name=req.platform
+    )
+    return {"device_id": device_id, "push_registered": True, "device": updated}
+
+
 @router.get("/{device_id}/apps", response_model=list[DiscoveredAppResponse])
 async def list_apps(
     device_id: str,
     category: str | None = Query(default=None, description="Filter by app category"),
     is_running: bool | None = Query(default=None, description="Filter by running status"),
     search: str | None = Query(default=None, description="Search by app name, publisher, or description"),
-    limit: int = Query(default=100, le=200),
+    limit: int = Query(default=250, le=500),
     offset: int = Query(default=0, ge=0),
     user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:

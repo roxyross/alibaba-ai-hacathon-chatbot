@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Roxy AI</string>
+    <string name="notification_channel_name">Roxy Reminders &amp; Tasks</string>
+    <string name="notification_channel_description">Notifications for scheduled AI agent tasks, calendar alerts, and reminders.</string>
+</resources>

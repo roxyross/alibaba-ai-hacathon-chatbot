@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Roxy AI</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>2.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>20000</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <true/>
+
+    <!-- Deep Link URL Types (roxy://) -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>ai.roxy.app</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>roxy</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- Background Modes (Audio for Voice & Remote Push) -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+        <string>remote-notification</string>
+    </array>
+
+    <!-- App Privacy Declarations -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Roxy AI uses microphone access for real-time bidirectional voice agent sessions and voice-to-code dictation.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Roxy AI uses speech recognition for real-time agent commands.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Roxy AI uses camera access for photo and document scanning into your Knowledge Vault.</string>
+
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <false/>
+    </dict>
+</dict>
+</plist>

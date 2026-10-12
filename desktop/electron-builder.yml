@@ -1,0 +1,65 @@
+appId: ai.roxy.desktop
+productName: Roxy AI
+copyright: Copyright © 2026 Roxy-AI Inc. All rights reserved.
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - dist/**/*
+  - package.json
+  - from: ../frontend/dist
+    to: web
+    filter:
+      - "**/*"
+
+protocols:
+  - name: Roxy AI Protocol
+    schemes:
+      - roxy
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  icon: resources/icon.ico
+  publisherName: Roxy-AI Inc.
+  verifyUpdateCodeSignature: false
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Roxy AI
+  artifactName: "Roxy-AI-Setup-${version}.${ext}"
+
+mac:
+  target:
+    - target: default
+      arch:
+        - universal
+        - x64
+        - arm64
+  icon: resources/icon.icns
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  artifactName: "Roxy-AI-${version}-${arch}.${ext}"
+
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: resources/icon.png
+  category: Utility;Development;
+  artifactName: "Roxy-AI-${version}.${ext}"
+
+publish:
+  provider: generic
+  url: "https://roxy-personal-ai-backend.vercel.app/api/v1/devices/updates"

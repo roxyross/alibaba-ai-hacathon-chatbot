@@ -1,0 +1,25 @@
+{
+  "name": "roxy-ai-desktop",
+  "version": "2.0.0",
+  "description": "Roxy-AI Desktop Client for Windows, macOS, and Linux",
+  "main": "dist/main.js",
+  "author": "Roxy-AI Team",
+  "license": "Proprietary",
+  "scripts": {
+    "build:ts": "tsc",
+    "build": "npm run build:ts",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.5.4"
+  }
+}

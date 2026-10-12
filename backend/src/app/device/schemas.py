@@ -18,10 +18,39 @@ class DeviceRegisterRequest(BaseModel):
     architecture: str = Field(default="x86_64", description="CPU architecture")
     hostname: str = Field(default="localhost", description="System hostname")
     ip_address: str = Field(default="127.0.0.1", description="Device IP address")
+    device_id: str | None = Field(default=None, description="Client-specified unique persistent hardware ID")
+    daemon_version: str | None = Field(default="2.0.0", description="Client or app version")
     capabilities: list[str] = Field(
         default_factory=lambda: ["app_discovery", "process_control", "screen_capture", "system_commands"]
     )
     telemetry: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeviceUpdateRequest(BaseModel):
+    """Request to update device metadata, friendly name, or permissions."""
+
+    device_name: str | None = Field(default=None, description="Updated friendly device name")
+    capabilities: list[str] | None = Field(default=None, description="Updated capabilities list")
+    telemetry: dict[str, Any] | None = Field(default=None, description="Updated telemetry metrics")
+
+
+class DevicePushTokenRequest(BaseModel):
+    """Request to register native mobile/desktop push notification token."""
+
+    push_token: str = Field(..., description="FCM, APNs, or WebPush token")
+    platform: str = Field(default="android", description="android, ios, or desktop")
+
+
+class AppUpdateManifest(BaseModel):
+    """Release update information for client applications."""
+
+    platform: str
+    latest_version: str
+    download_url: str
+    sha256: str
+    release_notes: str
+    mandatory: bool = False
+    published_at: str
 
 
 class DeviceTelemetryResponse(BaseModel):

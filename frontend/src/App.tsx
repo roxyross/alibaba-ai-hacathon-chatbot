@@ -42,6 +42,7 @@ import { RoxyCommandBar } from './components/CommandBar';
 import { NewTaskModal, type NewTaskConfig } from './components/NewTaskModal';
 import { CoworkWorkspace } from './components/CoworkWorkspace';
 import { ReminderAlarmToast } from './components/Reminders/ReminderAlarmToast';
+import { platformBridge } from './platform';
 import './App.css';
 import './components/DocumentUpload/DocumentUpload.css';
 
@@ -298,6 +299,39 @@ export function ChatScreen() {
 
   // Cowork Split-Screen Workspace Mode
   const [isCoworkMode, setIsCoworkMode] = useState(false);
+
+  // Platform client device registration and deep link routing
+  useEffect(() => {
+    if (accessToken) {
+      platformBridge.registerDeviceWithBackend(API_BASE, accessToken).catch((err) => {
+        console.warn('Device registration skipped/failed:', err);
+      });
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    return platformBridge.onDeepLink((route) => {
+      const v = (route.view || '').toLowerCase();
+      if (v === 'coding' || v === 'code' || v === 'ide') {
+        setActiveView('coding');
+      } else if (v === 'chat') {
+        setActiveView('chat');
+        if (route.params?.openTask === 'true' || route.taskId) {
+          setIsNewTaskModalOpen(true);
+        }
+      } else if (v === 'calendar') {
+        setActiveView('calendar');
+      } else if (v === 'billing') {
+        setActiveView('billing');
+      } else if (v === 'device_hub' || v === 'device' || v === 'devices') {
+        setActiveView('device_hub');
+      } else if (v === 'workspace_hub' || v === 'project') {
+        setActiveView('workspace_hub');
+      } else if (v === 'settings') {
+        setIsSettingsOpen(true);
+      }
+    });
+  }, []);
 
   // Global shortcuts: Ctrl+K (Command Bar), Ctrl+N (New Task), Ctrl+, (settings), ? (help/shortcuts)
   useEffect(() => {
