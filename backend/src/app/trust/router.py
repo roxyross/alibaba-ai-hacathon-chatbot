@@ -6,11 +6,34 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.db import get_db
+from app.models.trust import TrustEvent
+from app.open_work.service import OpenWorkAgentService
+from app.permissions.schemas import PermissionPolicy
+from app.permissions.service import PermissionService
+from app.trust.confirmation_gate import ConfirmationGate
+from app.trust.dlp_engine import DLPEngine
+from app.trust.risk_matrix import RiskMatrixEngine
+from app.trust.schemas import (
+    ConfirmationChallengeResponse,
+    ConfirmationResolutionResponse,
+    CreateConfirmationRequest,
+    DLPCategory,
+    DLPRedactRequest,
+    DLPRedactResponse,
+    DLPRuleInfo,
+    DLPScanRequest,
+    DLPScanResponse,
+    ResolveConfirmationRequest,
+    RiskEvaluationRequest,
+    RiskEvaluationResponse,
+    RiskMatrixConfigResponse,
+)
 from app.trust.service import RecoveryService, RollbackService, TrustService
 
 router = APIRouter(prefix="/trust", tags=["trust"])
@@ -68,9 +91,6 @@ async def get_trust_event(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Inspect full audit record for a single action."""
-    from sqlalchemy import select
-    from app.models.trust import TrustEvent
-
     stmt = select(TrustEvent).where(
         TrustEvent.id == event_id, TrustEvent.user_id == str(user.id)
     )
@@ -103,7 +123,7 @@ async def verify_trust_event(
         )
         return updated.to_dict()
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.post("/events/{event_id}/rollback")
@@ -163,7 +183,7 @@ async def enqueue_recovery_job(
         )
         return job.to_dict()
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.post("/recovery-jobs/{job_id}/retry")
@@ -191,25 +211,6 @@ async def cancel_recovery_job(
 # ============================================================================
 # Phase 21: Risk Matrix, DLP Protections, and Human-in-the-Loop Confirmations
 # ============================================================================
-
-from app.trust.risk_matrix import RiskMatrixEngine
-from app.trust.dlp_engine import DLPEngine
-from app.trust.confirmation_gate import ConfirmationGate
-from app.trust.schemas import (
-    RiskEvaluationRequest,
-    RiskEvaluationResponse,
-    RiskMatrixConfigResponse,
-    DLPScanRequest,
-    DLPScanResponse,
-    DLPRedactRequest,
-    DLPRedactResponse,
-    DLPRuleInfo,
-    DLPCategory,
-    CreateConfirmationRequest,
-    ConfirmationChallengeResponse,
-    ResolveConfirmationRequest,
-    ConfirmationResolutionResponse,
-)
 
 
 @router.post("/risk/evaluate", response_model=RiskEvaluationResponse)
@@ -415,15 +416,13 @@ async def resolve_confirmation(
             comment=body.comment,
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 # ============================================================================
 # Phase C: Permission Transparency & User Control
 # ============================================================================
 
-from app.permissions.service import PermissionService
-from app.permissions.schemas import PermissionPolicy
 
 
 class UpdatePermissionPolicyRequest(BaseModel):
@@ -544,7 +543,7 @@ async def update_transparent_permission(
             grant_id=grant_id, user_id=str(user.id), policy=policy_enum
         )
         return {"success": True, "grant_id": grant_id, "policy": updated.policy}
-    except Exception as e:
+    except Exception:
         return {"success": True, "grant_id": grant_id, "policy": body.policy, "message": "Policy updated."}
 
 
@@ -575,8 +574,6 @@ async def reset_transparent_permissions(
 # Phase P: Action Control Surface (Stop / Cancel / Pause / Resume / Undo)
 # ============================================================================
 
-from app.open_work.service import OpenWorkAgentService
-
 
 @router.post("/actions/{action_id}/cancel")
 @router.post("/actions/{action_id}/stop")
@@ -589,9 +586,14 @@ async def cancel_action(
     """Phase P: Immediately cancel or stop an action or task."""
     # 1. Check open work tasks
     open_work = OpenWorkAgentService.get_instance()
-    task = open_work.get_task(action_id)
+    task = None
+    try:
+        task = open_work.get_task(action_id, user_id=str(user.id))
+    except (KeyError, PermissionError):
+        task = None
+
     if task and task.user_id == str(user.id):
-        res = open_work.cancel_task(action_id, reason=body.reason)
+        res = await open_work.cancel_task(action_id, user_id=str(user.id), reason=body.reason)
         return {"success": True, "action_id": action_id, "status": "cancelled", "task": res.model_dump()}
 
     # 2. Check recovery jobs
@@ -611,9 +613,14 @@ async def pause_action(
 ) -> dict[str, Any]:
     """Phase P: Pause a running long-running task."""
     open_work = OpenWorkAgentService.get_instance()
-    task = open_work.get_task(action_id)
+    task = None
+    try:
+        task = open_work.get_task(action_id, user_id=str(user.id))
+    except (KeyError, PermissionError):
+        task = None
+
     if task and task.user_id == str(user.id):
-        res = open_work.pause_task(action_id, reason=body.reason)
+        res = await open_work.pause_task(action_id, user_id=str(user.id), reason=body.reason)
         return {"success": True, "action_id": action_id, "status": "paused", "task": res.model_dump()}
     return {"success": True, "action_id": action_id, "status": "paused"}
 
@@ -625,9 +632,14 @@ async def resume_action(
 ) -> dict[str, Any]:
     """Phase P: Resume a paused or interrupted task."""
     open_work = OpenWorkAgentService.get_instance()
-    task = open_work.get_task(action_id)
+    task = None
+    try:
+        task = open_work.get_task(action_id, user_id=str(user.id))
+    except (KeyError, PermissionError):
+        task = None
+
     if task and task.user_id == str(user.id):
-        res = open_work.resume_task(action_id)
+        res = await open_work.resume_task(action_id, user_id=str(user.id))
         return {"success": True, "action_id": action_id, "status": "running", "task": res.model_dump()}
     return {"success": True, "action_id": action_id, "status": "running"}
 
@@ -658,8 +670,6 @@ async def undo_action(
         return res
 
     # Otherwise query by action_id
-    from sqlalchemy import select
-    from app.models.trust import TrustEvent
     stmt = select(TrustEvent).where(
         TrustEvent.action_id == action_id, TrustEvent.user_id == str(user.id)
     )

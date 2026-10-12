@@ -6,7 +6,6 @@ User control, explicit approval, transparent rationales, reset capability.
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -158,7 +157,7 @@ class PersonalizationService:
 
         return {
             "response_style": extra.get("response_style", "concise"),
-            "preferred_language": pref.language if pref else "en",
+            "preferred_language": str(extra.get("preferred_language", "en")),
             "roman_urdu_preference": extra.get("roman_urdu_preference", True),
             "notification_timing": extra.get("notification_timing", "business_hours"),
             "frequently_used_tools": extra.get("frequently_used_tools", ["calendar", "email", "device"]),
@@ -187,7 +186,7 @@ class PersonalizationService:
         extra = dict(pref.extra_settings or {})
         for k, v in updates.items():
             if k == "preferred_language":
-                pref.language = str(v)
+                extra["preferred_language"] = str(v)
             elif k == "theme":
                 pref.theme = str(v)
             else:

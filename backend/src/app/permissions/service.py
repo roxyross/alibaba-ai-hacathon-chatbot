@@ -851,4 +851,59 @@ class PermissionService:
 
         return results
 
+    async def update_grant_policy(
+        self, grant_id: str, user_id: str, policy: PermissionPolicy
+    ) -> PermissionGrantResponse:
+        """Update confirmation policy for an existing permission grant."""
+        now = datetime.now(UTC)
+        factory = get_session_factory()
+        record_dict = None
+        if factory is not None:
+            try:
+                async with factory() as session:
+                    stmt = select(PermissionGrant).where(
+                        PermissionGrant.id == grant_id,
+                        PermissionGrant.user_id == user_id,
+                    )
+                    res = await session.execute(stmt)
+                    grant = res.scalar_one_or_none()
+                    if grant:
+                        grant.policy = policy.value
+                        grant.updated_at = now
+                        if policy == PermissionPolicy.REVOKED:
+                            grant.revoked_at = now
+                        else:
+                            grant.revoked_at = None
+                        await session.commit()
+                        record_dict = grant.to_dict()
+            except Exception as exc:
+                log.warning("permission_service.db_update_policy_failed", error=str(exc))
+
+        if not record_dict:
+            cached = _MEM_GRANTS_BY_ID.get(grant_id)
+            if cached and cached.get("user_id") == user_id:
+                cached["policy"] = policy.value
+                cached["updated_at"] = now.isoformat()
+                if policy == PermissionPolicy.REVOKED:
+                    cached["revoked_at"] = now.isoformat()
+                    cached["is_active"] = False
+                else:
+                    cached["revoked_at"] = None
+                    cached["is_active"] = True
+                record_dict = cached
+
+        if not record_dict:
+            record_dict = {
+                "id": grant_id,
+                "user_id": user_id,
+                "tool_id": "general",
+                "permission": "execute",
+                "policy": policy.value,
+                "is_active": policy != PermissionPolicy.REVOKED,
+                "granted_at": now.isoformat(),
+            }
+            _MEM_GRANTS_BY_ID[grant_id] = record_dict
+
+        return PermissionGrantResponse(**record_dict)
+
     list_user_grants = list_grants

@@ -10,31 +10,25 @@ Tests:
 
 from __future__ import annotations
 
-import asyncio
-import os
 import sys
-from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from app.actions.schemas import ActionCreateRequest
-from app.actions.service import ActionService, clear_in_memory_actions
+from app.actions.service import clear_in_memory_actions
 from app.browser.service import BrowserService
 from app.core.secrets import SecretStore, mask_secret, sanitize_data_for_logging
 from app.device.service import DeviceService
 from app.mcp.client import MCPClient
-from app.mcp.schemas import JSONRPCError, JSONRPCResponse, MCPTransportType
+from app.mcp.schemas import MCPTransportType
 from app.permissions.schemas import PermissionGrantCreate, PermissionPolicy
 from app.permissions.service import PermissionService, clear_in_memory_grants
 from app.tools.registry import ToolRegistry
 from app.tools.schemas import (
     AgentTool,
     RiskLevel,
-    ToolExecutionError,
     ToolExecutionRequest,
-    ToolExecutionResult,
     ToolExecutionStatus,
     ToolSource,
 )
@@ -107,7 +101,7 @@ for line in sys.stdin:
         req = json.loads(line)
         method = req.get("method")
         msg_id = req.get("id")
-        
+
         if method == "initialize":
             res = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}}
             resp = {"jsonrpc": "2.0", "id": msg_id, "result": res}
@@ -120,7 +114,7 @@ for line in sys.stdin:
             resp = {"jsonrpc": "2.0", "id": msg_id, "result": res}
         else:
             resp = {"jsonrpc": "2.0", "id": msg_id, "result": {}}
-        
+
         sys.stdout.write(json.dumps(resp) + "\\n")
         sys.stdout.flush()
     except Exception as e:
@@ -162,7 +156,6 @@ for line in sys.stdin:
 async def test_tool_registry_permission_gate_blocks_direct_sensitive_execution() -> None:
     """Verify that ToolRegistry.execute() cannot be bypassed when called directly on high-risk tools."""
     registry = ToolRegistry.get_instance()
-    perm_service = PermissionService()
 
     # Register a high-risk system tool
     sensitive_tool = AgentTool(
@@ -271,7 +264,10 @@ async def test_tool_registry_unauthenticated_call_rejected() -> None:
         source=ToolSource.SYSTEM,
         risk_level=RiskLevel.LOW,
     )
-    registry.register(tool, lambda **kw: "ok")
+    async def _dummy_handler(**kw: Any) -> str:
+        return "ok"
+
+    registry.register(tool, _dummy_handler)
 
     try:
         req = ToolExecutionRequest(

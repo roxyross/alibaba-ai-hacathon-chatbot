@@ -8,14 +8,13 @@ and state verification.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
-import threading
 import time
-from typing import Any, ClassVar
 import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, ClassVar
 
 import structlog
 
@@ -59,7 +58,7 @@ def _load_tasks_from_disk() -> dict[str, OpenWorkTask]:
     if not path.exists():
         return {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         tasks: dict[str, OpenWorkTask] = {}
         for tid, tdict in data.items():
@@ -221,7 +220,7 @@ class OpenWorkAgentService:
             return task
 
         task.status = OpenWorkTaskStatus.RUNNING
-        task.updated_at = datetime.now(timezone.utc).isoformat()
+        task.updated_at = datetime.now(UTC).isoformat()
         _save_tasks_to_disk(self._tasks)
 
         # Launch async task runner in background
@@ -246,14 +245,14 @@ class OpenWorkAgentService:
                 if task.current_subtask_index >= len(task.subtasks):
                     task.status = OpenWorkTaskStatus.COMPLETED
                     task.progress_percent = 100.0
-                    task.updated_at = datetime.now(timezone.utc).isoformat()
+                    task.updated_at = datetime.now(UTC).isoformat()
                     _save_tasks_to_disk(self._tasks)
                     log.info("open_work.task_completed", task_id=task_id)
                     break
 
                 subtask = task.subtasks[task.current_subtask_index]
                 subtask.status = OpenWorkTaskStatus.RUNNING
-                subtask.started_at = datetime.now(timezone.utc).isoformat()
+                subtask.started_at = datetime.now(UTC).isoformat()
                 task.updated_at = subtask.started_at
                 t0 = time.perf_counter()
 
@@ -264,7 +263,7 @@ class OpenWorkAgentService:
                         tool_req = ToolExecutionRequest(
                             tool_id=subtask.tool_id,
                             user_id=task.user_id,
-                            parameters=subtask.parameters,
+                            arguments=subtask.parameters,
                         )
                         # Prefer direct handler call if available
                         handler = registry.get_handler(subtask.tool_id)
@@ -278,7 +277,7 @@ class OpenWorkAgentService:
 
                     subtask.result = result
                     subtask.status = OpenWorkTaskStatus.COMPLETED
-                    subtask.completed_at = datetime.now(timezone.utc).isoformat()
+                    subtask.completed_at = datetime.now(UTC).isoformat()
                     subtask.duration_seconds = round(time.perf_counter() - t0, 3)
 
                     # Update Checkpoint
@@ -286,18 +285,18 @@ class OpenWorkAgentService:
                     task.checkpoint[f"step_{task.current_subtask_index}_output"] = result
                     task.current_subtask_index += 1
                     task.progress_percent = round((task.current_subtask_index / len(task.subtasks)) * 100.0, 1)
-                    task.updated_at = datetime.now(timezone.utc).isoformat()
+                    task.updated_at = datetime.now(UTC).isoformat()
                     _save_tasks_to_disk(self._tasks)
 
                 except Exception as exc:
                     subtask.status = OpenWorkTaskStatus.FAILED
                     subtask.error = str(exc)
-                    subtask.completed_at = datetime.now(timezone.utc).isoformat()
+                    subtask.completed_at = datetime.now(UTC).isoformat()
                     subtask.duration_seconds = round(time.perf_counter() - t0, 3)
 
                     task.status = OpenWorkTaskStatus.FAILED
                     task.error = f"Subtask '{subtask.title}' failed: {exc}"
-                    task.updated_at = datetime.now(timezone.utc).isoformat()
+                    task.updated_at = datetime.now(UTC).isoformat()
                     _save_tasks_to_disk(self._tasks)
                     log.error("open_work.subtask_failed", task_id=task_id, subtask=subtask.title, error=str(exc))
                     break
@@ -306,27 +305,27 @@ class OpenWorkAgentService:
             task = self._tasks.get(task_id)
             if task:
                 task.status = OpenWorkTaskStatus.CANCELLED
-                task.updated_at = datetime.now(timezone.utc).isoformat()
+                task.updated_at = datetime.now(UTC).isoformat()
                 _save_tasks_to_disk(self._tasks)
             log.info("open_work.runner_cancelled", task_id=task_id)
 
-    async def pause_task(self, task_id: str, user_id: str) -> OpenWorkTask:
+    async def pause_task(self, task_id: str, user_id: str = "", reason: str | None = None) -> OpenWorkTask:
         """Pause execution at current subtask boundary."""
         task = self._tasks.get(task_id)
         if not task:
             raise KeyError(f"Open Work task '{task_id}' not found.")
-        if task.user_id != user_id:
+        if user_id and task.user_id != user_id:
             raise PermissionError("Access denied.")
 
         if task.status == OpenWorkTaskStatus.RUNNING:
             task.status = OpenWorkTaskStatus.PAUSED
-            task.updated_at = datetime.now(timezone.utc).isoformat()
+            task.updated_at = datetime.now(UTC).isoformat()
             _save_tasks_to_disk(self._tasks)
             runner = self._active_runners.pop(task_id, None)
             if runner and not runner.done():
                 runner.cancel()
 
-        log.info("open_work.task_paused", task_id=task_id, step=task.current_subtask_index)
+        log.info("open_work.task_paused", task_id=task_id, step=task.current_subtask_index, reason=reason)
         return task
 
     async def resume_task(self, task_id: str, user_id: str = "") -> OpenWorkTask:
@@ -345,7 +344,7 @@ class OpenWorkAgentService:
         ):
             task.status = OpenWorkTaskStatus.RUNNING
             task.error = None
-            task.updated_at = datetime.now(timezone.utc).isoformat()
+            task.updated_at = datetime.now(UTC).isoformat()
             _save_tasks_to_disk(self._tasks)
             runner = asyncio.create_task(self._run_task_lifecycle(task_id))
             self._active_runners[task_id] = runner
@@ -362,7 +361,7 @@ class OpenWorkAgentService:
             raise PermissionError("Access denied.")
 
         task.status = OpenWorkTaskStatus.CANCELLED
-        task.updated_at = datetime.now(timezone.utc).isoformat()
+        task.updated_at = datetime.now(UTC).isoformat()
         if reason:
             task.error = f"Cancelled: {reason}"
         _save_tasks_to_disk(self._tasks)
@@ -373,12 +372,12 @@ class OpenWorkAgentService:
         log.info("open_work.task_cancelled", task_id=task_id, reason=reason)
         return task
 
-    def get_task(self, task_id: str, user_id: str) -> OpenWorkTask:
+    def get_task(self, task_id: str, user_id: str = "") -> OpenWorkTask:
         """Fetch task status and subtask progression."""
         task = self._tasks.get(task_id)
         if not task:
             raise KeyError(f"Open Work task '{task_id}' not found.")
-        if task.user_id != user_id:
+        if user_id and task.user_id != user_id:
             raise PermissionError("Access denied.")
         return task
 

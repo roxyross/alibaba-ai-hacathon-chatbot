@@ -6,6 +6,7 @@ Provides plain human-readable diagnostics across 15 subsystems without raw stack
 
 from __future__ import annotations
 
+import importlib
 import os
 from typing import Any
 
@@ -45,7 +46,7 @@ class DiagnosticsService:
         redis_status = "Healthy"
         redis_desc = "Redis 7 memory cache and rate limiter operational."
         try:
-            import redis.asyncio as aioredis
+            aioredis = importlib.import_module("redis.asyncio")
             redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
             client = aioredis.from_url(redis_url, socket_timeout=1.0)
             await client.ping()
