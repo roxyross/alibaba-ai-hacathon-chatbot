@@ -16,6 +16,7 @@ import {
   AlertCircle,
   RotateCw,
 } from 'lucide-react';
+import { CodeStudioIDE } from './CodeStudioIDE';
 import './CodingStudio.css';
 
 const rawApiBase =
@@ -77,6 +78,7 @@ if __name__ == "__main__":
 `;
 
 export const CodingStudio: React.FC<CodingStudioProps> = ({ onBack, accessToken, onSendToChat }) => {
+  const [viewMode, setViewMode] = useState<'ide' | 'playground'>('ide');
   const [activeTab, setActiveTab] = useState<'playground' | 'ai' | 'snippets'>('playground');
 
   // Stats
@@ -403,6 +405,16 @@ export const CodingStudio: React.FC<CodingStudioProps> = ({ onBack, accessToken,
     return ['All', ...Array.from(set)];
   }, [snippets]);
 
+  if (viewMode === 'ide') {
+    return (
+      <CodeStudioIDE
+        onBack={onBack}
+        accessToken={accessToken}
+        onSendToChat={onSendToChat}
+      />
+    );
+  }
+
   return (
     <div className="coding-studio">
       {/* Header */}
@@ -413,8 +425,16 @@ export const CodingStudio: React.FC<CodingStudioProps> = ({ onBack, accessToken,
               <ArrowLeft size={16} /> Back to Chat
             </button>
           )}
+          <button
+            type="button"
+            className="coding-studio__back-btn"
+            onClick={() => setViewMode('ide')}
+            style={{ marginLeft: '8px', background: 'rgba(20, 184, 166, 0.1)', color: '#0d9488', border: '1px solid rgba(20, 184, 166, 0.3)' }}
+          >
+            <Code2 size={16} /> Open Code Studio (IDE)
+          </button>
           <h1 className="coding-studio__title">
-            <Code2 size={28} /> Developer Studio
+            <Code2 size={28} /> Developer Studio (Scratchpad)
           </h1>
           <p className="coding-studio__desc">
             Autonomous coding agent, sandboxed execution playground, and code snippet library.

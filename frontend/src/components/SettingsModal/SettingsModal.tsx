@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { ReminderSoundSettings } from './ReminderSoundSettings';
 import './SettingsModal.css';
 
 const rawApiBase = (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ?? '';
@@ -1430,6 +1431,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
                     </div>
+
+                    {/* Universal Reminder Sounds & Ringtones */}
+                    <ReminderSoundSettings accessToken={accessToken} />
                   </div>
                 )}
 

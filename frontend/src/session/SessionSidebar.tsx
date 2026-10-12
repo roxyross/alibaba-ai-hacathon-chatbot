@@ -813,6 +813,16 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               <Calculator size={17} strokeWidth={1.8} />
             </button>
 
+            <button
+              type="button"
+              className={`session-sidebar__rail-btn ${activeView === 'coding' ? 'session-sidebar__rail-btn--active' : ''}`}
+              onClick={() => onViewChange('coding')}
+              aria-label="IDE / Code Studio"
+              data-tooltip="IDE / Code Studio (Ctrl+Alt+I)"
+            >
+              <Code2 size={17} strokeWidth={1.8} />
+            </button>
+
             <div className="session-sidebar__rail-divider" />
 
             {/* Secondary Tools Popover */}
@@ -1233,6 +1243,14 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             >
               <Calculator size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
               <span className="session-sidebar__nav-text">{t('nav.calculator')}</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'coding' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('coding')}
+            >
+              <Code2 size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">Code Studio (IDE)</span>
             </button>
           </div>
         </div>

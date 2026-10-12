@@ -41,6 +41,7 @@ import { TrustCenter } from './components/TrustCenter/TrustCenter';
 import { RoxyCommandBar } from './components/CommandBar';
 import { NewTaskModal, type NewTaskConfig } from './components/NewTaskModal';
 import { CoworkWorkspace } from './components/CoworkWorkspace';
+import { ReminderAlarmToast } from './components/Reminders/ReminderAlarmToast';
 import './App.css';
 import './components/DocumentUpload/DocumentUpload.css';
 
@@ -156,7 +157,51 @@ export function ChatScreen() {
     provider: 'gemini',
     model: 'gemini-2.0-flash',
   });
-  const [activeView, setActiveView] = useState<AppView>('chat');
+  const [activeView, setActiveView] = useState<AppView>(() => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/code-studio')) {
+      return 'coding';
+    }
+    return 'chat';
+  });
+
+  // Sync /code-studio route with browser history
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (activeView === 'coding') {
+      if (window.location.pathname !== '/code-studio') {
+        window.history.pushState(null, '', '/code-studio');
+      }
+    } else {
+      if (window.location.pathname === '/code-studio') {
+        window.history.pushState(null, '', '/');
+      }
+    }
+  }, [activeView]);
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      if (window.location.pathname.startsWith('/code-studio')) {
+        setActiveView('coding');
+      } else if (activeView === 'coding') {
+        setActiveView('chat');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [activeView]);
+
+  // Global keyboard shortcut (Ctrl+Alt+I) to toggle Code Studio directly
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'i' || e.key === 'I')) {
+        e.preventDefault();
+        setActiveView((prev) => (prev === 'coding' ? 'chat' : 'coding'));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Auth modal state for on-demand sign in / sign up & trial limit prompts
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -1243,6 +1288,9 @@ export function ChatScreen() {
         devices={DEFAULT_DEVICES}
         onSubmitTask={handleLaunchNewTask}
       />
+
+      {/* Universal Reminder & Alarm Notification System */}
+      <ReminderAlarmToast accessToken={accessToken} />
 
       {/* Global Toast Notification System */}
       <ToastContainer

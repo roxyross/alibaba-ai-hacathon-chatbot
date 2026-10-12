@@ -1,0 +1,313 @@
+/* ROXY Reminder Alarm Toast Styles (Matching Minimalist Teal & Soft Off-White Design System) */
+
+.reminder-alarm-container {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+  width: calc(100vw - 32px);
+  pointer-events: none;
+}
+
+.reminder-alarm-card {
+  pointer-events: auto;
+  background: var(--roxy-surface-card, #ffffff);
+  border: 1px solid var(--roxy-border, #e2e8f0);
+  border-left: 4px solid var(--roxy-teal, #0d9488);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px -4px rgba(13, 148, 136, 0.15), 0 4px 12px rgba(0, 0, 0, 0.08);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  backdrop-filter: blur(12px);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme='dark'] .reminder-alarm-card {
+  background: #181c20;
+  border-color: #2a323c;
+  border-left-color: #2dd4bf;
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.6), 0 0 16px rgba(45, 212, 191, 0.15);
+}
+
+.reminder-alarm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reminder-badge-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.reminder-category-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(13, 148, 136, 0.12);
+  color: #0d9488;
+}
+
+[data-theme='dark'] .reminder-category-pill {
+  background: rgba(45, 212, 191, 0.18);
+  color: #2dd4bf;
+}
+
+.reminder-category-pill.pill-urgent {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+.reminder-category-pill.pill-meeting {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+.reminder-sound-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--roxy-text-muted, #64748b);
+  background: var(--roxy-surface-alt, #f8fafc);
+  border: 1px solid var(--roxy-border, #e2e8f0);
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+[data-theme='dark'] .reminder-sound-badge {
+  background: #232932;
+  border-color: #333d4b;
+  color: #94a3b8;
+}
+
+.reminder-sound-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-sound-mute,
+.btn-toast-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  color: var(--roxy-text-muted, #64748b);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.btn-sound-mute:hover,
+.btn-toast-close:hover {
+  background: var(--roxy-surface-alt, #f1f5f9);
+  color: var(--roxy-text, #0f172a);
+}
+
+[data-theme='dark'] .btn-sound-mute:hover,
+[data-theme='dark'] .btn-toast-close:hover {
+  background: #2a323c;
+  color: #f1f5f9;
+}
+
+.btn-sound-mute.is-pulsing {
+  color: #0d9488;
+  animation: pulse-ring 1.5s infinite;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.reminder-alarm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reminder-alarm-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--roxy-text, #0f172a);
+  line-height: 1.35;
+}
+
+[data-theme='dark'] .reminder-alarm-title {
+  color: #f8fafc;
+}
+
+.reminder-alarm-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--roxy-text-muted, #64748b);
+  line-height: 1.4;
+}
+
+[data-theme='dark'] .reminder-alarm-desc {
+  color: #94a3b8;
+}
+
+.reminder-alarm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--roxy-border, #f1f5f9);
+}
+
+[data-theme='dark'] .reminder-alarm-actions {
+  border-top-color: #262e38;
+}
+
+.btn-action-ack {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #0d9488;
+  color: #ffffff;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-action-ack:hover {
+  background: #0f766e;
+}
+
+.snooze-dropdown-wrapper {
+  position: relative;
+}
+
+.btn-action-snooze {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--roxy-surface-alt, #f8fafc);
+  border: 1px solid var(--roxy-border, #cbd5e1);
+  color: var(--roxy-text, #334155);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-action-snooze:hover {
+  background: var(--roxy-surface-card, #e2e8f0);
+}
+
+[data-theme='dark'] .btn-action-snooze {
+  background: #232932;
+  border-color: #374151;
+  color: #e2e8f0;
+}
+
+[data-theme='dark'] .btn-action-snooze:hover {
+  background: #2d3540;
+}
+
+.snooze-menu-dropdown {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 130px;
+  background: var(--roxy-surface-card, #ffffff);
+  border: 1px solid var(--roxy-border, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  z-index: 10;
+}
+
+[data-theme='dark'] .snooze-menu-dropdown {
+  background: #1e242b;
+  border-color: #333d4b;
+}
+
+.snooze-menu-dropdown button {
+  background: none;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--roxy-text, #334155);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s ease;
+}
+
+[data-theme='dark'] .snooze-menu-dropdown button {
+  color: #cbd5e1;
+}
+
+.snooze-menu-dropdown button:hover {
+  background: rgba(13, 148, 136, 0.1);
+  color: #0d9488;
+}
+
+.btn-action-dismiss {
+  background: none;
+  border: none;
+  color: var(--roxy-text-muted, #64748b);
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-action-dismiss:hover {
+  background: var(--roxy-surface-alt, #f1f5f9);
+  color: #ef4444;
+}
+
+[data-theme='dark'] .btn-action-dismiss:hover {
+  background: #262e38;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

@@ -345,6 +345,294 @@ class FileSystemService:
             key_structure=key_structure[:15],
         )
 
+    def create_directory(self, directory_path: str) -> FileWriteResponse:
+        """Create a new directory within the authorized workspace sandbox."""
+        canon = self.sandbox.validate_path(directory_path, must_exist=False)
+        created = not canon.exists()
+        canon.mkdir(parents=True, exist_ok=True)
+        return FileWriteResponse(
+            path=str(canon),
+            size_bytes=0,
+            created=created,
+            success=True,
+            message="Directory created successfully.",
+        )
+
+    def delete_path(self, target_path: str, recursive: bool = True) -> FileWriteResponse:
+        """Delete a file or directory within the authorized workspace sandbox."""
+        canon = self.sandbox.validate_path(target_path, must_exist=True)
+        # Prevent deletion of workspace root
+        for root in self.sandbox.allowed_roots:
+            if canon == root:
+                raise PermissionError("Deleting the workspace root directory is forbidden.")
+
+        if canon.is_dir():
+            import shutil
+            if recursive:
+                shutil.rmtree(canon)
+            else:
+                canon.rmdir()
+        else:
+            canon.unlink()
+
+        return FileWriteResponse(
+            path=str(canon),
+            size_bytes=0,
+            created=False,
+            success=True,
+            message=f"Successfully deleted '{canon.name}'.",
+        )
+
+    def rename_path(self, old_path: str, new_path: str) -> FileWriteResponse:
+        """Rename or move a file or folder within the authorized workspace sandbox."""
+        canon_old = self.sandbox.validate_path(old_path, must_exist=True)
+        canon_new = self.sandbox.validate_path(new_path, must_exist=False)
+        canon_new.parent.mkdir(parents=True, exist_ok=True)
+        canon_old.replace(canon_new)
+        return FileWriteResponse(
+            path=str(canon_new),
+            size_bytes=canon_new.stat().st_size if canon_new.is_file() else 0,
+            created=False,
+            success=True,
+            message=f"Renamed '{canon_old.name}' to '{canon_new.name}'.",
+        )
+
+    def get_workspace_tree(
+        self,
+        root_dir: str = ".",
+        max_depth: int = 4,
+        include_hidden: bool = False,
+    ) -> dict[str, Any]:
+        """Build a hierarchical tree structure of the workspace."""
+        canon = self.sandbox.validate_path(root_dir, must_exist=True)
+        root_path = self.sandbox.allowed_roots[0]
+
+        def _build_node(current_path: Path, current_depth: int) -> dict[str, Any]:
+            rel_path = str(current_path.relative_to(root_path)).replace("\\", "/")
+            if current_path.is_file():
+                return {
+                    "name": current_path.name,
+                    "path": rel_path,
+                    "is_directory": False,
+                    "size": current_path.stat().st_size,
+                    "extension": current_path.suffix.lower(),
+                }
+
+            children: list[dict[str, Any]] = []
+            if current_depth < max_depth:
+                try:
+                    entries = sorted(
+                        list(current_path.iterdir()),
+                        key=lambda p: (not p.is_dir(), p.name.lower()),
+                    )
+                    for entry in entries:
+                        if not include_hidden and entry.name.startswith("."):
+                            continue
+                        if entry.name in ("__pycache__", "node_modules", ".venv", "dist", ".git", ".pytest_cache", ".mypy_cache"):
+                            continue
+                        children.append(_build_node(entry, current_depth + 1))
+                except Exception:
+                    pass
+
+            return {
+                "name": current_path.name or "workspace",
+                "path": rel_path or ".",
+                "is_directory": True,
+                "children": children,
+            }
+
+        return _build_node(canon, 0)
+
+    async def run_terminal_command(
+        self,
+        command: str,
+        cwd: str = ".",
+        timeout_seconds: int = 30,
+    ) -> dict[str, Any]:
+        """Run shell command in sandboxed directory with output capture and timeout."""
+        import asyncio
+        import time
+
+        canon_cwd = self.sandbox.validate_path(cwd, must_exist=True)
+        if not canon_cwd.is_dir():
+            canon_cwd = canon_cwd.parent
+
+        # Dangerous pattern blocking
+        danger_patterns = [
+            "rm -rf /", "rm -rf /*", ":(){ :|:& };:", "mkfs", "dd if=/dev",
+            "format c:", "del /f /s /q c:\\", "rd /s /q c:\\"
+        ]
+        cmd_lower = command.lower().strip()
+        for dp in danger_patterns:
+            if dp in cmd_lower:
+                raise PermissionError(f"Command rejected: matches destructive pattern '{dp}'.")
+
+        start_t = time.perf_counter()
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                cwd=str(canon_cwd),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_b, stderr_b = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=float(timeout_seconds),
+            )
+            duration_ms = round((time.perf_counter() - start_t) * 1000)
+            stdout_str = stdout_b.decode("utf-8", errors="replace")
+            stderr_str = stderr_b.decode("utf-8", errors="replace")
+            exit_code = proc.returncode if proc.returncode is not None else 0
+
+            return {
+                "command": command,
+                "stdout": stdout_str,
+                "stderr": stderr_str,
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+                "success": exit_code == 0,
+            }
+        except asyncio.TimeoutError:
+            return {
+                "command": command,
+                "stdout": "",
+                "stderr": f"Command timed out after {timeout_seconds} seconds.",
+                "exit_code": 124,
+                "duration_ms": round((time.perf_counter() - start_t) * 1000),
+                "success": False,
+            }
+        except Exception as exc:
+            return {
+                "command": command,
+                "stdout": "",
+                "stderr": f"Terminal execution failed: {exc}",
+                "exit_code": 1,
+                "duration_ms": round((time.perf_counter() - start_t) * 1000),
+                "success": False,
+            }
+
+    async def get_git_status(self, repo_path: str = ".") -> dict[str, Any]:
+        """Fetch git status, branch, and staged/unstaged changes."""
+        canon = self.sandbox.validate_path(repo_path, must_exist=True)
+        if not canon.is_dir():
+            canon = canon.parent
+
+        branch_res = await self.run_terminal_command("git branch --show-current", cwd=str(canon), timeout_seconds=5)
+        branch = branch_res.get("stdout", "").strip() or "main"
+
+        status_res = await self.run_terminal_command("git status --porcelain -b", cwd=str(canon), timeout_seconds=5)
+        lines = status_res.get("stdout", "").strip().splitlines()
+
+        staged: list[str] = []
+        unstaged: list[str] = []
+        untracked: list[str] = []
+
+        for line in lines:
+            if line.startswith("##"):
+                continue
+            if len(line) >= 3:
+                x = line[0]
+                y = line[1]
+                path_str = line[3:].strip()
+                if x in ("M", "A", "D", "R", "C"):
+                    staged.append(path_str)
+                if y in ("M", "D"):
+                    unstaged.append(path_str)
+                if x == "?" and y == "?":
+                    untracked.append(path_str)
+
+        return {
+            "branch": branch,
+            "is_repo": status_res.get("exit_code") == 0,
+            "staged": staged,
+            "unstaged": unstaged,
+            "untracked": untracked,
+            "clean": len(staged) == 0 and len(unstaged) == 0 and len(untracked) == 0,
+            "raw": status_res.get("stdout", ""),
+        }
+
+    async def get_git_diff(
+        self,
+        repo_path: str = ".",
+        file_path: str | None = None,
+        staged: bool = False,
+    ) -> dict[str, Any]:
+        """Get git diff for the repo or a specific file."""
+        canon = self.sandbox.validate_path(repo_path, must_exist=True)
+        if not canon.is_dir():
+            canon = canon.parent
+
+        flag = "--staged" if staged else ""
+        target = f"-- {file_path}" if file_path else ""
+        cmd = f"git diff {flag} {target}".strip()
+        res = await self.run_terminal_command(cmd, cwd=str(canon), timeout_seconds=10)
+        return {
+            "diff": res.get("stdout", ""),
+            "success": res.get("success", False),
+            "file": file_path,
+            "staged": staged,
+        }
+
+    async def git_commit(
+        self,
+        repo_path: str = ".",
+        message: str = "",
+        stage_all: bool = True,
+        add_all: bool = True,
+    ) -> dict[str, Any]:
+        """Stage files and create a git commit."""
+        canon = self.sandbox.validate_path(repo_path, must_exist=True)
+        if not canon.is_dir():
+            canon = canon.parent
+
+        if not message.strip():
+            message = "Update workspace files via Roxy Code Studio"
+
+        if stage_all or add_all:
+            await self.run_terminal_command("git add -A", cwd=str(canon), timeout_seconds=10)
+
+        safe_msg = message.replace('"', '\\"')
+        res = await self.run_terminal_command(f'git commit -m "{safe_msg}"', cwd=str(canon), timeout_seconds=10)
+        return {
+            "success": res.get("exit_code") == 0,
+            "output": res.get("stdout", "") or res.get("stderr", ""),
+            "message": message,
+        }
+
+    async def run_project_tests(self, project_path: str = ".", test_path: str = "") -> dict[str, Any]:
+        """Run automated test suite for the project."""
+        import sys
+        canon = self.sandbox.validate_path(project_path, must_exist=True)
+        if not canon.is_dir():
+            canon = canon.parent
+
+        # Detect test command
+        cmd = f"{sys.executable} -m pytest"
+        if (canon / "pyproject.toml").exists() or (canon / "pytest.ini").exists():
+            cmd = f"{sys.executable} -m pytest {test_path}".strip()
+        elif (canon / "package.json").exists():
+            cmd = "npm test"
+
+        res = await self.run_terminal_command(cmd, cwd=str(canon), timeout_seconds=60)
+        raw_out = (res.get("stdout", "") + "\n" + res.get("stderr", "")).strip()
+
+        # Parse basic passed/failed metrics
+        import re
+        passed_m = re.search(r"(\d+)\s+passed", raw_out)
+        failed_m = re.search(r"(\d+)\s+failed", raw_out)
+        passed_count = int(passed_m.group(1)) if passed_m else (1 if res.get("exit_code") == 0 else 0)
+        failed_count = int(failed_m.group(1)) if failed_m else (1 if res.get("exit_code") != 0 else 0)
+
+        return {
+            "command": cmd,
+            "exit_code": res.get("exit_code"),
+            "success": res.get("exit_code") == 0,
+            "passed": passed_count,
+            "failed": failed_count,
+            "output": raw_out,
+            "duration_ms": res.get("duration_ms"),
+        }
+
     def register_file_tools(self, registry: ToolRegistry | None = None) -> None:
         """Register sandboxed filesystem tools into the central ToolRegistry."""
         reg = registry or ToolRegistry.get_instance()

@@ -39,6 +39,7 @@ from app.api.v1.research import router as research_router
 from app.api.v1.browser import router as browser_router
 from app.api.v1.study import router as study_router
 from app.api.v1.coding import router as coding_router
+from app.api.v1.reminders import router as reminders_router
 from app.api.v1.memory import router as memory_router
 from app.api.v1.audit import router as audit_router
 from app.media.router import router as media_router
@@ -153,6 +154,7 @@ app.include_router(research_router, prefix="/api/v1")
 app.include_router(browser_router, prefix="/api/v1")
 app.include_router(study_router, prefix="/api/v1")
 app.include_router(coding_router, prefix="/api/v1")
+app.include_router(reminders_router, prefix="/api/v1")
 app.include_router(memory_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
 app.include_router(media_router, prefix="/api/v1")
