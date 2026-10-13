@@ -1,4 +1,26 @@
-import type { CapacitorConfig } from '@capacitor/cli';
+export interface CapacitorConfig {
+  appId: string;
+  appName: string;
+  webDir: string;
+  server?: {
+    androidScheme?: string;
+    iosScheme?: string;
+    allowNavigation?: string[];
+    [key: string]: any;
+  };
+  plugins?: {
+    PushNotifications?: {
+      presentationOptions?: string[];
+    };
+    LocalNotifications?: {
+      smallIcon?: string;
+      iconColor?: string;
+      sound?: string;
+    };
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
 
 const config: CapacitorConfig = {
   appId: 'ai.roxy.app',
