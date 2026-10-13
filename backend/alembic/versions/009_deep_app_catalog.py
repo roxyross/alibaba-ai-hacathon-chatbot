@@ -22,8 +22,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
     if "discovered_apps" not in existing_tables:
         op.create_table(
@@ -73,10 +77,16 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
-    if "discovered_apps" in existing_tables:
+    if inspector is None:
+        op.drop_table("discovered_apps")
+    elif "discovered_apps" in existing_tables:
         columns = {c["name"] for c in inspector.get_columns("discovered_apps")}
         if "app_name" in columns and len(columns) <= 22:
             op.drop_table("discovered_apps")

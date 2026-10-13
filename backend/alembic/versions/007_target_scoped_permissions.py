@@ -22,8 +22,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
     if "permission_grants" not in existing_tables:
         op.create_table(
@@ -85,10 +89,16 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
-    if "permission_grants" in existing_tables:
+    if inspector is None:
+        op.drop_table("permission_grants")
+    elif "permission_grants" in existing_tables:
         columns = {c["name"] for c in inspector.get_columns("permission_grants")}
         indexes = {i["name"] for i in inspector.get_indexes("permission_grants")}
 

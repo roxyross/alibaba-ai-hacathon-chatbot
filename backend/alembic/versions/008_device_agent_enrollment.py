@@ -22,8 +22,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
     # 1. Create or update devices table with enrollment & identity columns
     if "devices" not in existing_tables:
@@ -106,11 +110,20 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
-    if "device_commands" in existing_tables:
+    if inspector is None:
         op.drop_table("device_commands")
+        op.drop_table("device_enrollment_tokens")
+        op.drop_table("devices")
+    else:
+        if "device_commands" in existing_tables:
+            op.drop_table("device_commands")
 
     if "device_enrollment_tokens" in existing_tables:
         op.drop_table("device_enrollment_tokens")

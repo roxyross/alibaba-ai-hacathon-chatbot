@@ -24,12 +24,16 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
     # 1. Update trust_events table with normalized Phase A columns if missing
-    if "trust_events" in existing_tables:
-        existing_cols = {col["name"] for col in inspector.get_columns("trust_events")}
+    if inspector is None or "trust_events" in existing_tables:
+        existing_cols = {col["name"] for col in inspector.get_columns("trust_events")} if inspector else set()
 
         cols_to_add = [
             ("session_id", sa.String(36), True, None),
@@ -56,7 +60,7 @@ def upgrade() -> None:
                 )
 
         # Add indexes if missing
-        existing_indexes = {ix["name"] for ix in inspector.get_indexes("trust_events")}
+        existing_indexes = {ix["name"] for ix in inspector.get_indexes("trust_events")} if inspector else set()
         updated_cols = existing_cols | {col[0] for col in cols_to_add}
         if "ix_trust_events_session_id" not in existing_indexes and "session_id" in updated_cols:
             op.create_index("ix_trust_events_session_id", "trust_events", ["session_id"])
@@ -85,11 +89,51 @@ def upgrade() -> None:
         op.create_index("ix_rollback_actions_user_id", "rollback_actions", ["user_id"])
         op.create_index("ix_rollback_actions_status", "rollback_actions", ["status"])
 
+    # 3. Update documents table with vault indexing columns if missing
+    if "documents" in existing_tables:
+        existing_doc_cols = {col["name"] for col in inspector.get_columns("documents")} if inspector else set()
+        doc_cols_to_add = [
+            ("chunk_count", sa.Integer(), False, sa.text("0")),
+            ("summary", sa.Text(), True, None),
+            ("status", sa.String(32), False, sa.text("'ready'")),
+            ("tags", sa.String(255), True, None),
+            ("updated_at", sa.DateTime(timezone=True), False, sa.func.now()),
+        ]
+        for col_name, col_type, nullable, default in doc_cols_to_add:
+            if col_name not in existing_doc_cols:
+                op.add_column(
+                    "documents",
+                    sa.Column(col_name, cast(Any, col_type), nullable=nullable, server_default=default),
+                )
+
+    # 4. Update generated_images table with studio columns if missing
+    if "generated_images" in existing_tables:
+        existing_img_cols = {col["name"] for col in inspector.get_columns("generated_images")} if inspector else set()
+        img_cols_to_add = [
+            ("revised_prompt", sa.Text(), True, None),
+            ("style_preset", sa.String(64), False, sa.text("'photorealistic'")),
+            ("width", sa.Integer(), False, sa.text("1024")),
+            ("height", sa.Integer(), False, sa.text("1024")),
+            ("seed", sa.Integer(), True, None),
+            ("is_favorite", sa.Boolean(), False, sa.text("false")),
+            ("vault_document_id", sa.String(64), True, None),
+        ]
+        for col_name, col_type, nullable, default in img_cols_to_add:
+            if col_name not in existing_img_cols:
+                op.add_column(
+                    "generated_images",
+                    sa.Column(col_name, cast(Any, col_type), nullable=nullable, server_default=default),
+                )
+
 
 def downgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
-    if "rollback_actions" in existing_tables:
+    if inspector is None or "rollback_actions" in existing_tables:
         op.drop_table("rollback_actions")

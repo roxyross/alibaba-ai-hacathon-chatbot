@@ -18,10 +18,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "chat_sessions",
-        sa.Column("session_type", sa.String(20), server_default="chat", nullable=False),
-    )
+    bind = op.get_bind()
+    try:
+        inspector = sa.inspect(bind)
+        cols = {c["name"] for c in inspector.get_columns("chat_sessions")}
+    except Exception:
+        cols = set()
+
+    if "session_type" not in cols:
+        op.add_column(
+            "chat_sessions",
+            sa.Column("session_type", sa.String(20), server_default="chat", nullable=False),
+        )
 
 
 def downgrade() -> None:

@@ -49,6 +49,7 @@ _db_url, _db_connect_args = normalize_database_url(
         config.get_main_option("sqlalchemy.url") or "",
     ).strip()
 )
+_db_connect_args["statement_cache_size"] = 0
 config.set_main_option("sqlalchemy.url", _db_url)
 
 if config.config_file_name is not None:
@@ -102,6 +103,7 @@ async def run_async_migrations() -> None:
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
+        await connection.commit()
     await connectable.dispose()
 
 
