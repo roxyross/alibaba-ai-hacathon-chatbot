@@ -692,3 +692,59 @@ async def test_multitenant_tool_wallet_isolation() -> None:
     assert len(inv_b.output["invoices"]) == 0
 
 
+# -----------------------------------------------------------------------------
+# 14. Gate Remediation & Security Hardening Regression Tests
+# -----------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_webhook_test_header_rejected_in_production(client: httpx.AsyncClient) -> None:
+    """Ensure x-roxy-test header CANNOT bypass signature verification when running in production."""
+    with patch.dict("os.environ", {"APP_ENV": "production", "ENV": "production"}):
+        stripe_payload = {
+            "id": f"evt_{uuid.uuid4().hex[:12]}",
+            "type": "checkout.session.completed",
+            "data": {"object": {"id": "cs_fake"}},
+        }
+        resp = await client.post(
+            "/api/v1/billing/webhook/stripe",
+            content=json.dumps(stripe_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "x-roxy-test": "true"},
+        )
+        assert resp.status_code == 400
+        assert "Invalid webhook signature" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_unconfigured_providers_fail_closed_in_production() -> None:
+    """Ensure unconfigured Stripe and Safepay providers fail closed in production without simulating paid status."""
+    from app.billing.providers.stripe_provider import StripeProvider
+    from app.billing.providers.safepay_provider import SafepayProvider
+
+    with patch.dict("os.environ", {"APP_ENV": "production", "ENV": "production", "STRIPE_SECRET_KEY": "", "SAFEPAY_API_KEY": ""}):
+        stripe_prov = StripeProvider()
+        safepay_prov = SafepayProvider()
+
+        stripe_res = await stripe_prov.verify_payment("cs_test_session_123")
+        assert stripe_res.status == "failed"
+        assert "not configured" in (stripe_res.error_message or "").lower()
+
+        safepay_res = await safepay_prov.verify_payment("track_test_123")
+        assert safepay_res.status == "failed"
+        assert "not configured" in (safepay_res.error_message or "").lower()
+
+
+@pytest.mark.anyio
+async def test_gemini_adapter_model_resolution() -> None:
+    """Verify Gemini adapter does not clobber legitimate Google models with non-existent gemini-3.6-flash."""
+    from app.ai_gateway.adapters.gemini import GeminiAdapter
+    adapter = GeminiAdapter()
+
+    assert adapter._resolve_model("gemini-2.0-flash") == "gemini-2.0-flash"
+    assert adapter._resolve_model("gemini-1.5-pro") == "gemini-1.5-pro"
+    assert adapter._resolve_model("gemini-1.5-flash") == "gemini-1.5-flash"
+    # Deprecated/fictional models map safely to default real model
+    assert adapter._resolve_model("gemini-3.6-flash") == "gemini-2.0-flash"
+    assert adapter._resolve_model("gemini-3.8-flash") == "gemini-2.0-flash"
+
+
+

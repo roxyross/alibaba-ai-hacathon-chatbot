@@ -273,8 +273,9 @@ class PaymentService:
         # In test mode without secrets configured, allow if signature is explicitly provided or mocked
         is_valid = provider.verify_webhook_signature(headers, raw_body)
         if not is_valid:
-            # Check if running in a test suite where signature validation might be relaxed if headers indicate test
-            is_test = headers.get("x-roxy-test") == "true"
+            # In production, test headers are strictly prohibited from bypassing cryptographic signature checks
+            is_prod = os.getenv("APP_ENV", "").lower() in ("production", "prod") or os.getenv("ENV", "").lower() in ("production", "prod")
+            is_test = headers.get("x-roxy-test") == "true" and not is_prod
             if not is_test:
                 logger.warning(f"Webhook signature verification failed for {prov_name}")
                 return {"status": "error", "message": "Invalid webhook signature"}

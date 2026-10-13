@@ -27,7 +27,7 @@ class GeminiAdapter(AIProviderAdapter):
 
     NAME = "gemini"
     TIMEOUT_SECONDS = 30.0
-    DEFAULT_MODEL = "gemini-3.6-flash"
+    DEFAULT_MODEL = "gemini-2.0-flash"
 
     def _resolve_model(self, model: str | None) -> str:
         if not model:
@@ -35,19 +35,16 @@ class GeminiAdapter(AIProviderAdapter):
         # Strip provider prefix if present (e.g. "gemini/gemini-2.0-flash")
         if "/" in model:
             model = model.split("/", 1)[-1]
-        # Google directs new users on this API key to gemini-3.6-flash
-        if model in (
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.7",
-            "gemini-3.1-flash",
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-3.6-flash",
-        ):
-            return self.DEFAULT_MODEL
+        # Map fictional or preview aliases to standard valid Gemini models
+        alias_map = {
+            "gemini-3.8-flash": "gemini-2.0-flash",
+            "gemini-3.7-flash": "gemini-2.0-flash",
+            "gemini-3.7": "gemini-2.0-flash",
+            "gemini-3.6-flash": "gemini-2.0-flash",
+            "gemini-3.1-flash": "gemini-2.0-flash",
+        }
+        if model in alias_map:
+            return alias_map[model]
         return model
 
 

@@ -117,7 +117,7 @@ class StripeProvider(PaymentProvider):
                 )
             except Exception as exc:
                 # In testing or development, fall through to simulation if live call fails
-                if os.getenv("ENV") == "production":
+                if os.getenv("APP_ENV", "").lower() in ("production", "prod") or os.getenv("ENV", "").lower() in ("production", "prod"):
                     raise exc
 
         # Simulated / Test session when Stripe keys are unset or in test mocks
@@ -164,6 +164,17 @@ class StripeProvider(PaymentProvider):
                     provider=self.name,
                     error_message=str(exc),
                 )
+
+        # In production, unconfigured provider must never return simulated payment success
+        if os.getenv("APP_ENV", "").lower() in ("production", "prod") or os.getenv("ENV", "").lower() in ("production", "prod"):
+            return PaymentVerificationResult(
+                payment_id=session_or_tracker_id,
+                status="failed",
+                amount=0.0,
+                currency="USD",
+                provider=self.name,
+                error_message="Stripe provider is not configured for payment verification in production.",
+            )
 
         # Mock / Test verification fallback
         return PaymentVerificationResult(

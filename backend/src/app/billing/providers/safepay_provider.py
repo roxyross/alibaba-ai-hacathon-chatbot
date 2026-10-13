@@ -101,7 +101,7 @@ class SafepayProvider(PaymentProvider):
                                 metadata=meta,
                             )
             except Exception as exc:
-                if os.getenv("ENV") == "production":
+                if os.getenv("APP_ENV", "").lower() in ("production", "prod") or os.getenv("ENV", "").lower() in ("production", "prod"):
                     raise exc
 
         # Simulated Tracker for test / development mode
@@ -157,6 +157,17 @@ class SafepayProvider(PaymentProvider):
                     provider=self.name,
                     error_message=str(exc),
                 )
+
+        # In production, unconfigured provider must never return simulated payment success
+        if os.getenv("APP_ENV", "").lower() in ("production", "prod") or os.getenv("ENV", "").lower() in ("production", "prod"):
+            return PaymentVerificationResult(
+                payment_id=session_or_tracker_id,
+                status="failed",
+                amount=0.0,
+                currency="PKR",
+                provider=self.name,
+                error_message="Safepay provider is not configured for payment verification in production.",
+            )
 
         # Mock / Test verification fallback
         return PaymentVerificationResult(
