@@ -13,17 +13,18 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Any
 
 # Ensure src is on path when run directly
 sys.path.insert(0, "src")
 
-from app.db import get_engine, Base
 from app.ai_gateway.models.provider import DEFAULT_ROUTING_PRIORITY
-from app.models.provider import Provider
+from app.db import Base, get_engine
 from app.models.model import Model
+from app.models.provider import Provider
 
 
-def _seed_data() -> list[dict]:
+def _seed_data() -> list[dict[str, Any]]:
     """Return provider seed records matching routing priority order.
 
     Priority values come from app.ai_gateway.models.provider.DEFAULT_ROUTING_PRIORITY
@@ -262,12 +263,10 @@ async def _run_migration() -> None:
     print("  ✓ Database tables created/verified")
 
 
-async def _seed_with_sqlalchemy(records: list[dict]) -> None:
+async def _seed_with_sqlalchemy(records: list[dict[str, Any]]) -> None:
     """Upsert records via SQLAlchemy async session."""
     from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-    from app.db import get_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     engine = get_engine()
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -311,7 +310,7 @@ async def _seed_with_sqlalchemy(records: list[dict]) -> None:
     await engine.dispose()
 
 
-def _seed_dry_run(records: list[dict]) -> None:
+def _seed_dry_run(records: list[dict[str, Any]]) -> None:
     """Print what would be seeded — used when DATABASE_URL is not configured."""
     print("  ⚠ DATABASE_URL not configured — dry-run (no DB changes)")
     for provider in records:
@@ -325,9 +324,6 @@ def _seed_dry_run(records: list[dict]) -> None:
 
 
 def main() -> None:
-    import os
-    from app.db import get_engine
-
     print("Seeding AI provider configuration...")
     records = _seed_data()
 
