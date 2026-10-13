@@ -5,7 +5,7 @@ skill_id, connector_id, plugin_id, device_id, target, permission_status, confirm
 and creates rollback_actions table for reusable rollback abstractions.
 
 Revision ID: 011_trust_reliability_hardening
-Revises: 010_cowork_artifacts_and_open_work
+Revises: 010_cowork_artifacts_open_work
 Create Date: 2026-10-11
 """
 
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 
 revision: str = "011_trust_reliability_hardening"
-down_revision: str | None = "010_cowork_artifacts_and_open_work"
+down_revision: str | None = "010_cowork_artifacts_open_work"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
