@@ -10,10 +10,11 @@ Create Date: 2026-10-11
 """
 
 from collections.abc import Sequence
+from typing import Any, cast
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision: str = "011_trust_reliability_hardening"
 down_revision: str | None = "010_cowork_artifacts_open_work"
@@ -48,13 +49,11 @@ def upgrade() -> None:
 
         for col_name, col_type, nullable, default in cols_to_add:
             if col_name not in existing_cols:
-                kw = {"nullable": nullable}
-                if default is not None:
-                    if isinstance(default, str):
-                        kw["server_default"] = sa.text(f"'{default}'")
-                    else:
-                        kw["server_default"] = default
-                op.add_column("trust_events", sa.Column(col_name, col_type, **kw))
+                server_default = sa.text(f"'{default}'") if isinstance(default, str) else default
+                op.add_column(
+                    "trust_events",
+                    sa.Column(col_name, cast(Any, col_type), nullable=nullable, server_default=server_default),
+                )
 
         # Add indexes if missing
         existing_indexes = {ix["name"] for ix in inspector.get_indexes("trust_events")}
