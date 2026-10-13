@@ -189,13 +189,13 @@ const DEFAULT_SETTINGS: UserSettings = {
   session_timeout_minutes: 1440,
 
   // Tab 11: Connected Accounts
-  connected_google: true,
+  connected_google: false,
   connected_github: false,
   connected_apple: false,
 
   // Tab 12: Billing & Credits
-  plan_tier: 'Pro Studio Workspace',
-  credit_balance: 500,
+  plan_tier: 'Free Starter',
+  credit_balance: 0,
   auto_topup_threshold: 50,
 
   // Tab 13: BYOK

@@ -1,12 +1,12 @@
 /* =========================================================================
-   New Task Launcher Modal Styles
+   New Task Launcher Modal Styles — Harmonized with Design System Tokens
    ========================================================================= */
 
 .new-task-modal__backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(10px);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15,16 +15,17 @@
 }
 
 .new-task-modal__window {
-  background: #0d1527;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8e6);
   border-radius: 18px;
   width: 90%;
   max-width: 620px;
   max-height: 90vh;
   overflow-y: auto;
   padding: 1.75rem;
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.65);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
   animation: scaleUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  color: var(--color-text, #1e292b);
 }
 
 .new-task-modal__header {
@@ -47,9 +48,9 @@
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  background: linear-gradient(135deg, var(--color-accent, #0d9488), var(--color-accent-hover, #0f766e));
   color: #ffffff;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.35);
   flex-shrink: 0;
 }
 
@@ -57,12 +58,12 @@
   font-size: 1.25rem;
   font-weight: 700;
   margin: 0;
-  color: #f8fafc;
+  color: var(--color-text, #1e292b);
 }
 
 .new-task-modal__subtitle {
   font-size: 0.8rem;
-  color: #94a3b8;
+  color: var(--color-muted, #64748b);
   margin: 0.25rem 0 0 0;
   line-height: 1.4;
 }
@@ -70,7 +71,7 @@
 .new-task-modal__close-btn {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--color-muted, #64748b);
   cursor: pointer;
   padding: 0.35rem;
   border-radius: 6px;
@@ -78,8 +79,8 @@
 }
 
 .new-task-modal__close-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  background: var(--color-input-bg, #f0f4f3);
+  color: var(--color-text, #1e292b);
 }
 
 /* Quick Templates */
@@ -91,7 +92,7 @@
   display: block;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--color-muted, #64748b);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-bottom: 0.5rem;
@@ -108,19 +109,19 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.35rem 0.75rem;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
   border-radius: 8px;
-  color: #cbd5e1;
+  color: var(--color-text, #1e292b);
   font-size: 0.75rem;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .new-task-modal__template-chip:hover {
-  background: rgba(56, 189, 248, 0.12);
-  border-color: rgba(56, 189, 248, 0.3);
-  color: #38bdf8;
+  background: rgba(13, 148, 136, 0.12);
+  border-color: var(--color-accent, #0d9488);
+  color: var(--color-accent, #0d9488);
   transform: translateY(-1px);
 }
 
@@ -140,7 +141,7 @@
 .new-task-modal__form-group label {
   font-size: 0.8rem;
   font-weight: 500;
-  color: #cbd5e1;
+  color: var(--color-text, #1e292b);
 }
 
 .new-task-modal__form-row {
@@ -152,11 +153,11 @@
 .new-task-modal__input,
 .new-task-modal__select,
 .new-task-modal__textarea {
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
   border-radius: 8px;
   padding: 0.65rem 0.85rem;
-  color: #f8fafc;
+  color: var(--color-text, #1e292b);
   font-size: 0.85rem;
   font-family: inherit;
   transition: all 0.15s ease;
@@ -171,8 +172,8 @@
 .new-task-modal__select:focus,
 .new-task-modal__textarea:focus {
   outline: none;
-  border-color: #38bdf8;
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+  border-color: var(--color-accent, #0d9488);
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.2);
 }
 
 /* Execution Mode Cards */
@@ -185,22 +186,24 @@
 
 .new-task-modal__mode-card {
   padding: 0.85rem 1rem;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
   border-radius: 10px;
   cursor: pointer;
+  text-align: left;
+  font-family: inherit;
   transition: all 0.2s ease;
 }
 
 .new-task-modal__mode-card:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: var(--color-surface, #ffffff);
+  border-color: var(--color-accent, #0d9488);
 }
 
 .new-task-modal__mode-card--active {
-  background: rgba(99, 102, 241, 0.12);
-  border-color: rgba(99, 102, 241, 0.45);
-  box-shadow: 0 0 16px rgba(99, 102, 241, 0.15);
+  background: rgba(13, 148, 136, 0.08);
+  border-color: var(--color-accent, #0d9488);
+  box-shadow: 0 0 0 1px var(--color-accent, #0d9488);
 }
 
 .new-task-modal__mode-header {
@@ -211,18 +214,18 @@
 }
 
 .new-task-modal__mode-card--active .new-task-modal__mode-icon {
-  color: #818cf8;
+  color: var(--color-accent, #0d9488);
 }
 
 .new-task-modal__mode-name {
   font-size: 0.825rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--color-text, #1e292b);
 }
 
 .new-task-modal__mode-desc {
   font-size: 0.725rem;
-  color: #94a3b8;
+  color: var(--color-muted, #64748b);
   margin: 0;
   line-height: 1.4;
 }
@@ -249,26 +252,30 @@
 }
 
 .new-task-modal__btn--secondary {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: #cbd5e1;
+  background: var(--color-input-bg, #f0f4f3);
+  border: 1px solid var(--color-border, #e2e8e6);
+  color: var(--color-text, #1e292b);
 }
 
-.new-task-modal__btn--secondary:hover {
-  background: rgba(255, 255, 255, 0.09);
-  color: #ffffff;
+.new-task-modal__btn--secondary:hover:not(:disabled) {
+  background: var(--color-border, #e2e8e6);
 }
 
 .new-task-modal__btn--primary {
-  background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+  background: var(--color-accent, #0d9488);
   color: #ffffff;
-  border-color: rgba(99, 102, 241, 0.4);
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+  border-color: var(--color-accent, #0d9488);
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.3);
 }
 
-.new-task-modal__btn--primary:hover {
-  background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
+.new-task-modal__btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover, #0f766e);
+  box-shadow: 0 6px 18px rgba(13, 148, 136, 0.4);
+}
+
+.new-task-modal__btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 @media (max-width: 600px) {

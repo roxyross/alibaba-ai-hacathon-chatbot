@@ -25,8 +25,35 @@ def upgrade() -> None:
     inspector = sa.inspect(bind)
     existing_tables = set(inspector.get_table_names())
 
-    # 1. Update devices table with enrollment & identity columns
-    if "devices" in existing_tables:
+    # 1. Create or update devices table with enrollment & identity columns
+    if "devices" not in existing_tables:
+        op.create_table(
+            "devices",
+            sa.Column("id", sa.String(36), primary_key=True),
+            sa.Column("user_id", sa.String(36), index=True, nullable=False),
+            sa.Column("workspace_id", sa.String(36), index=True, nullable=True),
+            sa.Column("device_name", sa.String(128), nullable=False),
+            sa.Column("device_type", sa.String(32), server_default="desktop", nullable=False),
+            sa.Column("os_platform", sa.String(32), server_default="windows", nullable=False),
+            sa.Column("os_version", sa.String(64), server_default="", nullable=False),
+            sa.Column("architecture", sa.String(32), server_default="x86_64", nullable=False),
+            sa.Column("hostname", sa.String(128), server_default="localhost", nullable=False),
+            sa.Column("ip_address", sa.String(64), server_default="127.0.0.1", nullable=False),
+            sa.Column("status", sa.String(32), server_default="online", index=True, nullable=False),
+            sa.Column("is_current_host", sa.Boolean(), server_default=sa.text("true"), nullable=False),
+            sa.Column("hardware_fingerprint", sa.String(128), index=True, nullable=True),
+            sa.Column("device_token_hash", sa.String(64), index=True, nullable=True),
+            sa.Column("daemon_version", sa.String(32), server_default="1.0.0", nullable=True),
+            sa.Column("capabilities_json", sa.Text(), server_default="[]", nullable=False),
+            sa.Column("telemetry_json", sa.Text(), server_default="{}", nullable=False),
+            sa.Column("last_heartbeat_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        )
+        op.create_index("idx_devices_user_status", "devices", ["user_id", "status"])
+        op.create_index("idx_devices_hw_fingerprint", "devices", ["hardware_fingerprint"])
+        op.create_index("idx_devices_token_hash", "devices", ["device_token_hash"])
+    else:
         columns = {c["name"] for c in inspector.get_columns("devices")}
         indexes = {i["name"] for i in inspector.get_indexes("devices")}
 
@@ -92,11 +119,14 @@ def downgrade() -> None:
         columns = {c["name"] for c in inspector.get_columns("devices")}
         indexes = {i["name"] for i in inspector.get_indexes("devices")}
 
-        if "idx_devices_token_hash" in indexes:
-            op.drop_index("idx_devices_token_hash", table_name="devices")
-        if "idx_devices_hw_fingerprint" in indexes:
-            op.drop_index("idx_devices_hw_fingerprint", table_name="devices")
+        if "device_name" in columns and len(columns) <= 20:
+            op.drop_table("devices")
+        else:
+            if "idx_devices_token_hash" in indexes:
+                op.drop_index("idx_devices_token_hash", table_name="devices")
+            if "idx_devices_hw_fingerprint" in indexes:
+                op.drop_index("idx_devices_hw_fingerprint", table_name="devices")
 
-        for col in ["daemon_version", "device_token_hash", "hardware_fingerprint"]:
-            if col in columns:
-                op.drop_column("devices", col)
+            for col in ["daemon_version", "device_token_hash", "hardware_fingerprint"]:
+                if col in columns:
+                    op.drop_column("devices", col)

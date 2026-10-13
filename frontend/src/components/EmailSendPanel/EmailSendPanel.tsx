@@ -79,10 +79,19 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
   // Optional SMTP Credentials configuration (for users without Google OAuth)
   const [showSettings, setShowSettings] = useState(false);
   const [senderEmail, setSenderEmail] = useState(() => localStorage.getItem('roxy_smtp_user') || '');
-  const [appPassword, setAppPassword] = useState(() => localStorage.getItem('roxy_smtp_pass') || '');
+  const [appPassword, setAppPassword] = useState('');
   const [savedSettings, setSavedSettings] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Security hardening: Purge any previously stored app passwords from localStorage
+  useEffect(() => {
+    try {
+      localStorage.removeItem('roxy_smtp_pass');
+    } catch {
+      // ignore storage access error
+    }
+  }, []);
 
   const showNotice = (msg: string) => {
     setNotice(msg);
@@ -270,7 +279,6 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
 
     try {
       const storedSmtpUser = localStorage.getItem('roxy_smtp_user');
-      const storedSmtpPass = localStorage.getItem('roxy_smtp_pass');
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -296,7 +304,7 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           headers,
           body: JSON.stringify({
             smtp_user: senderEmail.trim() || storedSmtpUser || undefined,
-            smtp_pass: appPassword.trim() || storedSmtpPass || undefined,
+            smtp_pass: appPassword.trim() || undefined,
           }),
         });
         result = await sendRes.json();
@@ -310,7 +318,7 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
           bcc: bcc ? bcc.split(',').map((s) => s.trim()).filter(Boolean) : [],
           confirm: true,
           smtp_user: senderEmail.trim() || storedSmtpUser || undefined,
-          smtp_pass: appPassword.trim() || storedSmtpPass || undefined,
+          smtp_pass: appPassword.trim() || undefined,
         };
 
         const res = await fetch(`${API_BASE}/skills/email_send`, {
@@ -623,13 +631,12 @@ export const EmailSendPanel: React.FC<EmailSendPanelProps> = ({
                           value={appPassword}
                           onChange={(e) => {
                             setAppPassword(e.target.value);
-                            localStorage.setItem('roxy_smtp_pass', e.target.value);
                             setSavedSettings(true);
                           }}
                         />
                       </div>
                       {savedSettings && (
-                        <span style={{ fontSize: '0.75rem', color: '#34d399' }}>✓ Saved to browser storage</span>
+                        <span style={{ fontSize: '0.75rem', color: '#14b8a6' }}>✓ Active for session (Held securely in-memory, never persisted to disk)</span>
                       )}
                     </div>
                   )}

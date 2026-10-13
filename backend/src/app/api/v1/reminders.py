@@ -134,22 +134,30 @@ _NOTIFICATION_HISTORY: dict[str, list[dict[str, Any]]] = {}
 
 class ReminderSettingsUpdate(BaseModel):
     default_sound_id: str | None = None
-    volume: float | None = Field(default=None, ge=0.0, le=1.0)
+    volume: float | None = None
     mute: bool | None = None
+    muted: bool | None = None
     vibration: bool | None = None
+    vibrate: bool | None = None
     default_snooze_minutes: int | None = Field(default=None, ge=1, le=120)
     device_overrides: dict[str, str] | None = None  # device_id -> sound_id
+    per_device_sounds: dict[str, str] | None = None
     event_overrides: dict[str, str] | None = None  # category -> sound_id
+    per_event_sounds: dict[str, str] | None = None
 
 
 class ReminderSettingsResponse(BaseModel):
     default_sound_id: str
     volume: float
     mute: bool
+    muted: bool
     vibration: bool
+    vibrate: bool
     default_snooze_minutes: int
     device_overrides: dict[str, str]
+    per_device_sounds: dict[str, str]
     event_overrides: dict[str, str]
+    per_event_sounds: dict[str, str]
     available_devices: list[dict[str, str]]
 
 
@@ -238,10 +246,14 @@ async def get_reminder_settings(
         default_sound_id=prefs["default_sound_id"],
         volume=prefs["volume"],
         mute=prefs["mute"],
+        muted=prefs["mute"],
         vibration=prefs["vibration"],
+        vibrate=prefs["vibration"],
         default_snooze_minutes=prefs["default_snooze_minutes"],
         device_overrides=prefs["device_overrides"],
+        per_device_sounds=prefs["device_overrides"],
         event_overrides=prefs["event_overrides"],
+        per_event_sounds=prefs["event_overrides"],
         available_devices=[
             {"id": "dev-win-desktop", "name": "Windows Desktop (Current)", "platform": "windows"},
             {"id": "dev-android-mobile", "name": "Pixel 8 Pro (Android)", "platform": "android"},
@@ -262,26 +274,43 @@ async def update_reminder_settings(
     if payload.default_sound_id is not None:
         prefs["default_sound_id"] = payload.default_sound_id
     if payload.volume is not None:
-        prefs["volume"] = payload.volume
+        raw_vol = float(payload.volume)
+        if raw_vol > 1.0:
+            raw_vol = max(0.0, min(1.0, raw_vol / 100.0))
+        else:
+            raw_vol = max(0.0, min(1.0, raw_vol))
+        prefs["volume"] = raw_vol
     if payload.mute is not None:
         prefs["mute"] = payload.mute
+    elif payload.muted is not None:
+        prefs["mute"] = payload.muted
     if payload.vibration is not None:
         prefs["vibration"] = payload.vibration
+    elif payload.vibrate is not None:
+        prefs["vibration"] = payload.vibrate
     if payload.default_snooze_minutes is not None:
         prefs["default_snooze_minutes"] = payload.default_snooze_minutes
     if payload.device_overrides is not None:
         prefs["device_overrides"].update(payload.device_overrides)
+    if payload.per_device_sounds is not None:
+        prefs["device_overrides"].update(payload.per_device_sounds)
     if payload.event_overrides is not None:
         prefs["event_overrides"].update(payload.event_overrides)
+    if payload.per_event_sounds is not None:
+        prefs["event_overrides"].update(payload.per_event_sounds)
 
     return ReminderSettingsResponse(
         default_sound_id=prefs["default_sound_id"],
         volume=prefs["volume"],
         mute=prefs["mute"],
+        muted=prefs["mute"],
         vibration=prefs["vibration"],
+        vibrate=prefs["vibration"],
         default_snooze_minutes=prefs["default_snooze_minutes"],
         device_overrides=prefs["device_overrides"],
+        per_device_sounds=prefs["device_overrides"],
         event_overrides=prefs["event_overrides"],
+        per_event_sounds=prefs["event_overrides"],
         available_devices=[
             {"id": "dev-win-desktop", "name": "Windows Desktop (Current)", "platform": "windows"},
             {"id": "dev-android-mobile", "name": "Pixel 8 Pro (Android)", "platform": "android"},
@@ -302,7 +331,12 @@ async def list_sounds(
     user_id = str(current_user.id)
     custom = _CUSTOM_SOUNDS.get(user_id, [])
     all_sounds = list(BUILTIN_SOUNDS) + custom
-    return {"sounds": all_sounds, "total": len(all_sounds)}
+    return {
+        "sounds": all_sounds,
+        "custom_sounds": custom,
+        "builtin_sounds": BUILTIN_SOUNDS,
+        "total": len(all_sounds),
+    }
 
 
 @router.post("/sounds/upload")
@@ -351,7 +385,11 @@ async def upload_custom_sound(
         _CUSTOM_SOUNDS[user_id] = []
     _CUSTOM_SOUNDS[user_id].append(new_sound)
 
-    return {"sound": new_sound, "message": "Custom sound uploaded successfully"}
+    return {
+        **new_sound,
+        "sound": new_sound,
+        "message": "Custom sound uploaded successfully",
+    }
 
 
 @router.delete("/sounds/{sound_id}")

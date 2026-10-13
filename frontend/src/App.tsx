@@ -46,50 +46,6 @@ import { platformBridge } from './platform';
 import './App.css';
 import './components/DocumentUpload/DocumentUpload.css';
 
-const DEFAULT_DEVICES: DeviceInfo[] = [
-  {
-    id: 'dev-desktop-host',
-    user_id: 'usr-default',
-    device_name: 'Workstation Host (Windows)',
-    device_type: 'desktop',
-    os_platform: 'windows',
-    os_version: '11 Pro',
-    architecture: 'x86_64',
-    hostname: 'DESKTOP-ROXY',
-    ip_address: '127.0.0.1',
-    status: 'online',
-    is_current_host: true,
-    capabilities: ['screen_capture', 'app_discovery', 'process_control', 'ocr'],
-    telemetry: {
-      cpu_percent: 24,
-      memory_percent: 48,
-      disk_free_gb: 128,
-      active_window: 'Visual Studio Code',
-      os_platform: 'windows',
-    },
-  },
-  {
-    id: 'dev-android-mobile',
-    user_id: 'usr-default',
-    device_name: 'Pixel 8 Pro (Android)',
-    device_type: 'mobile',
-    os_platform: 'android',
-    os_version: 'Android 14',
-    architecture: 'arm64-v8a',
-    hostname: 'pixel-8-pro',
-    ip_address: '192.168.1.142',
-    status: 'online',
-    is_current_host: false,
-    capabilities: ['adb_bridge', 'screen_mirror', 'apk_install'],
-    telemetry: {
-      cpu_percent: 18,
-      memory_percent: 42,
-      disk_free_gb: 64,
-      active_window: 'com.whatsapp',
-      os_platform: 'android',
-    },
-  },
-];
 
 const API_BASE =
   (import.meta as { env: { VITE_API_BASE?: string } }).env.VITE_API_BASE ??
@@ -246,14 +202,31 @@ export function ChatScreen() {
   const [pinnedItems, setPinnedItems] = useState<Array<{ id: string; title: string; type: string }>>(() => {
     try {
       const saved = localStorage.getItem('roxy_pinned_items');
-      return saved ? JSON.parse(saved) : [
-        { id: 'pin-1', title: 'Q3 Financial Statements', type: 'Statement' },
-        { id: 'pin-2', title: 'Daily Market Briefing Task', type: 'Scheduled Job' },
-      ];
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
   });
+
+  // Authenticated enrolled devices
+  const [devices, setDevices] = useState<DeviceInfo[]>([]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      setDevices([]);
+      return;
+    }
+    fetch(`${API_BASE}/devices`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setDevices(data);
+        }
+      })
+      .catch(() => setDevices([]));
+  }, [accessToken]);
 
   const unpinItem = useCallback((id: string) => {
     setPinnedItems((prev) => {
@@ -383,6 +356,18 @@ export function ChatScreen() {
 
   // Mobile sidebar visibility
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Close mobile sidebar on Escape key
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSidebarOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [sidebarOpen]);
 
   // Rehydrate active session across page refresh and browser reopen
   useEffect(() => {
@@ -1319,7 +1304,7 @@ export function ChatScreen() {
       <NewTaskModal
         isOpen={isNewTaskModalOpen}
         onClose={() => setIsNewTaskModalOpen(false)}
-        devices={DEFAULT_DEVICES}
+        devices={devices}
         onSubmitTask={handleLaunchNewTask}
       />
 

@@ -94,9 +94,20 @@ export const ReminderSoundSettings: React.FC<ReminderSoundSettingsProps> = ({
       });
       if (res.ok) {
         const data = await res.json();
-        setSettings(data);
-        soundEngine.setVolume(data.volume);
-        soundEngine.setMute(data.muted);
+        const rawVol = typeof data.volume === 'number' ? data.volume : 85;
+        const normalizedVol = rawVol <= 1.0 && rawVol > 0 ? Math.round(rawVol * 100) : rawVol;
+        const parsedSettings: ReminderSettingsData = {
+          default_sound_id: data.default_sound_id || 'roxy_harmonic',
+          volume: normalizedVol,
+          muted: data.muted ?? data.mute ?? false,
+          vibrate: data.vibrate ?? data.vibration ?? true,
+          default_snooze_minutes: data.default_snooze_minutes ?? 10,
+          per_device_sounds: data.per_device_sounds || data.device_overrides || {},
+          per_event_sounds: data.per_event_sounds || data.event_overrides || {},
+        };
+        setSettings(parsedSettings);
+        soundEngine.setVolume(normalizedVol);
+        soundEngine.setMute(parsedSettings.muted);
       }
 
       const soundsRes = await fetch(`${API_BASE}/reminders/sounds`, {
@@ -104,7 +115,8 @@ export const ReminderSoundSettings: React.FC<ReminderSoundSettingsProps> = ({
       });
       if (soundsRes.ok) {
         const soundsData = await soundsRes.json();
-        setCustomSounds(soundsData.custom_sounds || []);
+        const list = soundsData.custom_sounds || (soundsData.sounds ? soundsData.sounds.filter((s: any) => !s.is_builtin) : []);
+        setCustomSounds(list);
       }
     } catch {
       // Offline fallback
@@ -137,17 +149,45 @@ export const ReminderSoundSettings: React.FC<ReminderSoundSettingsProps> = ({
     if (!accessToken) return;
     setIsSaving(true);
     try {
+      const payload: Record<string, any> = { ...patch };
+      if (typeof payload.volume === 'number') {
+        payload.volume = payload.volume > 1.0 ? payload.volume / 100.0 : payload.volume;
+      }
+      if ('muted' in payload) {
+        payload.mute = payload.muted;
+      }
+      if ('vibrate' in payload) {
+        payload.vibration = payload.vibrate;
+      }
+      if ('per_device_sounds' in payload) {
+        payload.device_overrides = payload.per_device_sounds;
+      }
+      if ('per_event_sounds' in payload) {
+        payload.event_overrides = payload.per_event_sounds;
+      }
+
       const res = await fetch(`${API_BASE}/reminders/settings`, {
         method: 'PATCH',
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         const data = await res.json();
-        setSettings(data);
+        const rawVol = typeof data.volume === 'number' ? data.volume : 85;
+        const normalizedVol = rawVol <= 1.0 && rawVol > 0 ? Math.round(rawVol * 100) : rawVol;
+        setSettings((prev) => ({
+          ...prev,
+          default_sound_id: data.default_sound_id || prev.default_sound_id,
+          volume: normalizedVol,
+          muted: data.muted ?? data.mute ?? prev.muted,
+          vibrate: data.vibrate ?? data.vibration ?? prev.vibrate,
+          default_snooze_minutes: data.default_snooze_minutes ?? prev.default_snooze_minutes,
+          per_device_sounds: data.per_device_sounds || data.device_overrides || prev.per_device_sounds,
+          per_event_sounds: data.per_event_sounds || data.event_overrides || prev.per_event_sounds,
+        }));
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 2000);
       }
@@ -221,9 +261,12 @@ export const ReminderSoundSettings: React.FC<ReminderSoundSettingsProps> = ({
       });
 
       if (res.ok) {
-        const item: CustomSoundItem = await res.json();
+        const json = await res.json();
+        const item: CustomSoundItem = json.sound || json;
         setCustomSounds((prev) => [...prev, item]);
-        handleSelectSound(item.id);
+        if (item.id) {
+          handleSelectSound(item.id);
+        }
       } else {
         const err = await res.json();
         setUploadError(err.detail || 'Upload failed');

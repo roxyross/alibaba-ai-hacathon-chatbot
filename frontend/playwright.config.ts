@@ -8,8 +8,14 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: process.env.API_BASE ?? 'http://localhost:8000',
+    baseURL: process.env.PLAYWRIGHT_TEST_BASE_URL ?? process.env.BASE_URL ?? 'http://localhost:5173',
     trace: 'on-first-retry',
+  },
+  webServer: {
+    command: 'npm run dev',
+    port: 5173,
+    reuseExistingServer: !process.env.CI,
+    timeout: 60_000,
   },
   projects: [
     {

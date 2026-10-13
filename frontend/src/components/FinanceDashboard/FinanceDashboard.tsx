@@ -207,7 +207,7 @@ const BankConnectionCard: React.FC<BankConnectionCardProps> = ({
               disabled={connecting}
               style={{ background: 'linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%)', color: '#11111b', fontWeight: 600 }}
             >
-              {connecting ? 'Connecting…' : '⚡ Connect Demo Bank (Instant)'}
+              {connecting ? 'Connecting…' : '🧪 Connect Sandbox Bank (Demo Evaluation)'}
             </button>
           </div>
         </div>
@@ -251,7 +251,7 @@ const BankConnectionCard: React.FC<BankConnectionCardProps> = ({
               onClick={handleDemoConnect}
               style={{ flex: 1, background: 'linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%)', color: '#11111b', fontWeight: 600 }}
             >
-              ⚡ Demo Bank
+              🧪 Sandbox Demo Bank
             </button>
           </div>
 

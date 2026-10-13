@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
   Zap,
@@ -41,6 +41,19 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
   );
   const [targetApp, setTargetApp] = useState('');
   const [initialPrompt, setInitialPrompt] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Close on Escape key press
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -84,17 +97,23 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!title.trim() && !initialPrompt.trim()) return;
 
-    onSubmitTask({
-      title: title.trim() || initialPrompt.slice(0, 40) + '...',
-      category,
-      mode,
-      targetDevice: selectedDeviceId,
-      targetApp: targetApp.trim() || undefined,
-      initialPrompt: initialPrompt.trim() || title.trim(),
-    });
-    onClose();
+    setIsSubmitting(true);
+    try {
+      onSubmitTask({
+        title: title.trim() || initialPrompt.slice(0, 40) + '...',
+        category,
+        mode,
+        targetDevice: selectedDeviceId,
+        targetApp: targetApp.trim() || undefined,
+        initialPrompt: initialPrompt.trim() || title.trim(),
+      });
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -103,6 +122,7 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
         className="new-task-modal__window"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
+        aria-modal="true"
         aria-labelledby="new-task-title"
       >
         {/* Header */}
@@ -210,8 +230,11 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
           {/* Execution Mode Selector */}
           <div className="new-task-modal__mode-section">
             <span className="new-task-modal__section-label">Execution Strategy:</span>
-            <div className="new-task-modal__mode-cards">
-              <div
+            <div className="new-task-modal__mode-cards" role="radiogroup" aria-label="Execution Strategy">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === 'autonomous'}
                 className={`new-task-modal__mode-card ${
                   mode === 'autonomous' ? 'new-task-modal__mode-card--active' : ''
                 }`}
@@ -225,9 +248,12 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
                   ROXY self-plans, inspects environment, attempts actions, and self-corrects via
                   multi-tier fallbacks without pausing for low-risk approvals.
                 </p>
-              </div>
+              </button>
 
-              <div
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === 'guided'}
                 className={`new-task-modal__mode-card ${
                   mode === 'guided' ? 'new-task-modal__mode-card--active' : ''
                 }`}
@@ -241,7 +267,7 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
                   Requires explicit user confirmation before executing file writes, process terminations,
                   or external webhooks.
                 </p>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -251,15 +277,17 @@ export const NewTaskModal: React.FC<NewTaskModalProps> = ({
               type="button"
               className="new-task-modal__btn new-task-modal__btn--secondary"
               onClick={onClose}
+              disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
               className="new-task-modal__btn new-task-modal__btn--primary"
+              disabled={isSubmitting}
             >
               <Zap size={15} />
-              <span>Launch Autonomous Task</span>
+              <span>{isSubmitting ? 'Launching...' : 'Launch Autonomous Task'}</span>
             </button>
           </div>
         </form>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Code2,
   Play,
@@ -161,12 +161,6 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
   const [isAgentProcessing, setIsAgentProcessing] = useState(false);
   const [isVoiceListening, setIsVoiceListening] = useState(false);
 
-  // Command Palette & Go To Line
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [commandPaletteQuery, setCommandPaletteQuery] = useState('');
-  const [isGoToLineOpen, setIsGoToLineOpen] = useState(false);
-  const [goToLineNumber, setGoToLineNumber] = useState('');
-
   // Editor Settings & Split Pane
   const [editorSettings, setEditorSettings] = useState({
     fontSize: 14,
@@ -186,6 +180,31 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
   const activeTab = useMemo(() => {
     return openTabs.find((t) => t.path === activeTabPath) || null;
   }, [openTabs, activeTabPath]);
+
+  // Command Palette & Go To Line
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState('');
+  const [isGoToLineOpen, setIsGoToLineOpen] = useState(false);
+  const [goToLineNumber, setGoToLineNumber] = useState('');
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleJumpToLine = useCallback((lineStr?: string) => {
+    const rawNum = lineStr !== undefined ? lineStr : goToLineNumber;
+    const target = parseInt(rawNum.trim(), 10);
+    if (!isNaN(target) && target >= 1 && activeTab && editorRef.current) {
+      const lines = activeTab.content.split('\n');
+      const targetLine = Math.min(target, lines.length);
+      let charIndex = 0;
+      for (let i = 0; i < targetLine - 1; i++) {
+        charIndex += lines[i].length + 1;
+      }
+      editorRef.current.focus();
+      editorRef.current.setSelectionRange(charIndex, charIndex);
+      const approxLineHeight = (editorSettings.fontSize || 14) * 1.5;
+      editorRef.current.scrollTop = Math.max(0, (targetLine - 3) * approxLineHeight);
+    }
+    setIsGoToLineOpen(false);
+  }, [goToLineNumber, activeTab, editorSettings.fontSize]);
 
   // Determine file language from extension
   const getLanguageFromPath = (path: string): string => {
@@ -1270,6 +1289,7 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
                     </div>
                   )}
                   <textarea
+                    ref={editorRef}
                     className="code-textarea"
                     style={{
                       fontSize: `${editorSettings.fontSize}px`,
@@ -1780,8 +1800,10 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
                 onChange={(e) => setGoToLineNumber(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    setIsGoToLineOpen(false);
+                    e.preventDefault();
+                    handleJumpToLine(e.currentTarget.value);
                   } else if (e.key === 'Escape') {
+                    e.preventDefault();
                     setIsGoToLineOpen(false);
                   }
                 }}
@@ -1789,7 +1811,7 @@ export const CodeStudioIDE: React.FC<CodeStudioIDEProps> = ({
               <button
                 type="button"
                 className="btn-save-breadcrumb"
-                onClick={() => setIsGoToLineOpen(false)}
+                onClick={() => handleJumpToLine()}
               >
                 Jump
               </button>

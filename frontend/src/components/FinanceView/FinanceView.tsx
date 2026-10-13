@@ -198,12 +198,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       });
       if (res.ok) {
         await fetchFinance();
-        setNotice({ type: 'success', text: 'Bank accounts connected via Plaid.' });
+        setNotice({ type: 'success', text: 'Demo Bank accounts connected (Sandbox Mode).' });
         setChatMessages((prev) => [
           ...prev,
           {
             sender: 'assistant',
-            text: '🏦 Bank accounts successfully connected via Plaid (Chase Premier Checking & Savings). Real-time transactions and balance ledger synchronized.',
+            text: '🧪 Demo Sandbox Bank connected (Chase Demo Checking & Savings). Simulated test accounts and transaction ledgers loaded for evaluation (Sandbox Mode).',
           },
         ]);
       } else {

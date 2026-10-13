@@ -1,0 +1,3 @@
+[submodule "huggingface-space-roxy-hub"]
+	path = huggingface-space-roxy-hub
+	url = https://huggingface.co/spaces/Rijji/roxy-personal-ai
