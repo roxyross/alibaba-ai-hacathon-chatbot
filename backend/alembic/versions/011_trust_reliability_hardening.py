@@ -33,7 +33,7 @@ def upgrade() -> None:
         cols_to_add = [
             ("session_id", sa.String(36), True, None),
             ("correlation_id", sa.String(64), True, None),
-            ("actor_type", sa.String(32), False, "agent"),
+            ("actor_type", sa.String(32), False, sa.text("'agent'")),
             ("actor_id", sa.String(64), True, None),
             ("skill_id", sa.String(64), True, None),
             ("connector_id", sa.String(64), True, None),
@@ -41,25 +41,29 @@ def upgrade() -> None:
             ("device_id", sa.String(64), True, None),
             ("target", sa.String(255), True, None),
             ("permission_required", sa.Boolean(), False, sa.text("false")),
-            ("permission_status", sa.String(32), False, "approved"),
+            ("permission_status", sa.String(32), False, sa.text("'approved'")),
             ("confirmation_required", sa.Boolean(), False, sa.text("false")),
-            ("confirmation_status", sa.String(32), False, "none"),
+            ("confirmation_status", sa.String(32), False, sa.text("'none'")),
         ]
 
         for col_name, col_type, nullable, default in cols_to_add:
             if col_name not in existing_cols:
                 kw = {"nullable": nullable}
                 if default is not None:
-                    kw["server_default"] = default
+                    if isinstance(default, str):
+                        kw["server_default"] = sa.text(f"'{default}'")
+                    else:
+                        kw["server_default"] = default
                 op.add_column("trust_events", sa.Column(col_name, col_type, **kw))
 
         # Add indexes if missing
         existing_indexes = {ix["name"] for ix in inspector.get_indexes("trust_events")}
-        if "ix_trust_events_session_id" not in existing_indexes and "session_id" in existing_cols:
+        updated_cols = existing_cols | {col[0] for col in cols_to_add}
+        if "ix_trust_events_session_id" not in existing_indexes and "session_id" in updated_cols:
             op.create_index("ix_trust_events_session_id", "trust_events", ["session_id"])
-        if "ix_trust_events_correlation_id" not in existing_indexes and "correlation_id" in existing_cols:
+        if "ix_trust_events_correlation_id" not in existing_indexes and "correlation_id" in updated_cols:
             op.create_index("ix_trust_events_correlation_id", "trust_events", ["correlation_id"])
-        if "ix_trust_events_device_id" not in existing_indexes and "device_id" in existing_cols:
+        if "ix_trust_events_device_id" not in existing_indexes and "device_id" in updated_cols:
             op.create_index("ix_trust_events_device_id", "trust_events", ["device_id"])
 
     # 2. Create rollback_actions table
@@ -72,9 +76,9 @@ def upgrade() -> None:
             sa.Column("user_id", sa.String(36), nullable=False),
             sa.Column("supported", sa.Boolean(), server_default=sa.text("true"), nullable=False),
             sa.Column("strategy", sa.String(64), nullable=False),
-            sa.Column("rollback_window_seconds", sa.Integer(), server_default="86400", nullable=False),
-            sa.Column("requirements_json", sa.Text(), server_default="{}", nullable=False),
-            sa.Column("status", sa.String(32), server_default="available", nullable=False),
+            sa.Column("rollback_window_seconds", sa.Integer(), server_default=sa.text("86400"), nullable=False),
+            sa.Column("requirements_json", sa.Text(), server_default=sa.text("'{}'"), nullable=False),
+            sa.Column("status", sa.String(32), server_default=sa.text("'available'"), nullable=False),
             sa.Column("executed_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         )
