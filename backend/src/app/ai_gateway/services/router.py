@@ -260,6 +260,28 @@ class AIRouter:
         if request.provider:
             return request.provider.lower()
 
+        # Model-inferred provider routing (when provider is not explicitly specified)
+        if request.model:
+            model_lower = request.model.lower()
+            if "/" in model_lower:
+                prefix = model_lower.split("/", 1)[0]
+                if prefix in ("gemini", "grok", "deepseek", "openai"):
+                    return prefix
+            if "gemini" in model_lower:
+                return "gemini"
+            if "grok" in model_lower or model_lower in (
+                "qwen/qwen3.8-27b",
+                "qwen/qwen3.6-27b",
+                "openai/gpt-oss-120b",
+                "llama-3.3-70b-versatile",
+                "mixtral-8x7b-32768",
+            ):
+                return "grok"
+            if "deepseek" in model_lower:
+                return "deepseek"
+            if "gpt-" in model_lower:
+                return "openai"
+
         # Tier 2: user preference — deferred to post-hackathon (needs DB)
         # Tier 1: operator flag — handled by adapter registry (is_enabled)
 

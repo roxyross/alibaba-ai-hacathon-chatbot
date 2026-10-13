@@ -159,7 +159,7 @@ class UsageLog(Base):
     )
     user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     feature: Mapped[str] = mapped_column(String(64), default="chat")  # chat, image_studio, jobs, finance
-    model: Mapped[str] = mapped_column(String(64), default="gemini-2.0-flash")
+    model: Mapped[str] = mapped_column(String(64), default="gemini-3.8-flash")
     tokens_input: Mapped[int] = mapped_column(Integer, default=0)
     tokens_output: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)

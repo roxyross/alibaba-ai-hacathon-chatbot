@@ -109,10 +109,10 @@ export function ChatScreen() {
   // Dual-mode workflow: 'chat' for general conversation/search, 'task' for coding tasks
   const [mode, setMode] = useState<'chat' | 'task'>('chat');
 
-  // Default to Google Gemini 2.0 Flash
+  // Default to Google Gemini 3.8 Flash
   const [modelSelection, setModelSelection] = useState<ModelSelection | null>({
     provider: 'gemini',
-    model: 'gemini-2.0-flash',
+    model: 'gemini-3.8-flash',
   });
   const [activeView, setActiveView] = useState<AppView>(() => {
     if (typeof window !== 'undefined' && window.location.pathname.startsWith('/code-studio')) {
@@ -541,7 +541,7 @@ export function ChatScreen() {
         const title = `[Task] ${taskConfig.title}`;
         const newSession = await createSession({
           provider: modelSelection?.provider || 'gemini',
-          model: modelSelection?.model || 'gemini-2.0-flash',
+          model: modelSelection?.model || 'gemini-3.8-flash',
           title,
           session_type: 'task',
         });

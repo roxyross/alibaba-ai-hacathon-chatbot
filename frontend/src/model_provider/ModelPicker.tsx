@@ -19,15 +19,15 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
     enabled: true,
     models: [
       {
-        name: 'gemini-3.6-flash',
-        display_name: 'Gemini 3.6 Flash',
+        name: 'gemini-3.8-flash',
+        display_name: 'Gemini 3.8 Flash',
         enabled: true,
         task_types: ['general', 'coding', 'reasoning'],
         max_tokens: 16384,
       },
       {
-        name: 'gemini-3.8-flash',
-        display_name: 'Gemini 3.8 Flash',
+        name: 'gemini-3.6-flash',
+        display_name: 'Gemini 3.6 Flash',
         enabled: true,
         task_types: ['general', 'coding', 'reasoning'],
         max_tokens: 16384,
@@ -212,17 +212,17 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
       .filter((p) => p.models.length > 0);
   }, [providers]);
 
-  // If currently selected is runtime, migrate to gemini-3.6-flash
+  // Default to gemini-3.8-flash if not initialized or invalid runtime
   useEffect(() => {
-    if (!value || value.provider === 'runtime' || value.model === 'coordinator' || value.model === 'gemini-2.0-flash') {
-      onChange({ provider: 'gemini', model: 'gemini-3.6-flash' });
+    if (!value || value.provider === 'runtime' || value.model === 'coordinator') {
+      onChange({ provider: 'gemini', model: 'gemini-3.8-flash' });
     }
   }, [value, onChange]);
 
   const currentValue =
     value && value.provider !== 'runtime'
       ? `${value.provider}/${value.model}`
-      : 'gemini/gemini-3.6-flash';
+      : 'gemini/gemini-3.8-flash';
 
   return (
     <div className="model-picker">

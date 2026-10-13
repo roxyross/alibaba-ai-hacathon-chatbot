@@ -739,12 +739,14 @@ async def test_gemini_adapter_model_resolution() -> None:
     from app.ai_gateway.adapters.gemini import GeminiAdapter
     adapter = GeminiAdapter()
 
+    assert adapter.DEFAULT_MODEL == "gemini-3.8-flash"
+    assert adapter._resolve_model(None) == "gemini-3.8-flash"
+    assert adapter._resolve_model("gemini-3.8-flash") == "gemini-3.8-flash"
+    assert adapter._resolve_model("gemini-3.6-flash") == "gemini-3.6-flash"
     assert adapter._resolve_model("gemini-2.0-flash") == "gemini-2.0-flash"
     assert adapter._resolve_model("gemini-1.5-pro") == "gemini-1.5-pro"
     assert adapter._resolve_model("gemini-1.5-flash") == "gemini-1.5-flash"
-    # Deprecated/fictional models map safely to default real model
-    assert adapter._resolve_model("gemini-3.6-flash") == "gemini-2.0-flash"
-    assert adapter._resolve_model("gemini-3.8-flash") == "gemini-2.0-flash"
+    assert adapter._resolve_model("gemini-flash") == "gemini-3.8-flash"
 
 
 
