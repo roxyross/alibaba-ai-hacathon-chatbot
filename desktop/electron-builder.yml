@@ -55,6 +55,7 @@ linux:
   target:
     - AppImage
     - deb
+  maintainer: "Roxy-AI Team <support@roxy-ai.internal>"
   icon: resources/icon.png
   category: Utility;Development;
   artifactName: "Roxy-AI-${version}.${ext}"

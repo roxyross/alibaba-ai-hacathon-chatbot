@@ -135,6 +135,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install "pytest>=8.3.0" "pytest-asyncio>=0.24.0" "pytest-mock>=3.14.0" "pytest-cov>=6.0.0" "respx>=0.21.0"
 
       - name: Verify Python syntax and bytecode compilation
         run: python -m compileall src
@@ -146,7 +147,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres_test_password@localhost:5432/roxy_test
         run: |
-          alembic upgrade head
+          python -m alembic upgrade head
 
       - name: Run backend pytest suite
         env:
@@ -156,7 +157,7 @@ jobs:
           JWT_SECRET: ci_test_jwt_secret_must_be_thirty_two_bytes_long!
           JWT_SERVICE_SECRET: ci_test_service_secret_thirty_two_bytes_long!
         run: |
-          pytest tests/integration/test_phase20_docker_compose.py \
+          python -m pytest tests/integration/test_phase20_docker_compose.py \
                  tests/integration/test_phase1_auth_session.py \
                  tests/integration/test_phase2_agent_runtime.py \
                  tests/integration/test_phase3_chat_persistence.py \
