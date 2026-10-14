@@ -28,7 +28,7 @@ test.describe('Responsive Viewport Audit', () => {
       await page.waitForLoadState('domcontentloaded');
 
       // Verify page element is rendered
-      const root = page.locator('#root, .app');
+      const root = page.locator('#root');
       await expect(root).toBeVisible();
 
       // Check that document has no horizontal overflow
