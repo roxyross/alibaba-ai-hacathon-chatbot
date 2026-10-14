@@ -28,6 +28,12 @@ test.describe('AI Chat & Provider Attribution', () => {
         }),
       });
     });
+
+    await page.addInitScript(() => {
+      const fakeJwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c3JfdGVzdF8xIiwiZW1haWwiOiJkZXZlbG9wZXJAcm94eS5haSIsImV4cCI6MTk5OTk5OTk5OX0.dummy_sig';
+      localStorage.setItem('roxy.access_token', fakeJwt);
+      localStorage.setItem('roxy_guest_prompt_count', '0');
+    });
   });
 
   test('user sends message and receives response with attribution badge', async ({ page }) => {

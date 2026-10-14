@@ -46,6 +46,13 @@ test.describe('Navigation and Core Views E2E', () => {
         }),
       });
     });
+
+    // Provide authenticated token in localStorage to enable seamless navigation between secondary views
+    await page.addInitScript(() => {
+      const fakeJwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c3JfdGVzdF8xIiwiZW1haWwiOiJkZXZlbG9wZXJAcm94eS5haSIsImV4cCI6MTk5OTk5OTk5OX0.dummy_sig';
+      localStorage.setItem('roxy.access_token', fakeJwt);
+      localStorage.setItem('roxy_guest_prompt_count', '0');
+    });
   });
 
   test('loads home page and verifies default chat window and top bar controls', async ({ page }) => {
@@ -169,12 +176,12 @@ test.describe('Navigation and Core Views E2E', () => {
     const searchBtn = page.locator('.app__header-search-btn');
     if (await searchBtn.isVisible()) {
       await searchBtn.click();
-      const omnibar = page.locator('.roxy-command-backdrop, .roxy-command-palette').first();
-      await expect(omnibar).toBeVisible();
+      const backdrop = page.locator('.roxy-command-backdrop');
+      await expect(backdrop).toBeVisible();
 
-      // Dismiss omnibar via Escape
-      await page.keyboard.press('Escape');
-      await expect(omnibar).not.toBeVisible();
+      // Dismiss omnibar via backdrop click outside palette
+      await backdrop.click({ position: { x: 5, y: 5 } });
+      await expect(backdrop).not.toBeVisible();
     }
   });
 });
