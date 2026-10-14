@@ -22,7 +22,6 @@ from app.ai_gateway.models.provider import (
     DEFAULT_ROUTING_PRIORITY,
     PROVIDER_API_KEY_VARS,
     PROVIDER_BASE_URLS,
-    get_provider_config,
 )
 from app.ai_gateway.services.router import _get_adapter, _sorted_providers
 
@@ -89,3 +88,36 @@ def test_sorted_providers_respects_priority_and_active_keys():
         sorted_p = _sorted_providers()
         # Active: gemini, groq, openai. Order: gemini (1) -> groq (2) -> openai (5)
         assert sorted_p == ["gemini", "groq", "openai"]
+
+
+def test_gsk_key_in_grok_env_migrated_to_groq_and_xai_isolated():
+    """A legacy gsk_ key in GROK_API_KEY falls back to Groq, but xAI key is NEVER sent to Groq."""
+    from app.ai_gateway.models.provider import get_provider_config
+
+    # Case 1: User mistakenly puts gsk_ into GROK_API_KEY
+    with patch.dict(os.environ, {"GROQ_API_KEY": "", "GROK_API_KEY": "gsk_legacy_groq_token_12345"}):
+        groq_cfg = get_provider_config("groq")
+        assert groq_cfg is not None
+        assert groq_cfg.api_key == "gsk_legacy_groq_token_12345"
+
+    # Case 2: GROK_API_KEY is a real xAI key -> MUST NOT be picked up by Groq
+    with patch.dict(os.environ, {"GROQ_API_KEY": "", "GROK_API_KEY": "xai-legit-token-67890"}):
+        groq_cfg = get_provider_config("groq")
+        assert groq_cfg is not None
+        assert groq_cfg.api_key is None  # Clean separation!
+        assert groq_cfg.has_api_key is False
+
+
+def test_no_keys_configured_results_in_empty_sorted_providers():
+    """When no provider keys are configured, _sorted_providers returns an empty list."""
+    env = {
+        "GEMINI_API_KEY": "",
+        "GROQ_API_KEY": "",
+        "GROK_API_KEY": "",
+        "XAI_API_KEY": "",
+        "DEEPSEEK_API_KEY": "",
+        "OPENAI_API_KEY": "",
+    }
+    with patch.dict(os.environ, env):
+        assert _sorted_providers() == []
+

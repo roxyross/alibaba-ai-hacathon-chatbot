@@ -17,7 +17,6 @@ from app.ai_gateway.adapters.base import AIProviderAdapter, ProviderUnavailableE
 from app.ai_gateway.models.schemas import (
     AIRequest,
     AIResponse,
-    StreamingChunk,
 )
 
 
@@ -109,18 +108,16 @@ class GroqAdapter(AIProviderAdapter):
                             if delta:
                                 accumulated += delta
                                 yield AIResponse(
-                                    id=str(uuid.uuid4()),
+                                    request_id=request.request_id or uuid.uuid4(),
                                     provider=self.provider_name,
                                     model=parsed.get("model", model_name),
                                     content=accumulated,
-                                    prompt_tokens=0,
-                                    completion_tokens=len(accumulated.split()),
-                                    total_tokens=len(accumulated.split()),
-                                    cost_estimate=0.0,
+                                    agent_id=request.agent_id or "unknown",
+                                    user_id=request.user_id,
+                                    input_tokens=0,
+                                    output_tokens=len(accumulated.split()),
+                                    cost_usd=0.0,
                                     latency_ms=int((time.monotonic() - start) * 1000),
-                                    sanitized=False,
-                                    finish_reason=choices[0].get("finish_reason"),
-                                    fallback_used=False,
                                 )
                     except Exception:
                         continue
@@ -128,16 +125,17 @@ class GroqAdapter(AIProviderAdapter):
             raise ProviderUnavailableError(self.provider_name, str(exc)) from exc
 
     def _build_payload(self, request: AIRequest, stream: bool = False) -> dict[str, Any]:
-        messages = [{"role": "user", "content": request.prompt}]
-        if request.system_prompt:
-            messages.insert(0, {"role": "system", "content": request.system_prompt})
-
+        messages = [
+            {"role": m.role.value if hasattr(m.role, "value") else str(m.role), "content": m.content}
+            for m in request.messages
+        ]
         model = request.model or "qwen/qwen3.8-27b"
+        max_tokens = min(request.max_tokens or 1000, 1000)
         return {
             "model": model,
             "messages": messages,
             "stream": stream,
-            "max_tokens": request.max_tokens or 4096,
+            "max_tokens": max_tokens,
             "temperature": request.temperature if request.temperature is not None else 0.7,
         }
 
@@ -150,24 +148,20 @@ class GroqAdapter(AIProviderAdapter):
 
         message = choices[0].get("message", {})
         content = message.get("content", "")
-        finish_reason = choices[0].get("finish_reason")
 
         usage = raw.get("usage", {})
         prompt_tokens = usage.get("prompt_tokens", 0)
         completion_tokens = usage.get("completion_tokens", 0)
-        total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
 
         return AIResponse(
-            id=raw.get("id", str(uuid.uuid4())),
+            request_id=request.request_id or uuid.uuid4(),
             provider=self.provider_name,
             model=raw.get("model", request.model or "qwen/qwen3.8-27b"),
             content=content,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            cost_estimate=0.0,
+            agent_id=request.agent_id or "unknown",
+            user_id=request.user_id,
+            input_tokens=prompt_tokens,
+            output_tokens=completion_tokens,
+            cost_usd=0.0,
             latency_ms=latency_ms,
-            sanitized=False,
-            finish_reason=finish_reason,
-            fallback_used=False,
         )

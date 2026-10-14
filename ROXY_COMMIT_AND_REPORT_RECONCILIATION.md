@@ -31,7 +31,11 @@ Inspection of `git log` on branch `release/audit-remediation` demonstrates a cle
 1. **Commit `45024ef`:** Established the staging release candidate baseline. Conducted live database synchronization against NeonDB serverless PostgreSQL (`011_trust_reliability_hardening`), validated failover inference with Groq (`qwen/qwen3.8-27b`), and verified Web Search with Tavily.
 2. **Commit `d43569e`:** Resolved the Alembic migration static typing defects identified in `007_target_scoped_permissions.py`, `008_device_agent_enrollment.py`, `009_deep_app_catalog.py`, and `011_trust_reliability_hardening.py`, bringing `mypy alembic/versions/` to zero errors.
 3. **Commit `6d8b126`:** Consolidated the 14 master launch certification, exit gate, and verification reports into the repository.
-4. **Current Working Tree (Security & Routing Remediations):** Implements code-level fixes for SEC-01 (JWT dev secret), SEC-02 (Demo login), SEC-03 (OAuth state replay), SEC-04 (Redirect allowlist), SEC-05 (Confirmation bypass), SEC-06 (Gmail token encryption), GW-01 (Groq/Grok router separation), and CI trigger coverage.
+4. **Commit `9f66e03`:** Remediated initial P0/P1 security findings across SEC-01 through SEC-06, reconciled AI routing, and introduced initial regression suites.
+5. **Current Working Tree (SEC-03, SEC-06, & CI Enforcement Hardening):**
+   - **SEC-03 Hardening:** Inverted production cookie check fixed; mandatory browser-binding cookie enforced; distributed atomic single-use state store via Redis (`SET ... EX 600 NX`) with fail-closed production posture implemented; verified across 14 regression tests.
+   - **SEC-06 Hardening:** Vercel deployment detection (`VERCEL`, `VERCEL_ENV`, `VERCEL_URL`) added; mandatory dedicated `GMAIL_TOKEN_ENCRYPTION_KEY` enforced with fail-closed production posture; `MultiFernet` key rotation implemented; verified across 11 regression tests.
+   - **CI Enforcement (CI-01):** Updated `.github/workflows/ci.yml` with a dedicated security test execution step; implemented `test_security_ci_discovery.py` to permanently guard against security test omission in CI.
 
 ### Tag & Baseline Clarification
 - Tag `checkpoint/ide-audit-baseline` points to `68bd96ac102d2d99ba31004f9cd74f81bc346ac1`. This represents the pre-audit forensic snapshot.
@@ -55,13 +59,20 @@ The authoritative standard for production launch certification is the **5 Extern
 | **GATE-04 (BLK-04)** | Communication | Dedicated transactional email provider (AWS SES/Resend) with SPF/DKIM | High | **PASS (SMTP)** | **BLOCKED** |
 | **GATE-05 (BLK-05)** | AI Gateway | Google AI Studio paid-tier API key (`AIzaSy...`) for sustained Gemini capacity | High | **PASS (FAILOVER)** | **BLOCKED** |
 
-### Internal Code Gates Status
+### Internal Code Gates Status [ALL RESOLVED]
 - **BLK-06 (Alembic Type Annotations):** **RESOLVED (PASS)** via commit `d43569e`.
-- **SEC-01 through SEC-06 (Security Hardening):** **RESOLVED (PASS)** via current remediation branch and validated by 43 regression tests.
-- **GW-01 (Groq/Grok Adapter Separation):** **RESOLVED (PASS)** via current remediation branch.
+- **SEC-01 (JWT Dev Secret):** **RESOLVED (PASS)** (8 tests passing).
+- **SEC-02 (Demo Login Gate):** **RESOLVED (PASS)** (5 tests passing).
+- **SEC-03 (OAuth Replay & Browser Binding):** **RESOLVED (PASS)** (14 tests passing).
+- **SEC-04 (OAuth Open Redirect):** **RESOLVED (PASS)** (8 tests passing).
+- **SEC-05 (Confirmation Gate Bypass):** **RESOLVED (PASS)** (6 tests passing).
+- **SEC-06 (Gmail Token Encryption at Rest):** **RESOLVED (PASS)** (11 tests passing).
+- **GW-01 (Groq vs Grok Provider Disambiguation):** **RESOLVED (PASS)** (8 tests passing).
+- **CI-01 (CI Test Discovery & Enforcement):** **RESOLVED (PASS)** (3 tests passing).
+- **Total Internal Security Tests:** **75 / 75 Automated Tests (100% PASS)**.
 
 ### Merge vs Launch Policy
-- **Merge into `main`:** Permitted upon user review and authorization. All code is functional, statically typed, and verified with 183 automated tests. The external blockers do not inhibit code merging.
+- **Merge into `master`:** Permitted upon user review and authorization. All code is functional, statically typed, and verified with 75 security tests and 107 frontend tests. The external blockers do not inhibit code merging into `master`.
 - **Production Deployment:** Strictly withheld until all 5 external gates are satisfied in production infrastructure.
 
 ---
@@ -70,5 +81,5 @@ The authoritative standard for production launch certification is the **5 Extern
 
 All project governance files (`ROXY_CONSOLIDATED_BLOCKER_REGISTER.md`, `ROXY_CONSOLIDATED_MERGE_READINESS.md`, and `ROXY_CONSOLIDATED_FINAL_LAUNCH_CERTIFICATION.md`) are updated to reflect:
 1. The authoritative 5 external production gates.
-2. The complete resolution of all internal security, typing, and architectural blockers.
-3. The unified recommendation: `MERGE-READY — REVIEWED PR REQUIRED`.
+2. The complete resolution of all internal security, typing, architectural, and CI blockers.
+3. The unified recommendation: `MERGE-READY — REVIEWED PR REQUIRED; PRODUCTION DEPLOYMENT BLOCKED ON EXTERNAL GATES`.

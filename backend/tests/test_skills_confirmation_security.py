@@ -14,15 +14,15 @@ Validates:
 
 from __future__ import annotations
 
-import os
-from unittest.mock import AsyncMock, patch
+from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from starlette.requests import Request
 
 from app.auth.models import User
 from app.skills.router import (
+    ConfirmRequest,
     _pending_confirmations,
     _run_skill,
     skill_confirm_execute,
@@ -58,6 +58,7 @@ async def test_client_confirm_true_cannot_bypass_confirmation_gate():
 
     assert exc_info.value.status_code == 403
     detail = exc_info.value.detail
+    assert isinstance(detail, dict)
     assert detail["error"] == "confirmation_required"
     assert "token" in detail
     # Ensure executor was NEVER called directly
@@ -74,7 +75,7 @@ async def test_anonymous_user_blocked_from_generating_sensitive_confirmations():
         await _run_skill(mock_executor, req, None, skill_slug="email_send")
 
     assert exc_info.value.status_code == 401
-    assert "Authentication required" in exc_info.value.detail
+    assert "Authentication required" in str(exc_info.value.detail)
 
 
 @pytest.mark.asyncio
@@ -93,6 +94,7 @@ async def test_cross_user_confirmation_blocked():
     try:
         await _run_skill(mock_executor, req, alice, skill_slug="email_send")
     except HTTPException as exc:
+        assert isinstance(exc.detail, dict)
         token = exc.detail["token"]
 
     assert token is not None
@@ -103,7 +105,6 @@ async def test_cross_user_confirmation_blocked():
     assert exc_info.value.status_code == 404
 
     # Bob attempts to execute Alice's token
-    from app.skills.router import ConfirmRequest
     with pytest.raises(HTTPException) as exc_info:
         await skill_confirm_execute(req=ConfirmRequest(token=token), current_user=bob)
     assert exc_info.value.status_code == 404
@@ -126,6 +127,7 @@ async def test_legitimate_confirmation_executes_once_and_blocks_replay():
     try:
         await _run_skill(mock_executor, req, alice, skill_slug="email_send")
     except HTTPException as exc:
+        assert isinstance(exc.detail, dict)
         token = exc.detail["token"]
 
     assert token is not None
@@ -136,7 +138,6 @@ async def test_legitimate_confirmation_executes_once_and_blocks_replay():
     assert "partner@example.com" in preview.action
 
     # Alice confirms execution
-    from app.skills.router import ConfirmRequest
     res = await skill_confirm_execute(req=ConfirmRequest(token=token), current_user=alice)
     assert res.success is True
     assert mock_executor.execute.call_count == 1
@@ -159,6 +160,39 @@ async def test_low_risk_skills_execute_without_confirmation():
     user = User(id="user_alice", email="alice@roxy.ai")
     req = CalculatorRequest(expression="6 * 7")
 
-    res = await _run_skill(mock_executor, req, user, skill_slug="calculator")
+    res: Any = await _run_skill(mock_executor, req, user, skill_slug="calculator")
     assert res == {"result": 42}
     assert mock_executor.execute.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_expired_confirmation_token_rejected_with_404():
+    """Tokens that exceed CONFIRMATION_TTL_SECONDS are expired and rejected with 404."""
+    import time
+    mock_executor = AsyncMock()
+    alice = User(id="user_alice", email="alice@roxy.ai")
+    req = EmailSendRequest(to="partner@example.com", subject="Meeting", body="Details")
+
+    token = None
+    try:
+        await _run_skill(mock_executor, req, alice, skill_slug="email_send")
+    except HTTPException as exc:
+        assert isinstance(exc.detail, dict)
+        token = exc.detail["token"]
+
+    assert token is not None
+
+    # Simulate token expiration by rewinding issued_at timestamp
+    entry = _pending_confirmations["user_alice"][token]
+    _pending_confirmations["user_alice"][token] = (
+        entry[0],
+        entry[1],
+        time.time() - 700,  # 700 seconds ago > 600s TTL
+        entry[3],
+        entry[4],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await skill_confirm_execute(req=ConfirmRequest(token=token), current_user=alice)
+    assert exc_info.value.status_code == 404
+

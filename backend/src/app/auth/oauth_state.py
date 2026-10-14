@@ -1,15 +1,24 @@
-"""Single-use CSRF `state` cookie for OAuth flows.
+"""Single-use CSRF `state` cookie and distributed replay protection for OAuth flows.
 
-The `state` value is a server-issued opaque random string. The flow:
-  1. `start` endpoint calls `set_state(response)` to set the cookie.
-  2. Google/GitHub redirects back to the `callback` endpoint with `?state=...`.
-  3. `consume_state(request)` validates the cookie matches the query param
-     AND the cookie exists AND is fresh. Single-use: the cookie is deleted
-     on read so a replay is impossible.
+The `state` value is a cryptographically signed HMAC token bound to the browser session.
+The flow:
+  1. `start` endpoint calls `new_state()` and attaches it via `set_state(response, state)`.
+  2. Google/GitHub redirects back to `callback` with query parameter `?state=...`.
+  3. `consume_state(request_value, cookie_value)`:
+     - In production: strictly requires the browser-bound `roxy.oauth_state` cookie.
+     - Verifies cryptographic HMAC signature against configured JWT_SECRET.
+     - Rejects expired (past STATE_TTL_SECONDS) or clock-skewed state tokens.
+     - Validates constant-time equality between query parameter state and browser cookie.
+     - Atomically marks the token as consumed in a distributed shared store (Redis),
+       failing closed if the production replay store is unavailable or missing.
+     - Deletes/clears the cookie to prevent client-side replay.
 
-The cookie is `HttpOnly` (JS can't read it), `SameSite=Lax` (works for
-top-level OAuth navigations), and `Secure` in production (when
-`APP_ENV=production` or `VERCEL`).
+Cookie attributes:
+  - `HttpOnly`: True (JS cannot read or exfiltrate).
+  - `SameSite`: "none" in production (for top-level cross-site OAuth redirects with Secure)
+    or "lax" in non-production.
+  - `Secure`: True in production or HTTPS environments.
+  - `Path`: "/" (available across all subpaths).
 """
 
 from __future__ import annotations
@@ -18,76 +27,204 @@ import hashlib
 import hmac
 import os
 import secrets
-from typing import Annotated
+import threading
+import time
+from typing import Annotated, Protocol
 
+import structlog
 from fastapi import Cookie, Response
 
-import threading
 from app.auth.jwt import _secret
+
+log = structlog.get_logger()
 
 STATE_COOKIE = "roxy.oauth_state"
 ORIGIN_COOKIE = "roxy.oauth_origin"
-STATE_TTL_SECONDS = 10 * 60  # 10 minutes — comfortably longer than a real OAuth round-trip
-
-_STATE_LOCK = threading.Lock()
-_CONSUMED_STATES: set[str] = set()
-
-
-class _StateDict(dict[str, float]):
-    def clear(self) -> None:
-        super().clear()
-        with _STATE_LOCK:
-            _CONSUMED_STATES.clear()
-
-
-# Module-level in-memory store for dev/testing.
-_STATES: dict[str, float] = _StateDict()  # state -> issued_at_unix
+STATE_TTL_SECONDS = 10 * 60  # 10 minutes
 
 
 def _is_production() -> bool:
+    """Detect whether current execution environment is a production deployment."""
     app_env = os.environ.get("APP_ENV", "").lower()
     env = os.environ.get("ENV", "").lower()
+    environment = os.environ.get("ENVIRONMENT", "").lower()
     return (
         app_env in ("production", "prod")
         or env in ("production", "prod")
+        or environment in ("production", "prod")
         or bool(os.environ.get("VERCEL"))
         or bool(os.environ.get("VERCEL_ENV"))
+        or bool(os.environ.get("VERCEL_URL"))
         or os.environ.get("OAUTH_REDIRECT_BASE_URL", "").startswith("https://")
         or os.environ.get("APP_BASE_URL", "").startswith("https://")
     )
 
 
-
 def _now() -> float:
-    import time
     return time.time()
 
 
-def new_state() -> str:
-    """Generate a fresh state value (caller must `set_state` it on a response).
+# ---------------------------------------------------------------------------
+# Replay Store Abstraction (Distributed Redis / In-Memory / Fail-Closed)
+# ---------------------------------------------------------------------------
 
-    Generates a cryptographically signed HMAC state token that can be verified
-    across serverless invocations (e.g. on Vercel) even if the container restarts
-    or cookies are partitioned across domains.
-    """
+class ReplayStore(Protocol):
+    def mark_consumed(self, state_value: str) -> bool:
+        """Atomically mark a state as consumed. Returns True on success, False if already consumed or store error."""
+        ...
+
+    def is_consumed(self, state_value: str) -> bool:
+        ...
+
+    def clear(self) -> None:
+        ...
+
+
+class InMemoryReplayStore:
+    """Thread-safe in-memory store for local development and non-production testing."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._consumed: dict[str, float] = {}  # state -> consumed_at
+
+    def mark_consumed(self, state_value: str) -> bool:
+        with self._lock:
+            now = _now()
+            # Evict expired entries
+            cutoff = now - (STATE_TTL_SECONDS * 2)
+            for k in [k for k, t in self._consumed.items() if t < cutoff]:
+                self._consumed.pop(k, None)
+
+            if state_value in self._consumed:
+                return False
+            self._consumed[state_value] = now
+            return True
+
+    def is_consumed(self, state_value: str) -> bool:
+        with self._lock:
+            return state_value in self._consumed
+
+    def clear(self) -> None:
+        with self._lock:
+            self._consumed.clear()
+
+
+class RedisReplayStore:
+    """Distributed Redis store for atomic single-use state consumption across workers."""
+
+    def __init__(self, redis_url: str) -> None:
+        import redis
+        self._redis_url = redis_url
+        self._client: redis.Redis = redis.Redis.from_url(
+            redis_url,
+            socket_timeout=2.0,
+            socket_connect_timeout=2.0,
+            decode_responses=True,
+        )
+
+    def _key(self, state_value: str) -> str:
+        digest = hashlib.sha256(state_value.encode("utf-8")).hexdigest()
+        return f"roxy:oauth:consumed:{digest}"
+
+    def mark_consumed(self, state_value: str) -> bool:
+        key = self._key(state_value)
+        try:
+            # SET key "1" EX ttl NX -> returns True if key was set, None if key already existed
+            res = self._client.set(key, "1", ex=STATE_TTL_SECONDS, nx=True)
+            return bool(res)
+        except Exception as exc:
+            log.error("oauth_state.redis_store_error", error=str(exc))
+            # Fails closed on Redis outage or connection failure
+            return False
+
+    def is_consumed(self, state_value: str) -> bool:
+        key = self._key(state_value)
+        try:
+            return bool(self._client.exists(key))
+        except Exception as exc:
+            log.error("oauth_state.redis_store_error", error=str(exc))
+            return True  # Fail closed: assume consumed if store check fails
+
+    def clear(self) -> None:
+        try:
+            keys = self._client.keys("roxy:oauth:consumed:*")
+            if keys:
+                self._client.delete(*keys)
+        except Exception as exc:
+            log.warning("oauth_state.redis_clear_error", error=str(exc))
+
+
+class FailClosedReplayStore:
+    """Sentinel store used when production requires distributed replay protection but none is configured."""
+
+    def mark_consumed(self, state_value: str) -> bool:
+        log.error(
+            "oauth_state.missing_production_replay_store",
+            detail="Production OAuth requires a distributed replay protection store (REDIS_URL). Failing closed to prevent replay vulnerabilities across horizontal instances.",
+        )
+        return False
+
+    def is_consumed(self, state_value: str) -> bool:
+        return True
+
+    def clear(self) -> None:
+        pass
+
+
+_CUSTOM_REPLAY_STORE: ReplayStore | None = None
+_IN_MEMORY_STORE = InMemoryReplayStore()
+
+# Module-level dictionary for backward compatibility with existing tests
+_STATES: dict[str, float] = {}  # state -> issued_at_unix
+
+
+def set_replay_store(store: ReplayStore | None) -> None:
+    """Override replay store (used by test fixtures and dependency injection)."""
+    global _CUSTOM_REPLAY_STORE
+    _CUSTOM_REPLAY_STORE = store
+
+
+def get_replay_store() -> ReplayStore:
+    """Resolve the active replay protection store based on environment and configuration."""
+    if _CUSTOM_REPLAY_STORE is not None:
+        return _CUSTOM_REPLAY_STORE
+
+    redis_url = os.environ.get("REDIS_URL")
+    if redis_url:
+        try:
+            return RedisReplayStore(redis_url)
+        except Exception as exc:
+            log.error("oauth_state.redis_init_failed", error=str(exc))
+            if _is_production():
+                return FailClosedReplayStore()
+
+    if _is_production():
+        return FailClosedReplayStore()
+
+    return _IN_MEMORY_STORE
+
+
+# ---------------------------------------------------------------------------
+# State Generation & Validation
+# ---------------------------------------------------------------------------
+
+def new_state() -> str:
+    """Generate a fresh cryptographically signed state token."""
     raw_token = secrets.token_hex(16)
     issued_at = int(_now())
     payload = f"{raw_token}_{issued_at}"
+    secret = _secret()
     sig = hmac.new(
-        _secret().encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+        secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
     ).hexdigest()[:24]
     value = f"{payload}_{sig}"
 
     _STATES[value] = float(issued_at)
-    # Lazy GC of expired entries to keep the dict bounded.
-    cutoff = _now() - STATE_TTL_SECONDS
-    for k in [k for k, t in _STATES.items() if t < cutoff]:
-        _STATES.pop(k, None)
     return value
 
 
 def set_state(response: Response, value: str) -> None:
-    """Attach the state cookie to an outgoing response."""
+    """Attach the state cookie to an outgoing response with hardened security attributes."""
     is_prod = _is_production()
     response.set_cookie(
         key=STATE_COOKIE,
@@ -96,7 +233,7 @@ def set_state(response: Response, value: str) -> None:
         httponly=True,
         secure=is_prod,
         samesite="none" if is_prod else "lax",
-        path="/",  # root path so all routes and redirects receive it
+        path="/",
     )
 
 
@@ -109,7 +246,7 @@ def set_origin(response: Response, origin: str) -> None:
         key=ORIGIN_COOKIE,
         value=origin.rstrip("/"),
         max_age=STATE_TTL_SECONDS,
-        httponly=False,  # readable if needed
+        httponly=False,
         secure=is_prod,
         samesite="none" if is_prod else "lax",
         path="/",
@@ -139,81 +276,76 @@ def consume_state(
     request_value: str | None,
     cookie_value: Annotated[str | None, Cookie(alias=STATE_COOKIE)] = None,
 ) -> bool:
-    """Validate and burn the state. Returns True on success, False on any mismatch.
+    """Validate and atomically consume the state token.
 
     Enforces:
-      1. Cryptographic HMAC validation using ONLY the configured production secret.
-      2. No fallback to known development secret.
-      3. Strict cookie matching if cookie is supplied.
-      4. Atomic single-use consumption preventing replay attacks.
-      5. Strict expiration validation.
+      1. Browser binding: browser-bound cookie is strictly REQUIRED in production.
+      2. Constant-time digest equality between request query param and browser cookie.
+      3. Cryptographic HMAC validation using ONLY the configured production secret.
+      4. Freshness within STATE_TTL_SECONDS (and protection against future timestamps).
+      5. Atomic single-use consumption in distributed replay store across serverless/worker nodes.
+      6. Fail-closed posture if replay store is unavailable or missing in production.
     """
     if not request_value or not isinstance(request_value, str):
         return False
 
-    with _STATE_LOCK:
-        # Prevent replay attacks
-        if request_value in _CONSUMED_STATES or (
-            cookie_value and cookie_value in _CONSUMED_STATES and cookie_value == request_value
-        ):
-            return False
-
-    # If cookie is present, it MUST match the request query state parameter.
-    if cookie_value and not secrets.compare_digest(request_value, cookie_value):
-        return False
-
-    # In non-production environments without cross-site cookie restrictions, require cookie.
-    if not _is_production() and not cookie_value:
-        return False
-
-    # 1. Cryptographic HMAC validation
-    parts = request_value.split("_")
-    if len(parts) >= 3:
-        raw_token = "_".join(parts[:-2])
-        ts_str = parts[-2]
-        sig = parts[-1]
-        try:
-            ts = int(ts_str)
-            payload = f"{raw_token}_{ts}"
-            try:
-                secret = _secret()
-            except RuntimeError:
-                # Missing or insecure production secret -> fail closed
-                return False
-
-            expected_sig = hmac.new(
-                secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
-            ).hexdigest()[:24]
-
-            if secrets.compare_digest(sig, expected_sig) and (_now() - ts <= STATE_TTL_SECONDS):
-                with _STATE_LOCK:
-                    if request_value in _CONSUMED_STATES:
-                        return False
-                    _CONSUMED_STATES.add(request_value)
-                    _STATES.pop(request_value, None)
-                    if cookie_value:
-                        _CONSUMED_STATES.add(cookie_value)
-                        _STATES.pop(cookie_value, None)
-                return True
-        except ValueError:
-            pass
-
-    # 2. In-memory / cookie matching fallback:
+    # 1. Enforce browser-binding cookie
     if not cookie_value:
+        log.warning("oauth_state.missing_browser_cookie")
         return False
 
+    # Cookie MUST match request_value constant-time
     if not secrets.compare_digest(request_value, cookie_value):
+        log.warning("oauth_state.cookie_mismatch")
         return False
 
-    with _STATE_LOCK:
-        if cookie_value in _CONSUMED_STATES or request_value in _CONSUMED_STATES:
-            return False
-        issued_at = _STATES.pop(cookie_value, None)
-        if issued_at is not None:
-            if _now() - issued_at <= STATE_TTL_SECONDS:
-                _CONSUMED_STATES.add(cookie_value)
-                _CONSUMED_STATES.add(request_value)
-                return True
-            return False
+    # 2. Cryptographic HMAC validation & TTL check
+    parts = request_value.split("_")
+    if len(parts) < 3:
+        return False
 
-    return False
+    raw_token = "_".join(parts[:-2])
+    ts_str = parts[-2]
+    sig = parts[-1]
+
+    try:
+        ts = int(ts_str)
+    except ValueError:
+        return False
+
+    now = _now()
+    # Reject expired state or future-dated state (clock skew allowance max 5s)
+    if (now - ts > STATE_TTL_SECONDS) or (ts - now > 5.0):
+        log.warning("oauth_state.expired_or_future_timestamp", ts=ts, now=now)
+        return False
+
+    payload = f"{raw_token}_{ts}"
+    try:
+        secret = _secret()
+    except RuntimeError:
+        # Missing or weak production secret -> fail closed
+        log.error("oauth_state.insecure_secret_fail_closed")
+        return False
+
+    expected_sig = hmac.new(
+        secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+    ).hexdigest()[:24]
+
+    if not secrets.compare_digest(sig, expected_sig):
+        log.warning("oauth_state.invalid_signature")
+        return False
+
+    # 3. Atomic Single-Use Consumption in Replay Store
+    store = get_replay_store()
+    if not store.mark_consumed(request_value):
+        log.warning("oauth_state.replay_detected_or_store_failure")
+        return False
+
+    if cookie_value and cookie_value != request_value:
+        store.mark_consumed(cookie_value)
+
+    _STATES.pop(request_value, None)
+    if cookie_value:
+        _STATES.pop(cookie_value, None)
+
+    return True

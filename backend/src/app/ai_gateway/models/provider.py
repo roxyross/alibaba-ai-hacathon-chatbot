@@ -7,10 +7,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import ClassVar
-
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 # -----------------------------------------------------------------------------
 # Provider feature flags
@@ -91,13 +87,13 @@ class ProviderConfig:
 
     @property
     def api_key(self) -> str | None:
-        key = os.environ.get(self.api_key_env_var)
+        key = os.environ.get(self.api_key_env_var) or None
         if not key:
             if self.name == "groq" and os.environ.get("GROK_API_KEY", "").startswith("gsk_"):
-                return os.environ.get("GROK_API_KEY")
+                return os.environ.get("GROK_API_KEY") or None
             if self.name == "grok" and os.environ.get("XAI_API_KEY"):
-                return os.environ.get("XAI_API_KEY")
-        return key
+                return os.environ.get("XAI_API_KEY") or None
+        return key or None
 
     @property
     def is_enabled(self) -> bool:

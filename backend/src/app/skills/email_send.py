@@ -98,24 +98,78 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             and (os.environ.get("GMAIL_CLIENT_SECRET") or os.environ.get("GOOGLE_CLIENT_SECRET"))
         )
 
+    @staticmethod
+    def _is_production() -> bool:
+        """Detect production environment including Vercel indicators."""
+        app_env = os.environ.get("APP_ENV", "").lower()
+        env = os.environ.get("ENV", "").lower()
+        environment = os.environ.get("ENVIRONMENT", "").lower()
+        return (
+            app_env in ("production", "prod")
+            or env in ("production", "prod")
+            or environment in ("production", "prod")
+            or bool(os.environ.get("VERCEL"))
+            or bool(os.environ.get("VERCEL_ENV"))
+            or bool(os.environ.get("VERCEL_URL"))
+            or os.environ.get("APP_BASE_URL", "").startswith("https://")
+        )
+
     def _get_cipher(self) -> Any:
-        """Resolve Fernet authenticated encryption cipher for user OAuth token storage."""
-        key_str = os.environ.get("GMAIL_TOKEN_ENCRYPTION_KEY")
-        if not key_str:
+        """Resolve Fernet / MultiFernet authenticated encryption cipher for user OAuth token storage.
+
+        Enforces SEC-06:
+        - In production: strictly requires a dedicated GMAIL_TOKEN_ENCRYPTION_KEY (>= 32 chars).
+        - Rejects known or publicly predictable development keys in production.
+        - Fails closed (returns None) if key configuration is missing or insecure in production.
+        - Supports MultiFernet key rotation when GMAIL_TOKEN_ENCRYPTION_KEY_FALLBACK is configured.
+        - In non-production: falls back to dev key for offline unit/local testing with warning.
+        """
+        is_prod = self._is_production()
+        primary_key_str = os.environ.get("GMAIL_TOKEN_ENCRYPTION_KEY", "").strip()
+
+        insecure_keys = {
+            "roxy-dev-secret-do-not-use-in-prod",
+            "dev-key-do-not-use-in-prod",
+            "test_key",
+            "default_key",
+            "development",
+        }
+
+        if is_prod:
+            if not primary_key_str or primary_key_str in insecure_keys or len(primary_key_str) < 32:
+                log.error(
+                    "email_send.missing_or_insecure_production_encryption_key",
+                    detail="Production Gmail OAuth token encryption requires a dedicated, strong GMAIL_TOKEN_ENCRYPTION_KEY (minimum 32 characters). Refusing insecure fallback.",
+                )
+                return None
+        elif not primary_key_str:
             master_secret = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY")
             if not master_secret:
-                is_prod = (
-                    os.environ.get("APP_ENV", "").lower() in ("production", "prod")
-                    or os.environ.get("ENV", "").lower() in ("production", "prod")
-                )
-                if is_prod:
-                    return None
                 master_secret = "roxy-dev-secret-do-not-use-in-prod"
-            derived = hashlib.sha256(f"roxy-gmail-token-encryption:{master_secret}".encode("utf-8")).digest()
-            key_str = base64.urlsafe_b64encode(derived).decode("utf-8")
+            derived = hashlib.sha256(f"roxy-gmail-token-encryption:{master_secret}".encode()).digest()
+            primary_key_str = base64.urlsafe_b64encode(derived).decode("utf-8")
+
         try:
-            from cryptography.fernet import Fernet
-            return Fernet(key_str.encode("utf-8"))
+            from cryptography.fernet import Fernet, MultiFernet
+            ciphers: list[Fernet] = []
+
+            # 1. Initialize primary Fernet cipher
+            try:
+                ciphers.append(Fernet(primary_key_str.encode("utf-8")))
+            except Exception:
+                derived = hashlib.sha256(primary_key_str.encode("utf-8")).digest()
+                ciphers.append(Fernet(base64.urlsafe_b64encode(derived)))
+
+            # 2. Support transparent key rotation via GMAIL_TOKEN_ENCRYPTION_KEY_FALLBACK
+            fallback_key_str = os.environ.get("GMAIL_TOKEN_ENCRYPTION_KEY_FALLBACK", "").strip()
+            if fallback_key_str and fallback_key_str not in insecure_keys:
+                try:
+                    ciphers.append(Fernet(fallback_key_str.encode("utf-8")))
+                except Exception:
+                    derived_fb = hashlib.sha256(fallback_key_str.encode("utf-8")).digest()
+                    ciphers.append(Fernet(base64.urlsafe_b64encode(derived_fb)))
+
+            return MultiFernet(ciphers)
         except Exception as exc:
             log.warning("email_send.cipher_init_failed", error=str(exc))
             return None
@@ -176,16 +230,37 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                     log.error("email_send.load_token_failed_no_cipher", user_id=user_id)
                     return None
                 ciphertext = data["ciphertext"]
-                decrypted_bytes = cipher.decrypt(ciphertext.encode("utf-8"))
-                payload = json.loads(decrypted_bytes.decode("utf-8"))
+                try:
+                    from cryptography.fernet import InvalidToken
+                    decrypted_bytes = cipher.decrypt(ciphertext.encode("utf-8"))
+                except InvalidToken:
+                    log.warning("email_send.invalid_token_or_tampered_ciphertext", user_id=user_id)
+                    return None
+                except Exception as exc:
+                    log.warning("email_send.decrypt_exception", user_id=user_id, error=str(exc))
+                    return None
+
+                decrypted_obj = json.loads(decrypted_bytes.decode("utf-8"))
+                if not isinstance(decrypted_obj, dict):
+                    return None
+                payload: dict[str, Any] = decrypted_obj
                 if payload.get("user_id") and payload["user_id"] != user_id and user_id != "default":
                     log.error("email_send.cross_user_token_access_blocked", requested=user_id, owner=payload.get("user_id"))
                     return None
+
+                # Transparent key rotation: if fallback key is configured, re-encrypt under primary
+                if os.environ.get("GMAIL_TOKEN_ENCRYPTION_KEY_FALLBACK"):
+                    with contextlib.suppress(Exception):
+                        self._save_encrypted_token(user_id, payload)
+
                 return payload
             elif isinstance(data, dict) and "access_token" in data:
-                # Auto-migrate legacy unencrypted token to encrypted storage
-                self._save_encrypted_token(user_id, data)
-                return data
+                # Auto-migrate legacy unencrypted token in non-production only
+                if not self._is_production():
+                    self._save_encrypted_token(user_id, data)
+                    return data
+                log.warning("email_send.unencrypted_legacy_token_rejected_in_production", user_id=user_id)
+                return None
             return None
         except Exception as exc:
             log.warning("email_send.load_token_exception", user_id=user_id, error=str(exc))

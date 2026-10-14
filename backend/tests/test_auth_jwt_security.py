@@ -28,7 +28,6 @@ from app.auth.jwt import (
     decode_session_token,
 )
 
-
 TEST_PROD_SECRET = "super-secret-production-cryptographic-signing-key-32chars"
 ATTACKER_SECRET = "attacker-controlled-secret-key-that-should-never-work"
 
@@ -107,19 +106,25 @@ def test_missing_claims_rejected():
 def test_production_fails_closed_on_missing_or_weak_secret():
     """In production, empty or weak secret (< 32 chars) must raise RuntimeError."""
     # Missing secret in production
-    with patch.dict(os.environ, {"JWT_SECRET": "", "APP_ENV": "production"}, clear=True):
-        with pytest.raises(RuntimeError, match="CRITICAL SECURITY CONFIGURATION ERROR"):
-            create_session_token("user_test")
+    with (
+        patch.dict(os.environ, {"JWT_SECRET": "", "APP_ENV": "production"}, clear=True),
+        pytest.raises(RuntimeError, match="CRITICAL SECURITY CONFIGURATION ERROR"),
+    ):
+        create_session_token("user_test")
 
     # Insecure dev secret in production
-    with patch.dict(os.environ, {"JWT_SECRET": INSECURE_DEV_SECRET, "APP_ENV": "production"}):
-        with pytest.raises(RuntimeError, match="CRITICAL SECURITY CONFIGURATION ERROR"):
-            create_session_token("user_test")
+    with (
+        patch.dict(os.environ, {"JWT_SECRET": INSECURE_DEV_SECRET, "APP_ENV": "production"}),
+        pytest.raises(RuntimeError, match="CRITICAL SECURITY CONFIGURATION ERROR"),
+    ):
+        create_session_token("user_test")
 
     # Too short secret (< 32 chars) in production
-    with patch.dict(os.environ, {"JWT_SECRET": "too-short-secret", "APP_ENV": "production"}):
-        with pytest.raises(RuntimeError, match="CRITICAL SECURITY CONFIGURATION ERROR"):
-            create_session_token("user_test")
+    with (
+        patch.dict(os.environ, {"JWT_SECRET": "too-short-secret", "APP_ENV": "production"}),
+        pytest.raises(RuntimeError, match="CRITICAL SECURITY CONFIGURATION ERROR"),
+    ):
+        create_session_token("user_test")
 
 
 @pytest.mark.asyncio
