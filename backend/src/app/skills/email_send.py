@@ -11,7 +11,9 @@ Supports two modes:
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import concurrent.futures
 import contextlib
 import hashlib
 import json
@@ -179,15 +181,99 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
         os.makedirs(data_dir, exist_ok=True)
         return data_dir
 
+    def _save_token_to_db(self, user_id: str, container: dict[str, Any]) -> bool:
+        """Persist encrypted token envelope into durable PostgreSQL connector_instances table."""
+        if not os.environ.get("DATABASE_URL"):
+            return False
+        try:
+            from sqlalchemy import select
+
+            from app.db import get_session_factory
+            from app.models.connector import ConnectorInstance
+
+            factory = get_session_factory()
+            if factory is None:
+                return False
+
+            async def _async_save() -> bool:
+                async with factory() as session:
+                    stmt = select(ConnectorInstance).where(
+                        ConnectorInstance.user_id == user_id,
+                        ConnectorInstance.connector_type == "gmail",
+                    )
+                    res = await session.execute(stmt)
+                    existing = res.scalars().first()
+                    now = datetime.now(UTC)
+                    if existing:
+                        existing.encrypted_credentials_json = json.dumps(container)
+                        existing.status = "active"
+                        existing.updated_at = now
+                    else:
+                        new_obj = ConnectorInstance(
+                            id=str(uuid.uuid4()),
+                            user_id=user_id,
+                            connector_type="gmail",
+                            name="Gmail OAuth",
+                            auth_type="oauth2",
+                            status="active",
+                            config_json="{}",
+                            encrypted_credentials_json=json.dumps(container),
+                            created_at=now,
+                            updated_at=now,
+                        )
+                        session.add(new_obj)
+                    await session.commit()
+                    return True
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return bool(pool.submit(asyncio.run, _async_save()).result(timeout=4.0))
+        except Exception as exc:
+            log.warning("email_send.db_token_save_fallback", user_id=user_id, error=str(exc))
+            return False
+
+    def _load_token_from_db(self, user_id: str) -> dict[str, Any] | None:
+        """Fetch encrypted token envelope from durable PostgreSQL connector_instances table."""
+        if not os.environ.get("DATABASE_URL"):
+            return None
+        try:
+            from sqlalchemy import select
+
+            from app.db import get_session_factory
+            from app.models.connector import ConnectorInstance
+
+            factory = get_session_factory()
+            if factory is None:
+                return None
+
+            async def _async_load() -> dict[str, Any] | None:
+                async with factory() as session:
+                    stmt = select(ConnectorInstance).where(
+                        ConnectorInstance.user_id == user_id,
+                        ConnectorInstance.connector_type == "gmail",
+                    )
+                    res = await session.execute(stmt)
+                    item = res.scalars().first()
+                    if item and item.encrypted_credentials_json:
+                        try:
+                            data = json.loads(item.encrypted_credentials_json)
+                            if isinstance(data, dict):
+                                return data
+                        except Exception:
+                            return None
+                    return None
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, _async_load()).result(timeout=4.0)
+        except Exception as exc:
+            log.warning("email_send.db_token_load_fallback", user_id=user_id, error=str(exc))
+            return None
+
     def _save_encrypted_token(self, user_id: str, payload: dict[str, Any]) -> bool:
-        """Save user OAuth2 token payload encrypted at rest."""
+        """Save user OAuth2 token payload encrypted at rest into durable storage."""
         cipher = self._get_cipher()
         if not cipher:
             log.error("email_send.save_token_failed_no_cipher", user_id=user_id)
             return False
-
-        data_dir = self._token_dir()
-        token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
 
         payload_to_encrypt = dict(payload)
         payload_to_encrypt["user_id"] = user_id
@@ -201,6 +287,12 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             "updated_at": datetime.now(UTC).isoformat(),
         }
 
+        # 1. Persist to durable shared database (NeonDB PostgreSQL) across horizontal instances
+        self._save_token_to_db(user_id, container)
+
+        # 2. Persist to local container disk for fast cached reads
+        data_dir = self._token_dir()
+        token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
         try:
             with open(token_path, "w", encoding="utf-8") as f:
                 json.dump(container, f, indent=2)
@@ -212,18 +304,31 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             return False
 
     def _load_user_token_payload(self, user_id: str) -> dict[str, Any] | None:
-        """Load and decrypt stored token payload, verifying tenant isolation."""
-        data_dir = self._token_dir()
-        token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
-        if not os.path.exists(token_path):
-            token_path = os.path.join(data_dir, "gmail_token_default.json")
+        """Load and decrypt stored token payload from durable shared database or local disk."""
+        data: Any = None
+
+        # 1. Attempt load from durable shared database (NeonDB PostgreSQL)
+        db_data = self._load_token_from_db(user_id)
+        if db_data and isinstance(db_data, dict):
+            data = db_data
+
+        # 2. Fall back to local file storage if not in database
+        if not data:
+            data_dir = self._token_dir()
+            token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
             if not os.path.exists(token_path):
+                token_path = os.path.join(data_dir, "gmail_token_default.json")
+                if not os.path.exists(token_path):
+                    return None
+
+            try:
+                with open(token_path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as exc:
+                log.warning("email_send.load_file_exception", user_id=user_id, error=str(exc))
                 return None
 
         try:
-            with open(token_path, encoding="utf-8") as f:
-                data = json.load(f)
-
             if isinstance(data, dict) and data.get("encrypted") and "ciphertext" in data:
                 cipher = self._get_cipher()
                 if not cipher:
@@ -232,6 +337,7 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                 ciphertext = data["ciphertext"]
                 try:
                     from cryptography.fernet import InvalidToken
+
                     decrypted_bytes = cipher.decrypt(ciphertext.encode("utf-8"))
                 except InvalidToken:
                     log.warning("email_send.invalid_token_or_tampered_ciphertext", user_id=user_id)

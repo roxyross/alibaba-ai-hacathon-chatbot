@@ -22,6 +22,7 @@ import os
 import shutil
 import tempfile
 from collections.abc import Generator
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -266,3 +267,41 @@ def test_development_mode_allows_local_fallback(temp_token_data_dir: str, monkey
         )
         assert saved is True
         assert skill._load_user_token("user_dev") == "ya29.dev_token"
+
+
+def test_durable_multi_instance_token_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Instance A saves an encrypted token into the durable store.
+    Instance B (with an empty, independent local container filesystem) loads and decrypts it.
+    """
+    instance_a_dir = tempfile.mkdtemp()
+    instance_b_dir = tempfile.mkdtemp()
+    try:
+        shared_db_store: dict[str, Any] = {}
+
+        skill_a = EmailSendSkill()
+        monkeypatch.setattr(skill_a, "_token_dir", lambda: instance_a_dir)
+        monkeypatch.setattr(skill_a, "_save_token_to_db", lambda u, c: bool(shared_db_store.update({u: c}) or True))
+        monkeypatch.setattr(skill_a, "_load_token_from_db", lambda u: shared_db_store.get(u))
+
+        skill_b = EmailSendSkill()
+        monkeypatch.setattr(skill_b, "_token_dir", lambda: instance_b_dir)
+        monkeypatch.setattr(skill_b, "_load_token_from_db", lambda u: shared_db_store.get(u))
+
+        with patch.dict(os.environ, {"GMAIL_TOKEN_ENCRYPTION_KEY": TEST_PROD_ENCRYPTION_KEY, "APP_ENV": "production"}):
+            # Instance A writes token
+            ok = skill_a._save_encrypted_token(
+                "user_multi_inst",
+                {"access_token": "ya29.multi_instance_token", "expires_at": 9999999999.0},
+            )
+            assert ok is True
+
+            # Verify instance B has NO local file
+            assert not os.path.exists(os.path.join(instance_b_dir, "gmail_token_user_multi_inst.json"))
+
+            # Instance B loads token directly from shared durable persistence
+            token = skill_b._load_user_token("user_multi_inst")
+            assert token == "ya29.multi_instance_token"
+    finally:
+        shutil.rmtree(instance_a_dir, ignore_errors=True)
+        shutil.rmtree(instance_b_dir, ignore_errors=True)
+

@@ -34,9 +34,20 @@ from app.skills.schemas import CalculatorRequest, EmailSendRequest
 
 @pytest.fixture(autouse=True)
 def clean_pending_confirmations() -> Generator[None, None, None]:
-    _pending_confirmations.clear()
+    from app.skills.router import (
+        _CONFIRMATION_LOCK,
+        InMemoryConfirmationStore,
+        set_confirmation_store,
+    )
+
+    in_mem = InMemoryConfirmationStore()
+    set_confirmation_store(in_mem)
+    with _CONFIRMATION_LOCK:
+        _pending_confirmations.clear()
     yield
-    _pending_confirmations.clear()
+    set_confirmation_store(None)
+    with _CONFIRMATION_LOCK:
+        _pending_confirmations.clear()
 
 
 @pytest.mark.asyncio
@@ -199,4 +210,118 @@ async def test_expired_confirmation_token_rejected_with_404() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await skill_confirm_execute(req=ConfirmRequest(token=token), current_user=alice)
     assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_concurrent_confirmation_consumption_strictly_executes_once() -> None:
+    """When two concurrent requests attempt to consume the same token simultaneously,
+    exactly one succeeds, and the other is rejected with 404.
+    """
+    import asyncio
+
+    mock_executor = AsyncMock()
+    mock_executor.execute = AsyncMock(return_value={"success": True})
+    alice = User(id="user_alice", email="alice@roxy.ai")
+    req = EmailSendRequest(to="partner@example.com", subject="Meeting", body="Details")
+
+    token = None
+    try:
+        await _run_skill(mock_executor, req, alice, skill_slug="email_send")
+    except HTTPException as exc:
+        detail: Any = exc.detail
+        assert isinstance(detail, dict)
+        token = detail["token"]
+
+    assert token is not None
+
+    async def _try_confirm() -> int:
+        try:
+            res = await skill_confirm_execute(req=ConfirmRequest(token=token), current_user=alice)
+            return 200 if res.success else 500
+        except HTTPException as e:
+            return e.status_code
+
+    results = await asyncio.gather(_try_confirm(), _try_confirm())
+    assert sorted(results) == [200, 404]
+    assert mock_executor.execute.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_production_without_distributed_store_fails_closed() -> None:
+    """In production mode with no REDIS_URL configured, confirmation generation fails closed with 503."""
+    import os
+    from unittest.mock import patch
+
+    mock_executor = AsyncMock()
+    alice = User(id="user_alice", email="alice@roxy.ai")
+    req = EmailSendRequest(to="partner@example.com", subject="Meeting", body="Details")
+
+    from app.skills.router import set_confirmation_store
+
+    set_confirmation_store(None)
+    with patch.dict(os.environ, {"APP_ENV": "production"}, clear=False):
+        os.environ.pop("REDIS_URL", None)
+        with pytest.raises(HTTPException) as exc_info:
+            await _run_skill(mock_executor, req, alice, skill_slug="email_send")
+        assert exc_info.value.status_code == 503
+        assert "Confirmation service unavailable in production mode" in str(exc_info.value.detail)
+
+
+def test_multi_instance_redis_confirmation_store() -> None:
+    """Simulates multi-instance deployment with mock redis:
+    Instance A saves a confirmation record.
+    Instance B consumes it atomically.
+    Instance C attempts to replay it and gets None (rejected).
+    """
+    import time
+    from unittest.mock import MagicMock
+
+    from app.skills.router import ConfirmationRecord, RedisConfirmationStore
+
+    mock_redis = MagicMock()
+    stored_data: dict[str, str] = {}
+
+    def _mock_set(key: str, val: str, **kwargs: Any) -> bool:
+        stored_data[key] = val
+        return True
+
+    def _mock_getdel(key: str) -> str | None:
+        return stored_data.pop(key, None)
+
+    def _mock_get(key: str) -> str | None:
+        return stored_data.get(key)
+
+    def _mock_eval(script: str, numkeys: int, key: str, *args: Any) -> str | None:
+        return stored_data.pop(key, None)
+
+    mock_redis.set.side_effect = _mock_set
+    mock_redis.getdel.side_effect = _mock_getdel
+    mock_redis.get.side_effect = _mock_get
+    mock_redis.eval.side_effect = _mock_eval
+
+    store = RedisConfirmationStore.__new__(RedisConfirmationStore)
+    store._client = mock_redis
+
+    record = ConfirmationRecord(
+        token="tok_12345",
+        user_id="user_alice",
+        skill_slug="email_send",
+        input_data={"to": "ceo@example.com"},
+        params_digest="abc1234",
+        issued_at=time.time(),
+    )
+
+    # Instance A saves
+    assert store.save(record) is True
+    # Instance B previews
+    preview_rec = store.get("tok_12345", "user_alice")
+    assert preview_rec is not None
+    assert preview_rec.skill_slug == "email_send"
+    # Instance B consumes
+    consumed = store.consume("tok_12345", "user_alice")
+    assert consumed is not None
+    assert consumed.skill_slug == "email_send"
+    # Instance C replay attempt MUST return None
+    replay = store.consume("tok_12345", "user_alice")
+    assert replay is None
 
