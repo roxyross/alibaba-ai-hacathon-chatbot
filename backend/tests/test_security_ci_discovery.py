@@ -23,7 +23,7 @@ REQUIRED_SECURITY_TEST_FILES = [
 ]
 
 
-def test_ci_workflow_executes_all_security_suites():
+def test_ci_workflow_executes_all_security_suites() -> None:
     """Verify .github/workflows/ci.yml contains all mandatory security test suites."""
     backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     repo_root = os.path.dirname(backend_dir)
@@ -47,7 +47,7 @@ def test_ci_workflow_executes_all_security_suites():
     )
 
 
-def test_all_local_security_tests_accounted_for():
+def test_all_local_security_tests_accounted_for() -> None:
     """Dynamically discover any test_*_security.py in backend/tests and ensure they are tested."""
     backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     tests_dir = os.path.join(backend_dir, "tests")
@@ -65,7 +65,7 @@ def test_all_local_security_tests_accounted_for():
         )
 
 
-def test_ci_workflow_triggers_on_master_and_remediation_branches():
+def test_ci_workflow_triggers_on_master_and_remediation_branches() -> None:
     """Verify that CI workflow triggers on master and release branches."""
     backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     repo_root = os.path.dirname(backend_dir)

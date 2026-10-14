@@ -26,7 +26,7 @@ from app.ai_gateway.models.provider import (
 from app.ai_gateway.services.router import _get_adapter, _sorted_providers
 
 
-def test_distinct_provider_configuration_keys_and_urls():
+def test_distinct_provider_configuration_keys_and_urls() -> None:
     """Groq and Grok must have distinct API key vars and distinct base URLs."""
     assert PROVIDER_API_KEY_VARS["groq"] == "GROQ_API_KEY"
     assert PROVIDER_API_KEY_VARS["grok"] == "GROK_API_KEY"
@@ -34,7 +34,7 @@ def test_distinct_provider_configuration_keys_and_urls():
     assert PROVIDER_BASE_URLS["grok"] == "https://api.x.ai/v1"
 
 
-def test_routing_priority_order():
+def test_routing_priority_order() -> None:
     """Verify primary product provider priorities."""
     assert DEFAULT_ROUTING_PRIORITY["gemini"] < DEFAULT_ROUTING_PRIORITY["groq"]
     assert DEFAULT_ROUTING_PRIORITY["groq"] < DEFAULT_ROUTING_PRIORITY["grok"]
@@ -42,7 +42,7 @@ def test_routing_priority_order():
     assert DEFAULT_ROUTING_PRIORITY["deepseek"] < DEFAULT_ROUTING_PRIORITY["openai"]
 
 
-def test_adapter_registry_resolves_correct_adapters():
+def test_adapter_registry_resolves_correct_adapters() -> None:
     """_get_adapter must instantiate GroqAdapter for 'groq' and GrokAdapter for 'grok'."""
     groq_adapter = _get_adapter("groq")
     assert isinstance(groq_adapter, GroqAdapter)
@@ -54,7 +54,7 @@ def test_adapter_registry_resolves_correct_adapters():
 
 
 @pytest.mark.asyncio
-async def test_groq_adapter_targets_groq_endpoint():
+async def test_groq_adapter_targets_groq_endpoint() -> None:
     """GroqAdapter must configure httpx client with https://api.groq.com/openai/v1."""
     with patch.dict(os.environ, {"GROQ_API_KEY": "gsk_test_key_12345"}):
         adapter = GroqAdapter()
@@ -65,7 +65,7 @@ async def test_groq_adapter_targets_groq_endpoint():
 
 
 @pytest.mark.asyncio
-async def test_grok_adapter_targets_xai_endpoint():
+async def test_grok_adapter_targets_xai_endpoint() -> None:
     """GrokAdapter must configure httpx client with https://api.x.ai/v1 when given an xAI key."""
     with patch.dict(os.environ, {"GROK_API_KEY": "xai-test-key-67890"}):
         adapter = GrokAdapter()
@@ -75,7 +75,7 @@ async def test_grok_adapter_targets_xai_endpoint():
         await adapter.close()
 
 
-def test_sorted_providers_respects_priority_and_active_keys():
+def test_sorted_providers_respects_priority_and_active_keys() -> None:
     """_sorted_providers returns only providers with active API keys in priority order."""
     env = {
         "GEMINI_API_KEY": "AIzaSy_test",
@@ -90,7 +90,7 @@ def test_sorted_providers_respects_priority_and_active_keys():
         assert sorted_p == ["gemini", "groq", "openai"]
 
 
-def test_gsk_key_in_grok_env_migrated_to_groq_and_xai_isolated():
+def test_gsk_key_in_grok_env_migrated_to_groq_and_xai_isolated() -> None:
     """A legacy gsk_ key in GROK_API_KEY falls back to Groq, but xAI key is NEVER sent to Groq."""
     from app.ai_gateway.models.provider import get_provider_config
 
@@ -108,7 +108,7 @@ def test_gsk_key_in_grok_env_migrated_to_groq_and_xai_isolated():
         assert groq_cfg.has_api_key is False
 
 
-def test_no_keys_configured_results_in_empty_sorted_providers():
+def test_no_keys_configured_results_in_empty_sorted_providers() -> None:
     """When no provider keys are configured, _sorted_providers returns an empty list."""
     env = {
         "GEMINI_API_KEY": "",

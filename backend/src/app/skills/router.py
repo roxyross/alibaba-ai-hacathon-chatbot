@@ -143,7 +143,7 @@ async def _run_skill(
     """
     # Stamp authenticated user id into input_data for per-user data isolation.
     user_id = str(user.id) if (user is not None and hasattr(user, "id") and user.id) else "anonymous"
-    if hasattr(input_data, "model_fields") and "user_id" in type(input_data).model_fields:
+    if isinstance(input_data, BaseModel) and "user_id" in input_data.__class__.model_fields:
         try:
             setattr(input_data, "user_id", user_id)
         except Exception:

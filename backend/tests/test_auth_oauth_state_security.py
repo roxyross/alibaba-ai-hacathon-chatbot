@@ -23,6 +23,7 @@ import hashlib
 import hmac
 import os
 import time
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -44,7 +45,7 @@ TEST_PROD_SECRET = "production-oauth-cryptographic-secret-at-least-32-chars-long
 
 
 @pytest.fixture(autouse=True)
-def clean_state_store():
+def clean_state_store() -> Generator[None, None, None]:
     """Ensure in-memory store is reset between tests."""
     store = InMemoryReplayStore()
     set_replay_store(store)
@@ -53,7 +54,7 @@ def clean_state_store():
     set_replay_store(None)
 
 
-def test_valid_oauth_state_with_browser_binding_succeeds():
+def test_valid_oauth_state_with_browser_binding_succeeds() -> None:
     """A freshly minted state presented by the originating browser succeeds."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": TEST_PROD_SECRET}):
         state = new_state()
@@ -61,7 +62,7 @@ def test_valid_oauth_state_with_browser_binding_succeeds():
         assert consume_state(request_value=state, cookie_value=state) is True
 
 
-def test_missing_browser_cookie_in_production_fails_closed():
+def test_missing_browser_cookie_in_production_fails_closed() -> None:
     """In production, callback MUST reject requests missing the browser-bound state cookie."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": TEST_PROD_SECRET}):
         state = new_state()
@@ -70,14 +71,14 @@ def test_missing_browser_cookie_in_production_fails_closed():
         assert consume_state(request_value=state, cookie_value="") is False
 
 
-def test_missing_cookie_in_non_prod_fails_closed():
+def test_missing_cookie_in_non_prod_fails_closed() -> None:
     """Even in non-production, missing cookie without prior state issuance fails closed."""
     with patch.dict(os.environ, {"APP_ENV": "development", "JWT_SECRET": TEST_PROD_SECRET}):
         state = new_state()
         assert consume_state(request_value=state, cookie_value=None) is False
 
 
-def test_mismatched_cookie_and_state_rejected():
+def test_mismatched_cookie_and_state_rejected() -> None:
     """If browser cookie differs from query parameter state, request must be rejected."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": TEST_PROD_SECRET}):
         state1 = new_state()
@@ -86,7 +87,7 @@ def test_mismatched_cookie_and_state_rejected():
         assert consume_state(request_value=state1, cookie_value=state2) is False
 
 
-def test_dev_secret_forged_state_rejected_in_production():
+def test_dev_secret_forged_state_rejected_in_production() -> None:
     """An attacker generating an HMAC signature with INSECURE_DEV_SECRET must be rejected."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": TEST_PROD_SECRET}):
         raw_token = "forged0000000000"
@@ -100,14 +101,14 @@ def test_dev_secret_forged_state_rejected_in_production():
         assert consume_state(request_value=forged_state, cookie_value=forged_state) is False
 
 
-def test_forged_random_state_rejected():
+def test_forged_random_state_rejected() -> None:
     """State with invalid signature is rejected."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": TEST_PROD_SECRET}):
         forged_state = f"fake_token_{int(time.time())}_invalidsig123456789012"
         assert consume_state(request_value=forged_state, cookie_value=forged_state) is False
 
 
-def test_expired_state_rejected():
+def test_expired_state_rejected() -> None:
     """State generated past STATE_TTL_SECONDS is rejected."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": TEST_PROD_SECRET}):
         raw_token = "expiredtoken1234"
@@ -121,7 +122,7 @@ def test_expired_state_rejected():
         assert consume_state(request_value=expired_state, cookie_value=expired_state) is False
 
 
-def test_future_timestamp_rejected():
+def test_future_timestamp_rejected() -> None:
     """State with a timestamp significantly in the future is rejected (clock skew / forgery)."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": TEST_PROD_SECRET}):
         raw_token = "futuretoken12345"
@@ -135,7 +136,7 @@ def test_future_timestamp_rejected():
         assert consume_state(request_value=future_state, cookie_value=future_state) is False
 
 
-def test_replay_state_rejected():
+def test_replay_state_rejected() -> None:
     """Consuming a state a second time MUST return False (single-use invariant)."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": TEST_PROD_SECRET}):
         state = new_state()
@@ -145,7 +146,7 @@ def test_replay_state_rejected():
         assert consume_state(request_value=state, cookie_value=state) is False
 
 
-def test_concurrent_replay_race_condition_prevented():
+def test_concurrent_replay_race_condition_prevented() -> None:
     """Two concurrent requests attempting to consume the same state cannot both succeed."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": TEST_PROD_SECRET}):
         state = new_state()
@@ -165,7 +166,7 @@ def test_concurrent_replay_race_condition_prevented():
         assert results.count(False) == 4
 
 
-def test_consumption_across_simulated_independent_workers():
+def test_consumption_across_simulated_independent_workers() -> None:
     """Simulated separate application workers sharing a backing store prevent cross-worker replay."""
     shared_backend = InMemoryReplayStore()
 
@@ -183,7 +184,7 @@ def test_consumption_across_simulated_independent_workers():
         assert consume_state(request_value=state, cookie_value=state) is False
 
 
-def test_shared_store_outage_fails_closed_in_production():
+def test_shared_store_outage_fails_closed_in_production() -> None:
     """If the shared replay store raises a connection error or times out, the callback fails closed."""
     failing_store = MagicMock()
     failing_store.mark_consumed.return_value = False
@@ -194,7 +195,7 @@ def test_shared_store_outage_fails_closed_in_production():
         assert consume_state(request_value=state, cookie_value=state) is False
 
 
-def test_missing_shared_store_in_production_fails_closed():
+def test_missing_shared_store_in_production_fails_closed() -> None:
     """If in production and REDIS_URL is not configured, get_replay_store defaults to FailClosed."""
     set_replay_store(None)  # Reset custom store
     with patch.dict(
@@ -208,7 +209,7 @@ def test_missing_shared_store_in_production_fails_closed():
         assert consume_state(request_value=state, cookie_value=state) is False
 
 
-def test_cookie_security_attributes():
+def test_cookie_security_attributes() -> None:
     """Verify cookie security attributes: HttpOnly, Secure, SameSite, Max-Age, Path."""
     # Production response
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": TEST_PROD_SECRET}):

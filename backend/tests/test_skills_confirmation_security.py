@@ -14,6 +14,7 @@ Validates:
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -32,14 +33,14 @@ from app.skills.schemas import CalculatorRequest, EmailSendRequest
 
 
 @pytest.fixture(autouse=True)
-def clean_pending_confirmations():
+def clean_pending_confirmations() -> Generator[None, None, None]:
     _pending_confirmations.clear()
     yield
     _pending_confirmations.clear()
 
 
 @pytest.mark.asyncio
-async def test_client_confirm_true_cannot_bypass_confirmation_gate():
+async def test_client_confirm_true_cannot_bypass_confirmation_gate() -> None:
     """Passing confirm=True directly in the skill input data MUST still trigger 403 CONFIRMATION_REQUIRED."""
     mock_executor = AsyncMock()
     mock_executor.execute = AsyncMock(return_value={"success": True})
@@ -57,7 +58,7 @@ async def test_client_confirm_true_cannot_bypass_confirmation_gate():
         await _run_skill(mock_executor, req, user, skill_slug="email_send")
 
     assert exc_info.value.status_code == 403
-    detail = exc_info.value.detail
+    detail: Any = exc_info.value.detail
     assert isinstance(detail, dict)
     assert detail["error"] == "confirmation_required"
     assert "token" in detail
@@ -66,7 +67,7 @@ async def test_client_confirm_true_cannot_bypass_confirmation_gate():
 
 
 @pytest.mark.asyncio
-async def test_anonymous_user_blocked_from_generating_sensitive_confirmations():
+async def test_anonymous_user_blocked_from_generating_sensitive_confirmations() -> None:
     """Unauthenticated/anonymous requests to sensitive skills are rejected with 401."""
     mock_executor = AsyncMock()
     req = EmailSendRequest(to="victim@example.com", subject="Test", body="Body")
@@ -79,7 +80,7 @@ async def test_anonymous_user_blocked_from_generating_sensitive_confirmations():
 
 
 @pytest.mark.asyncio
-async def test_cross_user_confirmation_blocked():
+async def test_cross_user_confirmation_blocked() -> None:
     """User Bob cannot preview or confirm Alice's pending action token."""
     mock_executor = AsyncMock()
     mock_executor.execute = AsyncMock(return_value={"success": True})
@@ -94,8 +95,9 @@ async def test_cross_user_confirmation_blocked():
     try:
         await _run_skill(mock_executor, req, alice, skill_slug="email_send")
     except HTTPException as exc:
-        assert isinstance(exc.detail, dict)
-        token = exc.detail["token"]
+        detail: Any = exc.detail
+        assert isinstance(detail, dict)
+        token = detail["token"]
 
     assert token is not None
 
@@ -114,7 +116,7 @@ async def test_cross_user_confirmation_blocked():
 
 
 @pytest.mark.asyncio
-async def test_legitimate_confirmation_executes_once_and_blocks_replay():
+async def test_legitimate_confirmation_executes_once_and_blocks_replay() -> None:
     """Alice confirms her own token: succeeds on first call, rejected on second call."""
     mock_executor = AsyncMock()
     mock_executor.execute = AsyncMock(return_value={"success": True, "message": "Email dispatched"})
@@ -127,8 +129,9 @@ async def test_legitimate_confirmation_executes_once_and_blocks_replay():
     try:
         await _run_skill(mock_executor, req, alice, skill_slug="email_send")
     except HTTPException as exc:
-        assert isinstance(exc.detail, dict)
-        token = exc.detail["token"]
+        detail: Any = exc.detail
+        assert isinstance(detail, dict)
+        token = detail["token"]
 
     assert token is not None
 
@@ -151,7 +154,7 @@ async def test_legitimate_confirmation_executes_once_and_blocks_replay():
 
 
 @pytest.mark.asyncio
-async def test_low_risk_skills_execute_without_confirmation():
+async def test_low_risk_skills_execute_without_confirmation() -> None:
     """Non-sensitive skills like calculator execute directly without requiring confirmation."""
     mock_executor = AsyncMock()
     mock_executor.execute = AsyncMock(return_value={"result": 42})
@@ -166,7 +169,7 @@ async def test_low_risk_skills_execute_without_confirmation():
 
 
 @pytest.mark.asyncio
-async def test_expired_confirmation_token_rejected_with_404():
+async def test_expired_confirmation_token_rejected_with_404() -> None:
     """Tokens that exceed CONFIRMATION_TTL_SECONDS are expired and rejected with 404."""
     import time
     mock_executor = AsyncMock()
@@ -177,8 +180,9 @@ async def test_expired_confirmation_token_rejected_with_404():
     try:
         await _run_skill(mock_executor, req, alice, skill_slug="email_send")
     except HTTPException as exc:
-        assert isinstance(exc.detail, dict)
-        token = exc.detail["token"]
+        detail: Any = exc.detail
+        assert isinstance(detail, dict)
+        token = detail["token"]
 
     assert token is not None
 

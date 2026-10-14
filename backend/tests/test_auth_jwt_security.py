@@ -32,7 +32,7 @@ TEST_PROD_SECRET = "super-secret-production-cryptographic-signing-key-32chars"
 ATTACKER_SECRET = "attacker-controlled-secret-key-that-should-never-work"
 
 
-def test_legitimate_token_accepted():
+def test_legitimate_token_accepted() -> None:
     """Legitimate token signed with configured secret must decode successfully."""
     with patch.dict(os.environ, {"JWT_SECRET": TEST_PROD_SECRET, "APP_ENV": "production"}):
         token, ttl = create_session_token("user_123", email="user@example.com")
@@ -43,7 +43,7 @@ def test_legitimate_token_accepted():
         assert decode_session_token(token) == "user_123"
 
 
-def test_dev_secret_forged_token_rejected_when_prod_secret_configured():
+def test_dev_secret_forged_token_rejected_when_prod_secret_configured() -> None:
     """A token forged using INSECURE_DEV_SECRET must be strictly rejected even if validly signed by it."""
     with patch.dict(os.environ, {"JWT_SECRET": TEST_PROD_SECRET, "APP_ENV": "production"}):
         # Attacker signs token using known static dev secret
@@ -60,7 +60,7 @@ def test_dev_secret_forged_token_rejected_when_prod_secret_configured():
         assert decode_session_token(forged_token) is None
 
 
-def test_unrelated_secret_rejected():
+def test_unrelated_secret_rejected() -> None:
     """Token signed with arbitrary third-party secret must be rejected."""
     with patch.dict(os.environ, {"JWT_SECRET": TEST_PROD_SECRET, "APP_ENV": "production"}):
         forged_token = jwt.encode(
@@ -71,7 +71,7 @@ def test_unrelated_secret_rejected():
         assert decode_session_payload(forged_token) is None
 
 
-def test_tampered_signature_rejected():
+def test_tampered_signature_rejected() -> None:
     """Token with altered payload/signature must be rejected."""
     with patch.dict(os.environ, {"JWT_SECRET": TEST_PROD_SECRET, "APP_ENV": "production"}):
         token, _ = create_session_token("user_456")
@@ -80,7 +80,7 @@ def test_tampered_signature_rejected():
         assert decode_session_payload(tampered) is None
 
 
-def test_expired_token_rejected():
+def test_expired_token_rejected() -> None:
     """Expired token must be rejected."""
     with patch.dict(os.environ, {"JWT_SECRET": TEST_PROD_SECRET, "APP_ENV": "production"}):
         expired_token = jwt.encode(
@@ -91,7 +91,7 @@ def test_expired_token_rejected():
         assert decode_session_payload(expired_token) is None
 
 
-def test_missing_claims_rejected():
+def test_missing_claims_rejected() -> None:
     """Tokens missing required claims (sub, exp, iat) must be rejected."""
     with patch.dict(os.environ, {"JWT_SECRET": TEST_PROD_SECRET, "APP_ENV": "production"}):
         # Missing exp
@@ -103,7 +103,7 @@ def test_missing_claims_rejected():
         assert decode_session_payload(t2) is None
 
 
-def test_production_fails_closed_on_missing_or_weak_secret():
+def test_production_fails_closed_on_missing_or_weak_secret() -> None:
     """In production, empty or weak secret (< 32 chars) must raise RuntimeError."""
     # Missing secret in production
     with (
@@ -128,7 +128,7 @@ def test_production_fails_closed_on_missing_or_weak_secret():
 
 
 @pytest.mark.asyncio
-async def test_get_current_user_rejects_forged_dev_secret():
+async def test_get_current_user_rejects_forged_dev_secret() -> None:
     """FastAPI get_current_user dependency must raise 401 when presented with a dev-secret forged token."""
     with patch.dict(os.environ, {"JWT_SECRET": TEST_PROD_SECRET, "APP_ENV": "production"}):
         forged_payload = {

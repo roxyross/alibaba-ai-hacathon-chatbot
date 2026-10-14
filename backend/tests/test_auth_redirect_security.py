@@ -37,7 +37,7 @@ def _mock_request(cookies: dict[str, str] | None = None, headers: dict[str, str]
     return req
 
 
-def test_trusted_origin_accepted():
+def test_trusted_origin_accepted() -> None:
     """Exact allowlisted production and local origins are recognized as trusted."""
     assert _is_origin_trusted("https://roxy-personal-ai.vercel.app") is True
     assert _is_origin_trusted("https://roxy.ai") is True
@@ -45,26 +45,26 @@ def test_trusted_origin_accepted():
     assert _is_origin_trusted("http://localhost:5173") is True
 
 
-def test_attacker_https_origin_rejected():
+def test_attacker_https_origin_rejected() -> None:
     """Arbitrary third-party domains must be rejected."""
     assert _is_origin_trusted("https://attacker.com") is False
     assert _is_origin_trusted("https://evil-phishing-roxy.com") is False
 
 
-def test_lookalike_subdomains_rejected():
+def test_lookalike_subdomains_rejected() -> None:
     """Lookalike subdomains targeting roxy domains must be rejected."""
     assert _is_origin_trusted("https://roxy-personal-ai.vercel.app.evil.com") is False
     assert _is_origin_trusted("https://app.roxy.ai.attacker.org") is False
 
 
-def test_unencrypted_http_rejected_in_production():
+def test_unencrypted_http_rejected_in_production() -> None:
     """In production (APP_ENV=production), plain HTTP origins must be rejected."""
     with patch.dict(os.environ, {"APP_ENV": "production"}):
         assert _is_origin_trusted("http://attacker.com") is False
         assert _is_origin_trusted("http://roxy.ai") is False
 
 
-def test_malformed_and_unexpected_scheme_rejected():
+def test_malformed_and_unexpected_scheme_rejected() -> None:
     """Javascript schemes, data schemes, or malformed URIs are rejected."""
     assert _is_origin_trusted("javascript:alert(1)") is False
     assert _is_origin_trusted("data:text/html,<script>alert(1)</script>") is False
@@ -73,7 +73,7 @@ def test_malformed_and_unexpected_scheme_rejected():
     assert _is_origin_trusted(None) is False
 
 
-def test_resolve_frontend_base_ignores_attacker_explicit_origin():
+def test_resolve_frontend_base_ignores_attacker_explicit_origin() -> None:
     """Passing ?origin=https://attacker.com falls back to trusted canonical base."""
     with patch.dict(os.environ, {"APP_ENV": "production"}):
         resolved = _resolve_frontend_base(explicit_origin="https://attacker.com")
@@ -81,7 +81,7 @@ def test_resolve_frontend_base_ignores_attacker_explicit_origin():
         assert "attacker.com" not in resolved
 
 
-def test_resolve_frontend_base_ignores_attacker_cookie():
+def test_resolve_frontend_base_ignores_attacker_cookie() -> None:
     """Attacker setting roxy.oauth_origin cookie to https://evil.com is ignored."""
     with patch.dict(os.environ, {"APP_ENV": "production"}):
         req = _mock_request(cookies={"roxy.oauth_origin": "https://evil.com"})
@@ -89,7 +89,7 @@ def test_resolve_frontend_base_ignores_attacker_cookie():
         assert resolved == "https://roxy-personal-ai.vercel.app"
 
 
-def test_resolve_frontend_base_ignores_attacker_referer():
+def test_resolve_frontend_base_ignores_attacker_referer() -> None:
     """Attacker setting Referer or Origin header to https://evil.com is ignored."""
     with patch.dict(os.environ, {"APP_ENV": "production"}):
         req = _mock_request(headers={"referer": "https://evil.com/login", "origin": "https://evil.com"})
@@ -97,7 +97,7 @@ def test_resolve_frontend_base_ignores_attacker_referer():
         assert resolved == "https://roxy-personal-ai.vercel.app"
 
 
-def test_redirect_with_jwt_never_redirects_to_attacker_destination():
+def test_redirect_with_jwt_never_redirects_to_attacker_destination() -> None:
     """_redirect_with_jwt must refuse to redirect tokens to an untrusted origin."""
     with patch.dict(os.environ, {"APP_ENV": "production"}):
         resp = _redirect_with_jwt(

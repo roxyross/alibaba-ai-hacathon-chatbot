@@ -21,6 +21,7 @@ import json
 import os
 import shutil
 import tempfile
+from collections.abc import Generator
 from unittest.mock import patch
 
 import pytest
@@ -34,14 +35,14 @@ TEST_DIFFERENT_KEY = Fernet.generate_key().decode("utf-8")
 
 
 @pytest.fixture
-def temp_token_data_dir():
+def temp_token_data_dir() -> Generator[str, None, None]:
     """Create isolated temporary directory for token storage testing."""
     tmp_dir = tempfile.mkdtemp()
     yield tmp_dir
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def test_tokens_are_encrypted_at_rest_not_plaintext(temp_token_data_dir, monkeypatch):
+def test_tokens_are_encrypted_at_rest_not_plaintext(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Saving tokens writes an authenticated Fernet envelope with no plaintext credentials."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
@@ -74,7 +75,7 @@ def test_tokens_are_encrypted_at_rest_not_plaintext(temp_token_data_dir, monkeyp
         assert isinstance(data["ciphertext"], str)
 
 
-def test_authorized_user_can_decrypt_token(temp_token_data_dir, monkeypatch):
+def test_authorized_user_can_decrypt_token(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """The authorized user can load and decrypt their valid stored token using the correct key."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
@@ -93,7 +94,7 @@ def test_authorized_user_can_decrypt_token(temp_token_data_dir, monkeypatch):
         assert loaded_token == "ya29.secret_token"
 
 
-def test_wrong_key_fails_closed(temp_token_data_dir, monkeypatch):
+def test_wrong_key_fails_closed(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Attempting to decrypt a token encrypted under a different key fails safely."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
@@ -111,7 +112,7 @@ def test_wrong_key_fails_closed(temp_token_data_dir, monkeypatch):
         assert loaded_token is None
 
 
-def test_missing_production_key_fails_closed(temp_token_data_dir, monkeypatch):
+def test_missing_production_key_fails_closed(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """In production, missing GMAIL_TOKEN_ENCRYPTION_KEY fails closed with no insecure fallback."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
@@ -129,7 +130,7 @@ def test_missing_production_key_fails_closed(temp_token_data_dir, monkeypatch):
         assert loaded is None
 
 
-def test_vercel_environment_detection_fails_closed_when_key_missing(temp_token_data_dir, monkeypatch):
+def test_vercel_environment_detection_fails_closed_when_key_missing(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Vercel production indicators trigger strict production path and fail closed without key."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
@@ -146,7 +147,7 @@ def test_vercel_environment_detection_fails_closed_when_key_missing(temp_token_d
         assert skill._get_cipher() is None
 
 
-def test_insecure_development_key_rejected_in_production(temp_token_data_dir, monkeypatch):
+def test_insecure_development_key_rejected_in_production(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Providing a known dev key in production is strictly rejected."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
@@ -162,14 +163,14 @@ def test_insecure_development_key_rejected_in_production(temp_token_data_dir, mo
         assert skill._save_encrypted_token("user_alice", {"access_token": "ya29.token"}) is False
 
 
-def test_short_encryption_key_rejected_in_production():
+def test_short_encryption_key_rejected_in_production() -> None:
     """An encryption key shorter than 32 characters is rejected in production."""
     skill = EmailSendSkill()
     with patch.dict(os.environ, {"APP_ENV": "production", "GMAIL_TOKEN_ENCRYPTION_KEY": "too_short_key_12345"}):
         assert skill._get_cipher() is None
 
 
-def test_cross_user_tenant_isolation(temp_token_data_dir, monkeypatch):
+def test_cross_user_tenant_isolation(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """If Bob attempts to load Alice's token file, tenant validation rejects it."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
@@ -194,7 +195,7 @@ def test_cross_user_tenant_isolation(temp_token_data_dir, monkeypatch):
         assert bob_token is None
 
 
-def test_ciphertext_tampering_rejected(temp_token_data_dir, monkeypatch):
+def test_ciphertext_tampering_rejected(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Corrupted or tampered ciphertext fails authentication and returns None."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
@@ -221,7 +222,7 @@ def test_ciphertext_tampering_rejected(temp_token_data_dir, monkeypatch):
         assert skill._load_user_token("user_alice") is None
 
 
-def test_key_rotation_via_multifernet(temp_token_data_dir, monkeypatch):
+def test_key_rotation_via_multifernet(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Tokens encrypted under a previous fallback key are decrypted and re-encrypted under primary key."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
@@ -251,7 +252,7 @@ def test_key_rotation_via_multifernet(temp_token_data_dir, monkeypatch):
         assert skill._load_user_token("user_alice") == "ya29.rotate_me"
 
 
-def test_development_mode_allows_local_fallback(temp_token_data_dir, monkeypatch):
+def test_development_mode_allows_local_fallback(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """In non-production, dev fallback key is allowed for offline test execution."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)

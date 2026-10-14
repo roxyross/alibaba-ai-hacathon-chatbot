@@ -20,7 +20,7 @@ from app.main import app
 
 
 @pytest.mark.asyncio
-async def test_demo_login_disabled_by_default_in_production():
+async def test_demo_login_disabled_by_default_in_production() -> None:
     """In production, POST /api/v1/auth/demo must be rejected with 403 Forbidden."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": "a" * 32}):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -31,7 +31,7 @@ async def test_demo_login_disabled_by_default_in_production():
 
 
 @pytest.mark.asyncio
-async def test_demo_login_disabled_by_default_in_development():
+async def test_demo_login_disabled_by_default_in_development() -> None:
     """Even in development mode, demo login must be disabled unless ENABLE_DEMO_LOGIN=true."""
     with patch.dict(os.environ, {"APP_ENV": "development", "ENABLE_DEMO_LOGIN": ""}, clear=False):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -40,7 +40,7 @@ async def test_demo_login_disabled_by_default_in_development():
 
 
 @pytest.mark.asyncio
-async def test_client_cannot_enable_demo_mode_via_params_or_headers():
+async def test_client_cannot_enable_demo_mode_via_params_or_headers() -> None:
     """Client parameters or headers cannot bypass the server-side disablement."""
     with patch.dict(os.environ, {"APP_ENV": "production", "JWT_SECRET": "a" * 32}):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -61,7 +61,7 @@ async def test_client_cannot_enable_demo_mode_via_params_or_headers():
 
 
 @pytest.mark.asyncio
-async def test_demo_login_succeeds_only_when_explicitly_enabled_in_non_prod():
+async def test_demo_login_succeeds_only_when_explicitly_enabled_in_non_prod() -> None:
     """When ENABLE_DEMO_LOGIN=true is explicitly set in non-production, demo login succeeds."""
     with patch.dict(os.environ, {"APP_ENV": "development", "ENABLE_DEMO_LOGIN": "true", "JWT_SECRET": "c" * 32}):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -73,7 +73,7 @@ async def test_demo_login_succeeds_only_when_explicitly_enabled_in_non_prod():
 
 
 @pytest.mark.asyncio
-async def test_production_flag_overrides_enable_demo_login():
+async def test_production_flag_overrides_enable_demo_login() -> None:
     """If APP_ENV=production, even setting ENABLE_DEMO_LOGIN=true MUST NOT enable demo mode."""
     with patch.dict(
         os.environ,
