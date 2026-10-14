@@ -92,7 +92,7 @@ def upgrade() -> None:
     # 3. Update documents table with vault indexing columns if missing
     if "documents" in existing_tables:
         existing_doc_cols = {col["name"] for col in inspector.get_columns("documents")} if inspector else set()
-        doc_cols_to_add = [
+        doc_cols_to_add: list[tuple[str, Any, bool, Any]] = [
             ("chunk_count", sa.Integer(), False, sa.text("0")),
             ("summary", sa.Text(), True, None),
             ("status", sa.String(32), False, sa.text("'ready'")),

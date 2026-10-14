@@ -29,7 +29,7 @@ def upgrade() -> None:
         inspector = None
         existing_tables = set()
 
-    if "discovered_apps" not in existing_tables:
+    if inspector is None or "discovered_apps" not in existing_tables:
         op.create_table(
             "discovered_apps",
             sa.Column("id", sa.String(36), primary_key=True),
