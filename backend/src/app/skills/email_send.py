@@ -193,6 +193,7 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
 
             factory = get_session_factory()
             if factory is None:
+                log.error("email_send.db_session_factory_unavailable", user_id=user_id)
                 return False
 
             async def _async_save() -> bool:
@@ -243,6 +244,7 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
 
             factory = get_session_factory()
             if factory is None:
+                log.error("email_send.db_session_factory_unavailable", user_id=user_id)
                 return None
 
             async def _async_load() -> dict[str, Any] | None:
@@ -287,10 +289,38 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             "updated_at": datetime.now(UTC).isoformat(),
         }
 
-        # 1. Persist to durable shared database (NeonDB PostgreSQL) across horizontal instances
-        self._save_token_to_db(user_id, container)
+        has_db = bool(os.environ.get("DATABASE_URL"))
+        is_prod = self._is_production()
 
-        # 2. Persist to local container disk for fast cached reads
+        # Enforce SEC-06 durable persistence rules:
+        if has_db:
+            # When DATABASE_URL is configured, durable database persistence is REQUIRED.
+            # Do not return successful persistence if the durable database write fails.
+            db_saved = self._save_token_to_db(user_id, container)
+            if not db_saved:
+                log.error(
+                    "email_send.durable_db_write_failed",
+                    user_id=user_id,
+                    detail="Durable database write failed when DATABASE_URL was configured. Refusing to report successful persistence.",
+                )
+                return False
+        elif is_prod:
+            # Explicit production behavior when DATABASE_URL is missing:
+            # If strict durable storage is mandated, fail closed.
+            if os.environ.get("REQUIRE_DURABLE_TOKEN_STORE", "false").lower() in ("true", "1"):
+                log.error(
+                    "email_send.production_missing_database_url",
+                    user_id=user_id,
+                    detail="REQUIRE_DURABLE_TOKEN_STORE enforced in production but DATABASE_URL is missing. Failing closed.",
+                )
+                return False
+            log.warning(
+                "email_send.production_missing_database_url_warning",
+                user_id=user_id,
+                detail="DATABASE_URL not configured in production mode. Saving to local container storage; token will not survive stateless instance restarts.",
+            )
+
+        # 2. Persist to local container disk for fast cached reads and local execution
         data_dir = self._token_dir()
         token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
         try:
@@ -301,7 +331,8 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             return True
         except Exception as exc:
             log.error("email_send.save_encrypted_token_failed", user_id=user_id, error=str(exc))
-            return False
+            # If durable DB was already written successfully, local cache failure is non-fatal
+            return has_db
 
     def _load_user_token_payload(self, user_id: str) -> dict[str, Any] | None:
         """Load and decrypt stored token payload from durable shared database or local disk."""
@@ -350,7 +381,7 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                 if not isinstance(decrypted_obj, dict):
                     return None
                 payload: dict[str, Any] = decrypted_obj
-                if payload.get("user_id") and payload["user_id"] != user_id and user_id != "default":
+                if payload.get("user_id") and payload["user_id"] != user_id:
                     log.error("email_send.cross_user_token_access_blocked", requested=user_id, owner=payload.get("user_id"))
                     return None
 

@@ -88,6 +88,23 @@ jobs:
           fi
           echo "Bundle audit clean: Zero backend secrets embedded in frontend build."
 
+      - name: Install Playwright Chromium browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Execute Playwright Browser E2E Test Suite
+        run: npx playwright test --project=desktop-standard
+        env:
+          CI: true
+
+      - name: Upload Playwright Test Report Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
+
   # ----------------------------------------------------------------------------
   # 3. Backend CI Pipeline (Dependencies, Syntax, Migrations, Pytest Suite)
   # ----------------------------------------------------------------------------

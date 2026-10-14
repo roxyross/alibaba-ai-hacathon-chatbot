@@ -33,12 +33,13 @@ COPY entrypoint.sh ./entrypoint.sh
 # Ensure entrypoint is executable and has Unix line endings
 RUN dos2unix ./entrypoint.sh && chmod +x ./entrypoint.sh
 
-# Expose FastAPI port
+# Expose default container port
 EXPOSE 8000
 
-# Container health probe
+# Container health probe supporting dynamic $PORT
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health/live || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/health/live || exit 1
 
 ENTRYPOINT ["./entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2"]
+

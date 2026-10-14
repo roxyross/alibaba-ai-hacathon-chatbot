@@ -278,11 +278,11 @@ def test_durable_multi_instance_token_persistence(monkeypatch: pytest.MonkeyPatc
     try:
         shared_db_store: dict[str, Any] = {}
 
-        def _mock_save(user_id: str, ciphertext: str) -> bool:
-            shared_db_store[user_id] = ciphertext
+        def _mock_save(user_id: str, container: dict[str, Any]) -> bool:
+            shared_db_store[user_id] = container
             return True
 
-        def _mock_load(user_id: str) -> str | None:
+        def _mock_load(user_id: str) -> dict[str, Any] | None:
             return shared_db_store.get(user_id)
 
         skill_a = EmailSendSkill()
@@ -294,7 +294,14 @@ def test_durable_multi_instance_token_persistence(monkeypatch: pytest.MonkeyPatc
         monkeypatch.setattr(skill_b, "_token_dir", lambda: instance_b_dir)
         monkeypatch.setattr(skill_b, "_load_token_from_db", _mock_load)
 
-        with patch.dict(os.environ, {"GMAIL_TOKEN_ENCRYPTION_KEY": TEST_PROD_ENCRYPTION_KEY, "APP_ENV": "production"}):
+        with patch.dict(
+            os.environ,
+            {
+                "GMAIL_TOKEN_ENCRYPTION_KEY": TEST_PROD_ENCRYPTION_KEY,
+                "APP_ENV": "production",
+                "DATABASE_URL": "postgresql+asyncpg://postgres:pass@localhost:5432/roxy_test",
+            },
+        ):
             # Instance A writes token
             ok = skill_a._save_encrypted_token(
                 "user_multi_inst",
@@ -311,4 +318,115 @@ def test_durable_multi_instance_token_persistence(monkeypatch: pytest.MonkeyPatc
     finally:
         shutil.rmtree(instance_a_dir, ignore_errors=True)
         shutil.rmtree(instance_b_dir, ignore_errors=True)
+
+
+def test_database_write_failure_returns_false_and_does_not_claim_success(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When DATABASE_URL is configured and durable database write fails, _save_encrypted_token MUST return False."""
+    skill = EmailSendSkill()
+    monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
+    # Simulate DB write failure
+    monkeypatch.setattr(skill, "_save_token_to_db", lambda uid, container: False)
+
+    with patch.dict(
+        os.environ,
+        {
+            "GMAIL_TOKEN_ENCRYPTION_KEY": TEST_PROD_ENCRYPTION_KEY,
+            "APP_ENV": "production",
+            "DATABASE_URL": "postgresql+asyncpg://postgres:pass@localhost:5432/roxy_test",
+        },
+    ):
+        saved = skill._save_encrypted_token(
+            "user_alice",
+            {"access_token": "ya29.token_db_fail", "expires_at": 9999999999.0},
+        )
+        assert saved is False, "Must NOT claim successful persistence when durable DB write failed"
+
+
+def test_strict_durable_storage_fails_closed_without_database_url(temp_token_data_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When strict durable storage is enforced in production, missing DATABASE_URL fails closed."""
+    skill = EmailSendSkill()
+    monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
+
+    with patch.dict(
+        os.environ,
+        {
+            "GMAIL_TOKEN_ENCRYPTION_KEY": TEST_PROD_ENCRYPTION_KEY,
+            "APP_ENV": "production",
+            "REQUIRE_DURABLE_TOKEN_STORE": "true",
+        },
+        clear=False,
+    ):
+        os.environ.pop("DATABASE_URL", None)
+        saved = skill._save_encrypted_token(
+            "user_alice",
+            {"access_token": "ya29.strict_token", "expires_at": 9999999999.0},
+        )
+        assert saved is False, "Must fail closed when REQUIRE_DURABLE_TOKEN_STORE is true and DATABASE_URL is absent"
+
+
+def test_container_restart_restores_token_from_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulate container restart: local disk is wiped clean, but token is restored and decrypted from DB."""
+    local_dir = tempfile.mkdtemp()
+    try:
+        db_storage: dict[str, Any] = {}
+
+        def _mock_db_save(uid: str, container: dict[str, Any]) -> bool:
+            db_storage[uid] = container
+            return True
+
+        def _mock_db_load(uid: str) -> dict[str, Any] | None:
+            return db_storage.get(uid)
+
+        skill = EmailSendSkill()
+        monkeypatch.setattr(skill, "_token_dir", lambda: local_dir)
+        monkeypatch.setattr(skill, "_save_token_to_db", _mock_db_save)
+        monkeypatch.setattr(skill, "_load_token_from_db", _mock_db_load)
+
+        with patch.dict(
+            os.environ,
+            {
+                "GMAIL_TOKEN_ENCRYPTION_KEY": TEST_PROD_ENCRYPTION_KEY,
+                "APP_ENV": "production",
+                "DATABASE_URL": "postgresql+asyncpg://postgres:pass@localhost:5432/roxy_test",
+            },
+        ):
+            ok = skill._save_encrypted_token(
+                "user_restart",
+                {"access_token": "ya29.survives_restart", "expires_at": 9999999999.0},
+            )
+            assert ok is True
+
+            # Simulate container restart: wipe local directory completely
+            shutil.rmtree(local_dir, ignore_errors=True)
+            os.makedirs(local_dir, exist_ok=True)
+            assert len(os.listdir(local_dir)) == 0
+
+            # Reload token after restart
+            token = skill._load_user_token("user_restart")
+            assert token == "ya29.survives_restart"
+    finally:
+        shutil.rmtree(local_dir, ignore_errors=True)
+
+
+def test_db_session_factory_unavailable_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When DB session factory is unavailable, DB save returns False and persistence fails closed."""
+    import app.db
+
+    skill = EmailSendSkill()
+    monkeypatch.setattr(app.db, "get_session_factory", lambda: None)
+
+    with patch.dict(
+        os.environ,
+        {
+            "GMAIL_TOKEN_ENCRYPTION_KEY": TEST_PROD_ENCRYPTION_KEY,
+            "APP_ENV": "production",
+            "DATABASE_URL": "postgresql+asyncpg://postgres:pass@localhost:5432/roxy_test",
+        },
+    ):
+        db_ok = skill._save_token_to_db("user_nofactory", {"data": "test"})
+        assert db_ok is False
+
+        saved = skill._save_encrypted_token("user_nofactory", {"access_token": "ya29.test"})
+        assert saved is False
+
 

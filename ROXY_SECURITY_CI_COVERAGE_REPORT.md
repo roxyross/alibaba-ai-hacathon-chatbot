@@ -64,12 +64,12 @@ The `Run backend security regression test suite` step in CI executes the followi
 | `tests/test_auth_demo_security.py` | SEC-02: Public demo login disabled by default, HTTP 403 in prod | 5 tests | **PASS** |
 | `tests/test_auth_oauth_state_security.py` | SEC-03: Browser cookie binding, HMAC verification, Redis single-use replay | 14 tests | **PASS** |
 | `tests/test_auth_redirect_security.py` | SEC-04: Strict origin allowlist, open redirect rejection, port/scheme check | 8 tests | **PASS** |
-| `tests/test_skills_confirmation_security.py`| SEC-05: Server confirmation token, client bypass elimination, 401/404 | 9 tests | **PASS** |
-| `tests/test_gmail_token_storage_security.py`| SEC-06: Fernet authenticated encryption, Vercel prod detection, rotation | 12 tests | **PASS** |
+| `tests/test_skills_confirmation_security.py`| SEC-05: Server confirmation token, client bypass elimination, Lua atomic check | 12 tests | **PASS** |
+| `tests/test_gmail_token_storage_security.py`| SEC-06: Fernet authenticated encryption, durable DB persistence, restart recovery | 16 tests | **PASS** |
 | `tests/test_ai_routing_reconciliation.py` | GW-01: Groq vs Grok isolation, xAI endpoint protection, priority order | 8 tests | **PASS** |
 | `tests/test_phase24_adversarial_security.py`| Adversarial prompt injection, SQLi, SSRF, path traversal, IDOR | 13 tests | **PASS** |
 | `tests/test_security_ci_discovery.py` | CI Governance: Automated verification that CI executes all security suites | 3 tests | **PASS** |
-| **Total Security Regression Tests** | | **80 tests** | **100% PASS** |
+| **Total Security Regression Tests** | | **87 tests** | **100% PASS** |
 
 ---
 
@@ -77,17 +77,17 @@ The `Run backend security regression test suite` step in CI executes the followi
 
 ### Backend Security Regression Suite
 ```
-tests/test_auth_jwt_security.py ........                                 [ 10%]
-tests/test_auth_demo_security.py .....                                   [ 16%]
-tests/test_auth_oauth_state_security.py ..............                   [ 34%]
-tests/test_auth_redirect_security.py ........                            [ 44%]
-tests/test_skills_confirmation_security.py .........                     [ 55%]
-tests/test_gmail_token_storage_security.py ............                   [ 70%]
-tests/test_ai_routing_reconciliation.py ........                        [ 80%]
+tests/test_auth_jwt_security.py ........                                 [  9%]
+tests/test_auth_demo_security.py .....                                   [ 14%]
+tests/test_auth_oauth_state_security.py ..............                   [ 31%]
+tests/test_auth_redirect_security.py ........                            [ 40%]
+tests/test_skills_confirmation_security.py ............                  [ 54%]
+tests/test_gmail_token_storage_security.py ................              [ 72%]
+tests/test_ai_routing_reconciliation.py ........                        [ 81%]
 tests/test_phase24_adversarial_security.py .............                 [ 96%]
 tests/test_security_ci_discovery.py ...                                  [100%]
 
-============================== 80 passed in 10.53s ==============================
+============================== 87 passed in 10.82s ==============================
 ```
 
 ### Frontend Quality & Typecheck

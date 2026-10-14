@@ -1,0 +1,88 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: roxy-ai-backend
+  labels:
+    cloud.googleapis.com/location: us-central1
+    app.kubernetes.io/name: roxy-ai-backend
+    app.kubernetes.io/part-of: roxy-ai
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "10"
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/cpu-throttling: "true"
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      containers:
+        - image: gcr.io/PROJECT_ID/roxy-ai-backend:latest
+          resources:
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          ports:
+            - name: http1
+              containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: PYTHONPATH
+              value: "/app/src"
+            - name: PORT
+              value: "8080"
+            - name: STRICT_PERSISTENCE
+              value: "true"
+            # Sensitive production secrets referenced via Google Secret Manager
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: roxy-database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: roxy-redis-url
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: roxy-jwt-secret
+            - name: JWT_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: roxy-jwt-service-secret
+            - name: GMAIL_TOKEN_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: roxy-gmail-token-encryption-key
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: roxy-gemini-api-key
+            - name: GROK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: roxy-grok-api-key

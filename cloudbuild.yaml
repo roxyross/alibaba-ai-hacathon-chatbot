@@ -16,8 +16,8 @@ steps:
       - '-t'
       - 'gcr.io/$PROJECT_ID/roxy-ai-backend:latest'
       - '-f'
-      - 'huggingface-space-roxy-hub/Dockerfile'
-      - '.'
+      - 'backend/Dockerfile'
+      - 'backend/'
 
   # Step 2: Push to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
@@ -60,7 +60,7 @@ steps:
       - '--port'
       - '8080'
       - '--set-env-vars'
-      - 'PYTHONPATH=/app'
+      - 'PYTHONPATH=/app/src,APP_ENV=production'
       - '--allow-unauthenticated'
 
 # Store images in Container Registry

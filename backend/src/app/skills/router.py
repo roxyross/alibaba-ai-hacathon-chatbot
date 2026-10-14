@@ -323,9 +323,33 @@ class RedisConfirmationStore:
     def consume(self, token: str, user_id: str) -> ConfirmationRecord | None:
         try:
             key = self._key(token)
-            # Atomic single-use get-and-delete compatible with all Redis and Memurai versions
-            lua_script = "local val = redis.call('GET', KEYS[1]); if val then redis.call('DEL', KEYS[1]) end; return val"
-            raw = self._client.eval(lua_script, 1, key)
+            # Atomic single-use get-and-delete that strictly verifies ownership BEFORE deleting.
+            # If user_id does not match, the key is left completely untouched in Redis.
+            lua_script = """
+            local val = redis.call('GET', KEYS[1])
+            if not val then
+                return nil
+            end
+            local expected_user = ARGV[1]
+            local ok, data = pcall(cjson.decode, val)
+            if ok and data and type(data) == 'table' then
+                if data.user_id == expected_user then
+                    redis.call('DEL', KEYS[1])
+                    return val
+                else
+                    return nil
+                end
+            else
+                local needle = '"user_id": "' .. expected_user .. '"'
+                if string.find(val, needle, 1, true) then
+                    redis.call('DEL', KEYS[1])
+                    return val
+                else
+                    return nil
+                end
+            end
+            """
+            raw = self._client.eval(lua_script, 1, key, user_id)
             if not raw or not isinstance(raw, str):
                 return None
             data = json.loads(raw)

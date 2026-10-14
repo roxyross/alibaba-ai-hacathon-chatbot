@@ -325,3 +325,163 @@ def test_multi_instance_redis_confirmation_store() -> None:
     replay = store.consume("tok_12345", "user_alice")
     assert replay is None
 
+
+def test_wrong_user_cannot_invalidate_valid_token_in_redis_or_memory() -> None:
+    """An unauthorized user (Bob) attempting to consume Alice's token MUST NOT invalidate it.
+    Alice must still be able to consume her token afterwards.
+    """
+    import json
+    import time
+    from unittest.mock import MagicMock
+    from app.skills.router import ConfirmationRecord, RedisConfirmationStore, InMemoryConfirmationStore
+
+    # 1. Test InMemory store
+    mem_store = InMemoryConfirmationStore()
+    record = ConfirmationRecord(
+        token="tok_alice_1",
+        user_id="user_alice",
+        skill_slug="email_send",
+        input_data={"to": "recipient@example.com"},
+        params_digest="digest123",
+        issued_at=time.time(),
+    )
+    assert mem_store.save(record) is True
+
+    # Bob attempts to consume Alice's token
+    bob_consumed = mem_store.consume("tok_alice_1", "user_bob")
+    assert bob_consumed is None, "Bob must not be able to consume Alice's token"
+
+    # Alice's token must STILL be valid and consumable by Alice
+    alice_consumed = mem_store.consume("tok_alice_1", "user_alice")
+    assert alice_consumed is not None, "Alice's token must not be invalidated by Bob's attempt"
+    assert alice_consumed.user_id == "user_alice"
+
+    # 2. Test Redis store with atomic Lua script logic
+    redis_store_data: dict[str, str] = {}
+    mock_redis = MagicMock()
+
+    def _atomic_lua_mock(script: str, numkeys: int, key: str, *args: Any) -> str | None:
+        val = redis_store_data.get(key)
+        if not val:
+            return None
+        expected_user = args[0] if args else ""
+        data = json.loads(val)
+        if data.get("user_id") == expected_user:
+            return redis_store_data.pop(key)
+        return None  # Key is NOT deleted when user_id does not match!
+
+    mock_redis.set.side_effect = lambda k, v, **kw: redis_store_data.update({k: v}) or True
+    mock_redis.get.side_effect = lambda k: redis_store_data.get(k)
+    mock_redis.eval.side_effect = _atomic_lua_mock
+
+    redis_store = RedisConfirmationStore.__new__(RedisConfirmationStore)
+    redis_store._client = mock_redis
+
+    record2 = ConfirmationRecord(
+        token="tok_alice_redis",
+        user_id="user_alice",
+        skill_slug="email_send",
+        input_data={"to": "client@example.com"},
+        params_digest="digest456",
+        issued_at=time.time(),
+    )
+    assert redis_store.save(record2) is True
+    assert "roxy:confirm:tok_alice_redis" in redis_store_data
+
+    # Bob attempts to consume Alice's token
+    bob_res = redis_store.consume("tok_alice_redis", "user_bob")
+    assert bob_res is None, "Bob must not be able to consume Alice's token"
+
+    # Token must STILL be present in Redis
+    assert "roxy:confirm:tok_alice_redis" in redis_store_data, "Token must not be deleted from Redis by wrong user"
+
+    # Alice consumes her token
+    alice_res = redis_store.consume("tok_alice_redis", "user_alice")
+    assert alice_res is not None, "Alice must be able to consume her token"
+    assert alice_res.user_id == "user_alice"
+
+    # Key must now be deleted
+    assert "roxy:confirm:tok_alice_redis" not in redis_store_data
+
+    # Replay returns None
+    assert redis_store.consume("tok_alice_redis", "user_alice") is None
+
+
+def test_redis_unavailability_handled_safely() -> None:
+    """When Redis client raises connection or command errors, RedisConfirmationStore fails safely."""
+    from unittest.mock import MagicMock
+    from app.skills.router import ConfirmationRecord, RedisConfirmationStore
+
+    mock_redis = MagicMock()
+    mock_redis.set.side_effect = ConnectionError("Redis connection refused")
+    mock_redis.get.side_effect = TimeoutError("Redis timed out")
+    mock_redis.eval.side_effect = ConnectionError("Redis connection dropped")
+
+    store = RedisConfirmationStore.__new__(RedisConfirmationStore)
+    store._client = mock_redis
+
+    record = ConfirmationRecord(
+        token="tok_err",
+        user_id="user_alice",
+        skill_slug="email_send",
+        input_data={},
+        params_digest="digest",
+        issued_at=1000.0,
+    )
+
+    # Save, get, consume must all return False/None without crashing
+    assert store.save(record) is False
+    assert store.get("tok_err", "user_alice") is None
+    assert store.consume("tok_err", "user_alice") is None
+
+
+def test_concurrent_consume_only_one_consumer_succeeds() -> None:
+    """Simulate two concurrent workers attempting to consume the exact same token simultaneously."""
+    import concurrent.futures
+    import json
+    import time
+    from unittest.mock import MagicMock
+    from app.skills.router import ConfirmationRecord, RedisConfirmationStore
+
+    stored: dict[str, str] = {}
+    mock_redis = MagicMock()
+
+    def _eval(script: str, numkeys: int, key: str, *args: Any) -> str | None:
+        val = stored.get(key)
+        if val is None:
+            return None
+        data = json.loads(val)
+        if data.get("user_id") == args[0]:
+            return stored.pop(key, None)
+        return None
+
+    mock_redis.set.side_effect = lambda k, v, **kw: stored.update({k: v}) or True
+    mock_redis.eval.side_effect = _eval
+
+    store = RedisConfirmationStore.__new__(RedisConfirmationStore)
+    store._client = mock_redis
+
+    record = ConfirmationRecord(
+        token="tok_concurrent",
+        user_id="user_alice",
+        skill_slug="email_send",
+        input_data={"amount": 1000},
+        params_digest="dig",
+        issued_at=time.time(),
+    )
+    store.save(record)
+
+    results: list[ConfirmationRecord | None] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(store.consume, "tok_concurrent", "user_alice") for _ in range(5)]
+        for f in concurrent.futures.as_completed(futures):
+            results.append(f.result())
+
+    # Exactly one consumer must have received the record, and the other 4 must have received None
+    successes = [r for r in results if r is not None]
+    failures = [r for r in results if r is None]
+    assert len(successes) == 1
+    assert len(failures) == 4
+    assert successes[0].token == "tok_concurrent"
+
+
