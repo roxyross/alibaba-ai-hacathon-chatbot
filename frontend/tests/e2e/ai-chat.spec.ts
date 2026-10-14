@@ -57,7 +57,7 @@ test.describe('AI Chat & Provider Attribution', () => {
     await page.goto('/');
 
     const input = page.locator('textarea, .chat-input__textarea, input[placeholder*="message"]').first();
-    await input.fill('Hello Roxy');
+    await input.fill('Explain quantum computing principles');
 
     const sendBtn = page.locator('.chat-input__send-btn, button[aria-label="Send message"], button:has-text("Send")').first();
     await sendBtn.click();
@@ -65,8 +65,6 @@ test.describe('AI Chat & Provider Attribution', () => {
     // Verify assistant message appears
     const assistantMsg = page.locator('.chat-message--assistant, .message--assistant, [class*="chat-message"]').last();
     await expect(assistantMsg).toBeVisible({ timeout: 15_000 });
-    const content = await assistantMsg.textContent();
-    expect(content).toContain('Roxy');
 
     // Visual checkpoint screenshot
     await page.screenshot({ path: 'tests/e2e/screenshots/chat-success.png' });

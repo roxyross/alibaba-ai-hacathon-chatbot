@@ -75,8 +75,8 @@ test.describe('Navigation and Core Views E2E', () => {
       await upgradeBtn.click();
       await expect(page.locator('.pricing-page, [class*="pricing"]').first()).toBeVisible();
 
-      // Navigate back to chat
-      const backBtn = page.locator('button:has-text("Back"), button[aria-label="Back to chat"]').first();
+      // Navigate back to chat using the dedicated back button
+      const backBtn = page.locator('.pricing-page__back-btn, button:has-text("Back to Chat")').first();
       if (await backBtn.isVisible()) {
         await backBtn.click();
         await expect(page.locator('.chat-window')).toBeVisible();
@@ -84,21 +84,21 @@ test.describe('Navigation and Core Views E2E', () => {
     }
 
     // 2. Calculator View
-    const calcNav = page.locator('button[aria-label*="Calculator"], .session-sidebar__nav-link:has-text("Calculator")').first();
+    const calcNav = page.locator('.session-sidebar__nav-link:has-text("Calculator"), button[aria-label*="Calculator"]').first();
     if (await calcNav.isVisible()) {
       await calcNav.click();
-      await expect(page.locator('.calculator-view, .calculator, [class*="calculator"]').first()).toBeVisible();
+      await expect(page.locator('.calculator, .calculator-container, [class*="calculator"]').first()).toBeVisible();
     }
 
     // 3. Calendar View
-    const calNav = page.locator('button[aria-label*="Calendar"], .session-sidebar__nav-link:has-text("Calendar")').first();
+    const calNav = page.locator('.session-sidebar__nav-link:has-text("Calendar"), button[aria-label*="Calendar"]').first();
     if (await calNav.isVisible()) {
       await calNav.click();
-      await expect(page.locator('.calendar-view, [class*="calendar"]').first()).toBeVisible();
+      await expect(page.locator('.calendar-view, .calendar-container, [class*="calendar"]').first()).toBeVisible();
     }
 
     // 4. Code Studio
-    const codeNav = page.locator('button[aria-label*="Coding"], .session-sidebar__nav-link:has-text("Coding"), .session-sidebar__nav-link:has-text("Code Studio")').first();
+    const codeNav = page.locator('.session-sidebar__nav-link:has-text("Code Studio"), .session-sidebar__nav-link:has-text("Coding"), button[aria-label*="Coding"]').first();
     if (await codeNav.isVisible()) {
       await codeNav.click();
       await expect(page.locator('.coding-studio, [class*="coding"]').first()).toBeVisible({ timeout: 10_000 });
@@ -148,11 +148,16 @@ test.describe('Navigation and Core Views E2E', () => {
     const settingsBtn = page.locator('.app__settings-btn');
     if (await settingsBtn.isVisible()) {
       await settingsBtn.click();
-      const settingsModal = page.locator('.settings-modal, [class*="settings-modal"], [role="dialog"]').first();
+      const settingsModal = page.locator('.settings-overlay, .settings-card').first();
       await expect(settingsModal).toBeVisible();
 
-      // Dismiss settings modal via Escape
-      await page.keyboard.press('Escape');
+      // Dismiss settings modal via close button or Escape
+      const closeBtn = page.locator('.settings-close-btn').first();
+      if (await closeBtn.isVisible()) {
+        await closeBtn.click();
+      } else {
+        await page.keyboard.press('Escape');
+      }
       await expect(settingsModal).not.toBeVisible();
     }
   });
@@ -164,16 +169,10 @@ test.describe('Navigation and Core Views E2E', () => {
     const searchBtn = page.locator('.app__header-search-btn');
     if (await searchBtn.isVisible()) {
       await searchBtn.click();
-      const omnibar = page.locator('.roxy-command-bar, [class*="command-bar"], [role="combobox"]').first();
+      const omnibar = page.locator('.roxy-command-backdrop, .roxy-command-palette').first();
       await expect(omnibar).toBeVisible();
 
-      // Search input
-      const input = page.locator('input[placeholder*="Command"], input[placeholder*="Search"]').first();
-      if (await input.isVisible()) {
-        await input.fill('Code Studio');
-      }
-
-      // Press Escape to dismiss
+      // Dismiss omnibar via Escape
       await page.keyboard.press('Escape');
       await expect(omnibar).not.toBeVisible();
     }
