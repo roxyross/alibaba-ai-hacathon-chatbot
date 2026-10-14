@@ -95,8 +95,8 @@ This report independently audits and records the exact status, existing staging 
 - **Why Staging Emulation is Inadequate for Production:**
   The staging environment currently relies on personal Gmail SMTP relay (`smtp.gmail.com:587`). Google SMTP accounts enforce a hard daily limit of 500 emails/day and trigger immediate anti-abuse blocks (`550 5.4.5 Daily user sending limit exceeded`) under multi-user production traffic. Furthermore, unauthenticated personal SMTP lacks SPF/DKIM alignment, causing transactional emails to land in spam folders.
 - **Automated Staging Evidence Gathered:**
-  - `tests/test_gmail_token_storage_security.py`: 11/11 tests passed verifying Fernet authenticated encryption at rest, tenant isolation, and key rotation.
-  - `tests/test_skills_confirmation_security.py`: 6/6 tests passed verifying sensitive email dispatch cannot bypass user confirmation token.
+  - `tests/test_gmail_token_storage_security.py`: 12/12 tests passed verifying Fernet authenticated encryption at rest, tenant isolation, and key rotation.
+  - `tests/test_skills_confirmation_security.py`: 9/9 tests passed verifying sensitive email dispatch cannot bypass user confirmation token.
 - **Exact External Prerequisite & Dashboard Action:**
   1. Provision dedicated enterprise transactional email service (AWS SES, Resend, or SendGrid).
   2. DNS Delegation: Add DNS records on the sending domain:

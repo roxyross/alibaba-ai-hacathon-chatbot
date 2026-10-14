@@ -6,6 +6,7 @@ Each skill module provides get_executor() which returns a SkillExecutor instance
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -19,8 +20,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi import Request as StarletteRequest
 from pydantic import BaseModel
 
-log = structlog.get_logger(__name__)
-
 from app.auth.dependencies import get_current_user, get_optional_current_user
 from app.auth.models import User
 from app.skills.bank_connect import get_executor as bank_connect_executor
@@ -29,6 +28,7 @@ from app.skills.browser_navigate import get_executor as browser_navigate_executo
 from app.skills.calculator import get_executor as calculator_executor
 from app.skills.calendar_read import get_executor as calendar_read_executor
 from app.skills.critic_review import get_executor as critic_review_executor
+from app.skills.custom_skills import CustomSkillService
 from app.skills.document_ingest import get_executor as document_ingest_executor
 from app.skills.document_rag_query import get_executor as document_rag_query_executor
 from app.skills.email_draft import get_executor as email_draft_executor
@@ -57,6 +57,8 @@ from app.skills.schemas import (
     CalendarReadResponse,
     CriticReviewRequest,
     CriticReviewResponse,
+    CustomSkillCreateRequest,
+    CustomSkillExecuteRequest,
     DocumentIngestRequest,
     DocumentIngestResponse,
     DocumentRagQueryRequest,
@@ -91,6 +93,8 @@ from app.skills.speech_to_text import get_executor as speech_to_text_executor
 from app.skills.store_memory import get_executor as store_memory_executor
 from app.skills.text_to_speech import get_executor as text_to_speech_executor
 from app.skills.web_search import get_executor as web_search_executor
+
+log = structlog.get_logger(__name__)
 
 # Sensitive skills that require security-privacy confirmation gate
 SENSITIVE_SKILLS = {"email_draft", "email_send", "browser_fill_form", "bank_connect", "schedule_job"}
@@ -275,7 +279,7 @@ class RedisConfirmationStore:
             elif isinstance(record.input_data, dict):
                 data_dict = record.input_data
             else:
-                data_dict = {}
+                data_dict = cast(dict[str, Any], {})
 
             payload = {
                 "token": record.token,
@@ -425,16 +429,11 @@ async def _run_skill(
     """
     # Stamp authenticated user id into input_data for per-user data isolation.
     user_id = str(user.id) if (user is not None and hasattr(user, "id") and user.id) else "anonymous"
-    if isinstance(input_data, BaseModel) and "user_id" in input_data.__class__.model_fields:
-        try:
-            setattr(input_data, "user_id", user_id)
-        except Exception:
-            pass
-    elif hasattr(input_data, "__dict__") and "user_id" in getattr(input_data, "__dict__", {}):
-        try:
-            setattr(input_data, "user_id", user_id)
-        except Exception:
-            pass
+    if (isinstance(input_data, BaseModel) and "user_id" in input_data.__class__.model_fields) or (
+        hasattr(input_data, "__dict__") and "user_id" in getattr(input_data, "__dict__", {})
+    ):
+        with contextlib.suppress(Exception):
+            input_data.user_id = user_id
 
     # Read-only operations on schedule_job (like list or timezones) do not require confirmation
     op_str = str(getattr(input_data, "op", "")).lower()
@@ -449,8 +448,8 @@ async def _run_skill(
             )
 
         # Client-supplied confirm flag CANNOT bypass server confirmation
-        if hasattr(input_data, "confirm"):
-            setattr(input_data, "confirm", False)
+        with contextlib.suppress(AttributeError, TypeError):
+            input_data.confirm = False
 
         token = secrets.token_urlsafe(24)
         issued_at = time.time()
@@ -600,10 +599,8 @@ async def skill_confirm_execute(
             input_data = model_cls.model_validate(input_data)
 
     # Stamp confirmation — the skill's confirmation gate checks this flag
-    try:
+    with contextlib.suppress(AttributeError, TypeError):
         input_data.confirm = True
-    except AttributeError:
-        pass  # Schema doesn't support confirm — skip
 
     try:
         await executor.execute(input_data)
@@ -959,8 +956,6 @@ async def skill_document_ingest(
 # ---------------------------------------------------------------------------
 # Custom Skills Endpoints
 # ---------------------------------------------------------------------------
-from app.skills.custom_skills import CustomSkillService
-from app.skills.schemas import CustomSkillCreateRequest, CustomSkillExecuteRequest
 
 _custom_skill_service = CustomSkillService()
 

@@ -278,14 +278,21 @@ def test_durable_multi_instance_token_persistence(monkeypatch: pytest.MonkeyPatc
     try:
         shared_db_store: dict[str, Any] = {}
 
+        def _mock_save(user_id: str, ciphertext: str) -> bool:
+            shared_db_store[user_id] = ciphertext
+            return True
+
+        def _mock_load(user_id: str) -> str | None:
+            return shared_db_store.get(user_id)
+
         skill_a = EmailSendSkill()
         monkeypatch.setattr(skill_a, "_token_dir", lambda: instance_a_dir)
-        monkeypatch.setattr(skill_a, "_save_token_to_db", lambda u, c: bool(shared_db_store.update({u: c}) or True))
-        monkeypatch.setattr(skill_a, "_load_token_from_db", lambda u: shared_db_store.get(u))
+        monkeypatch.setattr(skill_a, "_save_token_to_db", _mock_save)
+        monkeypatch.setattr(skill_a, "_load_token_from_db", _mock_load)
 
         skill_b = EmailSendSkill()
         monkeypatch.setattr(skill_b, "_token_dir", lambda: instance_b_dir)
-        monkeypatch.setattr(skill_b, "_load_token_from_db", lambda u: shared_db_store.get(u))
+        monkeypatch.setattr(skill_b, "_load_token_from_db", _mock_load)
 
         with patch.dict(os.environ, {"GMAIL_TOKEN_ENCRYPTION_KEY": TEST_PROD_ENCRYPTION_KEY, "APP_ENV": "production"}):
             # Instance A writes token

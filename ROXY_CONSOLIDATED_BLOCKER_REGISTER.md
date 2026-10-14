@@ -123,8 +123,8 @@
 | **SEC-02** | Public Demo Login | `app/auth/router.py` | Disabled by default, HTTP 403 in prod | `test_auth_demo_security.py` (5/5 pass) |
 | **SEC-03** | OAuth State Replay | `app/auth/oauth_state.py` | Browser cookie binding, HMAC verification, Redis atomic single-use | `test_auth_oauth_state_security.py` (14/14 pass) |
 | **SEC-04** | OAuth Open Redirect | `app/auth/router.py` | Strict allowlist origin validation for redirect targets | `test_auth_redirect_security.py` (8/8 pass) |
-| **SEC-05** | Sensitive Action Bypass | `app/skills/router.py` | Client `confirm: true` ignored; HMAC server challenge token | `test_skills_confirmation_security.py` (6/6 pass) |
-| **SEC-06** | Gmail Token Plaintext | `app/skills/email_send.py` | Fernet authenticated encryption, Vercel prod detection, MultiFernet | `test_gmail_token_storage_security.py` (11/11 pass) |
+| **SEC-05** | Sensitive Action Bypass | `app/skills/router.py` | Client `confirm: true` ignored; HMAC server challenge token; Redis multi-instance confirmation store | `test_skills_confirmation_security.py` (9/9 pass) |
+| **SEC-06** | Gmail Token Plaintext | `app/skills/email_send.py` | Fernet authenticated encryption, Vercel prod detection, MultiFernet, DB persistent token store | `test_gmail_token_storage_security.py` (12/12 pass) |
 | **GW-01** | Groq vs Grok Routing | `app/ai_gateway/` | Dedicated GroqAdapter, GrokAdapter, priority order, xAI key isolation | `test_ai_routing_reconciliation.py` (8/8 pass) |
 | **CI-01** | CI Security Enforcement | `.github/workflows/ci.yml` | Dedicated security test step, automated test discovery guard | `test_security_ci_discovery.py` (3/3 pass) |
-| **TOTAL** | **Internal Security Suites** | **All Core Security Systems** | **Complete Code Hardening & Invariant Verification** | **75 / 75 Automated Tests (100% PASS)** |
+| **TOTAL** | **Internal Security Suites** | **All Core Security Systems** | **Complete Code Hardening & Invariant Verification** | **80 / 80 Automated Tests (100% PASS)** |

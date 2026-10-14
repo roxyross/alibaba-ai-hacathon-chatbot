@@ -65,14 +65,14 @@ The authoritative standard for production launch certification is the **5 Extern
 - **SEC-02 (Demo Login Gate):** **RESOLVED (PASS)** (5 tests passing).
 - **SEC-03 (OAuth Replay & Browser Binding):** **RESOLVED (PASS)** (14 tests passing).
 - **SEC-04 (OAuth Open Redirect):** **RESOLVED (PASS)** (8 tests passing).
-- **SEC-05 (Confirmation Gate Bypass):** **RESOLVED (PASS)** (6 tests passing).
-- **SEC-06 (Gmail Token Encryption at Rest):** **RESOLVED (PASS)** (11 tests passing).
+- **SEC-05 (Confirmation Gate Bypass):** **RESOLVED (PASS)** (9 tests passing).
+- **SEC-06 (Gmail Token Encryption at Rest):** **RESOLVED (PASS)** (12 tests passing).
 - **GW-01 (Groq vs Grok Provider Disambiguation):** **RESOLVED (PASS)** (8 tests passing).
 - **CI-01 (CI Test Discovery & Enforcement):** **RESOLVED (PASS)** (3 tests passing).
-- **Total Internal Security Tests:** **75 / 75 Automated Tests (100% PASS)**.
+- **Total Internal Security Tests:** **80 / 80 Automated Tests (100% PASS)**.
 
 ### Merge vs Launch Policy
-- **Merge into `master`:** Permitted upon user review and authorization. All code is functional, statically typed, and verified with 75 security tests and 107 frontend tests. The external blockers do not inhibit code merging into `master`.
+- **Merge into `master`:** Permitted upon user review and authorization. All code is functional, statically typed, and verified with 80 security tests and 107 frontend tests. The external blockers do not inhibit code merging into `master`.
 - **Production Deployment:** Strictly withheld until all 5 external gates are satisfied in production infrastructure.
 
 ---
