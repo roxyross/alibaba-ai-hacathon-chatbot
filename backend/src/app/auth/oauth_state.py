@@ -120,6 +120,7 @@ class RedisReplayStore:
             socket_timeout=2.0,
             socket_connect_timeout=2.0,
             decode_responses=True,
+            protocol=2,
         )
 
     def _key(self, state_value: str) -> str:

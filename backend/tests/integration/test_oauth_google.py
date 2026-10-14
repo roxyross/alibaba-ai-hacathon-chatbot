@@ -359,8 +359,9 @@ async def test_stateless_hmac_state_in_production_without_cookie(
     rsa_keypair: tuple[rsa.RSAPrivateKey, dict[str, Any]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """In production (e.g. Vercel), Chrome Incognito blocks cookies, but signed HMAC state succeeds."""
+    """In production (e.g. Vercel), SEC-03 requires browser cookie binding; missing cookie is rejected."""
     monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("JWT_SECRET", "test-secret-at-least-32-characters-long")
     priv, jwks = rsa_keypair
     id_token = _sign_id_token(priv, email="incognito@example.com")
 
@@ -379,7 +380,7 @@ async def test_stateless_hmac_state_in_production_without_cookie(
         )
         state = r1.headers["location"].split("state=")[1].split("&")[0]
 
-        # Simulate Incognito mode: client drops third-party cookie completely
+        # Simulate missing cookie: drops cookie completely
         async_client.cookies.clear()
 
         r2 = await async_client.get(
@@ -387,8 +388,8 @@ async def test_stateless_hmac_state_in_production_without_cookie(
             params={"code": "valid-code", "state": state},
             follow_redirects=False,
         )
-        assert r2.status_code == 302
-        assert "access_token=" in r2.headers["location"]
+        assert r2.status_code == 400
+        assert "Invalid or expired OAuth state" in r2.text
 
 
 async def test_stateless_hmac_state_in_production_with_stale_cookie(
@@ -396,8 +397,9 @@ async def test_stateless_hmac_state_in_production_with_stale_cookie(
     rsa_keypair: tuple[rsa.RSAPrivateKey, dict[str, Any]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """In production, if browser holds a stale cookie from a previous session, fresh HMAC state still succeeds."""
+    """In production, if browser holds a stale mismatched cookie, SEC-03 rejects it with 400."""
     monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("JWT_SECRET", "test-secret-at-least-32-characters-long")
     priv, jwks = rsa_keypair
     id_token = _sign_id_token(priv, email="stale-cookie-user@example.com")
 
@@ -424,8 +426,8 @@ async def test_stateless_hmac_state_in_production_with_stale_cookie(
             params={"code": "valid-code", "state": state},
             follow_redirects=False,
         )
-        assert r2.status_code == 302
-        assert "access_token=" in r2.headers["location"]
+        assert r2.status_code == 400
+        assert "Invalid or expired OAuth state" in r2.text
 
 
 async def test_callback_fallback_to_userinfo_when_jwks_fails(
