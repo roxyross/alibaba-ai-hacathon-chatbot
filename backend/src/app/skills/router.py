@@ -6,6 +6,10 @@ Each skill module provides get_executor() which returns a SkillExecutor instance
 
 from __future__ import annotations
 
+import hashlib
+import secrets
+import threading
+import time
 from typing import Any, TypeVar, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -84,7 +88,7 @@ from app.skills.text_to_speech import get_executor as text_to_speech_executor
 from app.skills.web_search import get_executor as web_search_executor
 
 # Sensitive skills that require security-privacy confirmation gate
-SENSITIVE_SKILLS = {"email_draft", "email_send", "browser_fill_form", "bank_connect"}
+SENSITIVE_SKILLS = {"email_draft", "email_send", "browser_fill_form", "bank_connect", "schedule_job"}
 
 # Centralized registry of all skill executor factories
 _SKILL_EXECUTORS: dict[str, Any] = {
@@ -117,8 +121,11 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 
 T = TypeVar("T")
 
-# In-memory pending confirmations: user_id -> token -> (executor, input_data)
-_pending_confirmations: dict[str, dict[str, tuple[Any, Any]]] = {}
+CONFIRMATION_TTL_SECONDS = 10 * 60  # 10 minutes
+
+_CONFIRMATION_LOCK = threading.Lock()
+# In-memory pending confirmations: user_id -> token -> (executor, input_data, issued_at, params_digest, skill_slug)
+_pending_confirmations: dict[str, dict[str, tuple[Any, Any, float, str, str]]] = {}
 
 
 async def _run_skill(
@@ -130,9 +137,9 @@ async def _run_skill(
 ) -> T:
     """Execute a skill and return its response, or raise HTTPException on failure.
 
-    For sensitive skills (email_draft, browser_fill_form, bank_connect, schedule_job),
-    the router returns HTTP 403 with a confirmation token instead of executing.
-    The caller must then POST /skills/confirm with the token to proceed.
+    For sensitive skills, the router requires a server-issued one-time confirmation token.
+    Client-supplied booleans (e.g. `confirm: true`) are strictly ignored and CANNOT
+    bypass the server-side confirmation requirement.
     """
     # Stamp authenticated user id into input_data for per-user data isolation.
     user_id = str(user.id) if (user is not None and hasattr(user, "id") and user.id) else "anonymous"
@@ -150,13 +157,34 @@ async def _run_skill(
     # Read-only operations on schedule_job (like list or timezones) do not require confirmation
     op_str = str(getattr(input_data, "op", "")).lower()
     is_read_only = skill_slug == "schedule_job" and (op_str in ("list", "timezones") or getattr(input_data, "op", None) in ("list", "LIST"))
-    # Security-privacy gate for sensitive skills (unless already explicitly confirmed or read-only)
-    if skill_slug in SENSITIVE_SKILLS and not is_read_only and not getattr(input_data, "confirm", False):
-        import secrets
-        token = secrets.token_urlsafe(16)
-        if user_id not in _pending_confirmations:
-            _pending_confirmations[user_id] = {}
-        _pending_confirmations[user_id][token] = (executor, input_data)
+
+    # Security-privacy gate for sensitive skills
+    if skill_slug in SENSITIVE_SKILLS and not is_read_only:
+        if user is None or not getattr(user, "id", None) or str(user.id) in ("anonymous", ""):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required to perform sensitive action",
+            )
+
+        # Client-supplied confirm flag CANNOT bypass server confirmation
+        if hasattr(input_data, "confirm"):
+            setattr(input_data, "confirm", False)
+
+        token = secrets.token_urlsafe(24)
+        issued_at = time.time()
+        raw_params = str(getattr(input_data, "__dict__", str(input_data)))
+        params_digest = hashlib.sha256(raw_params.encode("utf-8")).hexdigest()[:16]
+
+        with _CONFIRMATION_LOCK:
+            if user_id not in _pending_confirmations:
+                _pending_confirmations[user_id] = {}
+            # Lazy cleanup of expired tokens
+            cutoff = issued_at - CONFIRMATION_TTL_SECONDS
+            _pending_confirmations[user_id] = {
+                t: item for t, item in _pending_confirmations[user_id].items()
+                if item[2] >= cutoff
+            }
+            _pending_confirmations[user_id][token] = (executor, input_data, issued_at, params_digest, skill_slug)
 
         action_desc = _describe_action(skill_slug, input_data)
         raise HTTPException(
@@ -167,6 +195,7 @@ async def _run_skill(
                 "skill": skill_slug,
                 "action": action_desc,
                 "token": token,
+                "digest": params_digest,
                 "message": (
                     f"This action requires your confirmation before proceeding. "
                     f"POST /api/v1/skills/confirm with the token to proceed, "
@@ -188,6 +217,8 @@ async def _run_skill(
 def _describe_action(skill_slug: str, input_data: Any) -> str:
     """Human-readable description of a sensitive action."""
     if skill_slug == "email_draft":
+        return f"Send email to {getattr(input_data, 'to', '?')}"
+    elif skill_slug == "email_send":
         return f"Send email to {getattr(input_data, 'to', '?')}"
     elif skill_slug == "browser_fill_form":
         return f"Fill and submit form on {getattr(input_data, 'url', '?')}"
@@ -219,11 +250,15 @@ async def skill_confirm_preview(
     current_user: User = Depends(get_current_user),
 ) -> ConfirmPreview:
     """Preview the action a confirmation token authorizes."""
-    user_id = current_user.id
-    if user_id not in _pending_confirmations or token not in _pending_confirmations[user_id]:
-        raise HTTPException(status_code=404, detail="Token not found or expired")
-    executor, input_data = _pending_confirmations[user_id][token]
-    skill_slug = getattr(executor, "slug", "unknown")
+    user_id = str(current_user.id)
+    with _CONFIRMATION_LOCK:
+        if user_id not in _pending_confirmations or token not in _pending_confirmations[user_id]:
+            raise HTTPException(status_code=404, detail="Token not found or expired")
+        executor, input_data, issued_at, params_digest, skill_slug = _pending_confirmations[user_id][token]
+        if time.time() - issued_at > CONFIRMATION_TTL_SECONDS:
+            _pending_confirmations[user_id].pop(token, None)
+            raise HTTPException(status_code=404, detail="Token not found or expired")
+
     return ConfirmPreview(
         skill=skill_slug,
         action=_describe_action(skill_slug, input_data),
@@ -251,13 +286,17 @@ async def skill_confirm_execute(
     current_user: User = Depends(get_current_user),
 ) -> ConfirmResponse:
     """Execute a skill after user confirmation via token."""
-    user_id = current_user.id
-    if user_id not in _pending_confirmations or req.token not in _pending_confirmations[user_id]:
-        raise HTTPException(status_code=404, detail="Token not found or expired")
+    user_id = str(current_user.id)
+    with _CONFIRMATION_LOCK:
+        if user_id not in _pending_confirmations or req.token not in _pending_confirmations[user_id]:
+            raise HTTPException(status_code=404, detail="Token not found or expired")
 
-    executor, input_data = _pending_confirmations[user_id].pop(req.token)
-    if not _pending_confirmations[user_id]:
-        del _pending_confirmations[user_id]
+        executor, input_data, issued_at, params_digest, skill_slug = _pending_confirmations[user_id].pop(req.token)
+        if time.time() - issued_at > CONFIRMATION_TTL_SECONDS:
+            raise HTTPException(status_code=404, detail="Token not found or expired")
+
+        if not _pending_confirmations[user_id]:
+            del _pending_confirmations[user_id]
 
     # Stamp confirmation — the skill's confirmation gate checks this flag
     try:
@@ -270,6 +309,7 @@ async def skill_confirm_execute(
         return ConfirmResponse(success=True, message="Action completed")
     except Exception as exc:
         return ConfirmResponse(success=False, message=f"Action failed: {exc}")
+
 
 
 # ---------------------------------------------------------------------------

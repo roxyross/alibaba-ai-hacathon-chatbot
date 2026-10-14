@@ -22,19 +22,22 @@ from typing import Annotated
 
 from fastapi import Cookie, Response
 
+import threading
 from app.auth.jwt import _secret
 
 STATE_COOKIE = "roxy.oauth_state"
 ORIGIN_COOKIE = "roxy.oauth_origin"
 STATE_TTL_SECONDS = 10 * 60  # 10 minutes — comfortably longer than a real OAuth round-trip
 
+_STATE_LOCK = threading.Lock()
 _CONSUMED_STATES: set[str] = set()
 
 
 class _StateDict(dict[str, float]):
     def clear(self) -> None:
         super().clear()
-        _CONSUMED_STATES.clear()
+        with _STATE_LOCK:
+            _CONSUMED_STATES.clear()
 
 
 # Module-level in-memory store for dev/testing.
@@ -42,13 +45,17 @@ _STATES: dict[str, float] = _StateDict()  # state -> issued_at_unix
 
 
 def _is_production() -> bool:
+    app_env = os.environ.get("APP_ENV", "").lower()
+    env = os.environ.get("ENV", "").lower()
     return (
-        os.environ.get("APP_ENV", "").lower() == "production"
+        app_env in ("production", "prod")
+        or env in ("production", "prod")
         or bool(os.environ.get("VERCEL"))
         or bool(os.environ.get("VERCEL_ENV"))
         or os.environ.get("OAUTH_REDIRECT_BASE_URL", "").startswith("https://")
         or os.environ.get("APP_BASE_URL", "").startswith("https://")
     )
+
 
 
 def _now() -> float:
@@ -134,30 +141,32 @@ def consume_state(
 ) -> bool:
     """Validate and burn the state. Returns True on success, False on any mismatch.
 
-    Supports:
-      1. Serverless HMAC cryptographic validation (stateless across Vercel lambdas
-         where memory is not shared between invocations, and resilient to stale
-         cookies or cross-site cookie restrictions).
-      2. Cookie matching with in-memory store (fallback for test suites and dev).
+    Enforces:
+      1. Cryptographic HMAC validation using ONLY the configured production secret.
+      2. No fallback to known development secret.
+      3. Strict cookie matching if cookie is supplied.
+      4. Atomic single-use consumption preventing replay attacks.
+      5. Strict expiration validation.
     """
-    if not request_value:
+    if not request_value or not isinstance(request_value, str):
         return False
 
-    # Prevent replay attacks
-    if request_value in _CONSUMED_STATES or (
-        cookie_value and cookie_value in _CONSUMED_STATES and cookie_value == request_value
-    ):
+    with _STATE_LOCK:
+        # Prevent replay attacks
+        if request_value in _CONSUMED_STATES or (
+            cookie_value and cookie_value in _CONSUMED_STATES and cookie_value == request_value
+        ):
+            return False
+
+    # If cookie is present, it MUST match the request query state parameter.
+    if cookie_value and not secrets.compare_digest(request_value, cookie_value):
         return False
 
-    # In dev/test environments (when not in production), the state cookie is strictly required
-    # and must match the query parameter.
-    if not _is_production() and (
-        not cookie_value or not secrets.compare_digest(request_value, cookie_value)
-    ):
+    # In non-production environments without cross-site cookie restrictions, require cookie.
+    if not _is_production() and not cookie_value:
         return False
 
-    # 1. Cryptographic HMAC validation (resilient to cross-origin cookie drops,
-    # port changes, incognito mode, and serverless invocations):
+    # 1. Cryptographic HMAC validation
     parts = request_value.split("_")
     if len(parts) >= 3:
         raw_token = "_".join(parts[:-2])
@@ -166,18 +175,26 @@ def consume_state(
         try:
             ts = int(ts_str)
             payload = f"{raw_token}_{ts}"
-            for secret_candidate in (_secret(), "roxy-dev-secret-do-not-use-in-prod"):
-                expected_sig = hmac.new(
-                    secret_candidate.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
-                ).hexdigest()[:24]
+            try:
+                secret = _secret()
+            except RuntimeError:
+                # Missing or insecure production secret -> fail closed
+                return False
 
-                if secrets.compare_digest(sig, expected_sig) and (_now() - ts <= STATE_TTL_SECONDS):
+            expected_sig = hmac.new(
+                secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+            ).hexdigest()[:24]
+
+            if secrets.compare_digest(sig, expected_sig) and (_now() - ts <= STATE_TTL_SECONDS):
+                with _STATE_LOCK:
+                    if request_value in _CONSUMED_STATES:
+                        return False
                     _CONSUMED_STATES.add(request_value)
                     _STATES.pop(request_value, None)
                     if cookie_value:
                         _CONSUMED_STATES.add(cookie_value)
                         _STATES.pop(cookie_value, None)
-                    return True
+                return True
         except ValueError:
             pass
 
@@ -188,12 +205,15 @@ def consume_state(
     if not secrets.compare_digest(request_value, cookie_value):
         return False
 
-    issued_at = _STATES.pop(cookie_value, None)
-    if issued_at is not None:
-        if _now() - issued_at <= STATE_TTL_SECONDS:
-            _CONSUMED_STATES.add(cookie_value)
-            _CONSUMED_STATES.add(request_value)
-            return True
-        return False
+    with _STATE_LOCK:
+        if cookie_value in _CONSUMED_STATES or request_value in _CONSUMED_STATES:
+            return False
+        issued_at = _STATES.pop(cookie_value, None)
+        if issued_at is not None:
+            if _now() - issued_at <= STATE_TTL_SECONDS:
+                _CONSUMED_STATES.add(cookie_value)
+                _CONSUMED_STATES.add(request_value)
+                return True
+            return False
 
     return False

@@ -19,6 +19,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PROVIDER_FEATURE_FLAGS: dict[str, str] = {
     "deepseek": "PROVIDER_DEEPSEEK_ENABLED",
     "grok": "PROVIDER_GROK_ENABLED",
+    "groq": "PROVIDER_GROQ_ENABLED",
     "openai": "PROVIDER_OPENAI_ENABLED",
     "gemini": "PROVIDER_GEMINI_ENABLED",
 }
@@ -26,6 +27,7 @@ PROVIDER_FEATURE_FLAGS: dict[str, str] = {
 PROVIDER_API_KEY_VARS: dict[str, str] = {
     "deepseek": "DEEPSEEK_API_KEY",
     "grok": "GROK_API_KEY",
+    "groq": "GROQ_API_KEY",
     "openai": "OPENAI_API_KEY",
     "gemini": "GEMINI_API_KEY",
 }
@@ -33,18 +35,21 @@ PROVIDER_API_KEY_VARS: dict[str, str] = {
 PROVIDER_BASE_URLS: dict[str, str] = {
     "deepseek": "https://api.deepseek.com",
     "grok": "https://api.x.ai/v1",
+    "groq": "https://api.groq.com/openai/v1",
     "openai": "https://api.openai.com/v1",
     "gemini": "https://generativelanguage.googleapis.com/v1beta",
 }
 
 # Routing priority: lower number = higher priority.
-# Grok (primary, active key) → Gemini (fallback / rate-limited) → DeepSeek → OpenAI.
+# Gemini (primary product default) → Groq (fast LPU) → Grok (xAI) → DeepSeek → OpenAI.
 DEFAULT_ROUTING_PRIORITY: dict[str, int] = {
-    "grok": 1,
-    "gemini": 2,
-    "deepseek": 3,
-    "openai": 4,
+    "gemini": 1,
+    "groq": 2,
+    "grok": 3,
+    "deepseek": 4,
+    "openai": 5,
 }
+
 
 
 # -----------------------------------------------------------------------------
@@ -86,7 +91,13 @@ class ProviderConfig:
 
     @property
     def api_key(self) -> str | None:
-        return os.environ.get(self.api_key_env_var)
+        key = os.environ.get(self.api_key_env_var)
+        if not key:
+            if self.name == "groq" and os.environ.get("GROK_API_KEY", "").startswith("gsk_"):
+                return os.environ.get("GROK_API_KEY")
+            if self.name == "grok" and os.environ.get("XAI_API_KEY"):
+                return os.environ.get("XAI_API_KEY")
+        return key
 
     @property
     def is_enabled(self) -> bool:
@@ -110,6 +121,13 @@ def _default_models(provider: str) -> tuple[ModelConfig, ...]:
         "deepseek": (
             ModelConfig(name="deepseek-chat-v3", display_name="DeepSeek V3", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.001, cost_per_1k_output=0.002, max_tokens=64000),
             ModelConfig(name="deepseek-reasoner", display_name="DeepSeek R1", task_types=("reasoning",), cost_per_1k_input=0.001, cost_per_1k_output=0.006, max_tokens=64000),
+        ),
+        "groq": (
+            ModelConfig(name="qwen/qwen3.8-27b", display_name="Groq / Qwen 27B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
+            ModelConfig(name="openai/gpt-oss-120b", display_name="Groq / GPT-OSS 120B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
+            ModelConfig(name="qwen/qwen3.6-27b", display_name="Groq / Qwen 3.6 27B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
+            ModelConfig(name="llama-3.3-70b-versatile", display_name="Groq / Llama 3.3 70B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
+            ModelConfig(name="mixtral-8x7b-32768", display_name="Groq / Mixtral 8x7B", task_types=("general", "coding"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
         ),
         "grok": (
             ModelConfig(name="grok-3", display_name="Grok 3", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.005, cost_per_1k_output=0.015, max_tokens=131072),
@@ -138,6 +156,7 @@ def _default_models(provider: str) -> tuple[ModelConfig, ...]:
             ModelConfig(name="gemini-1.5-flash", display_name="Gemini 1.5 Flash", task_types=("general", "coding"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
         ),
     }
+
     return defaults.get(provider, ())
 
 

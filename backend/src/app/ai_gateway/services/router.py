@@ -49,6 +49,9 @@ def _get_adapter(name: str) -> AIProviderAdapter:
         elif name == "grok":
             from app.ai_gateway.adapters.grok import GrokAdapter
             _adapters[name] = GrokAdapter()
+        elif name == "groq":
+            from app.ai_gateway.adapters.groq import GroqAdapter
+            _adapters[name] = GroqAdapter()
         elif name == "openai":
             from app.ai_gateway.adapters.openai import OpenAIAdapter
             _adapters[name] = OpenAIAdapter()

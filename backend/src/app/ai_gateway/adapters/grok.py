@@ -6,12 +6,14 @@ https://api.x.ai — OpenAI-compatible endpoint.
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
+import structlog
 
 from app.ai_gateway.adapters.base import AIProviderAdapter, ProviderUnavailableError
 from app.ai_gateway.models.schemas import (
@@ -19,6 +21,8 @@ from app.ai_gateway.models.schemas import (
     AIResponse,
     StreamingChunk,
 )
+
+log = structlog.get_logger()
 
 
 class GrokAdapter(AIProviderAdapter):
@@ -34,7 +38,12 @@ class GrokAdapter(AIProviderAdapter):
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             api_key = self._config.api_key or ""
-            base_url = "https://api.groq.com/openai/v1" if api_key.startswith("gsk_") else self._config.base_url
+            if api_key.startswith("gsk_") and not os.environ.get("GROQ_API_KEY"):
+                log.info("grok.legacy_groq_key_detected", action="fallback_to_groq_endpoint")
+                base_url = "https://api.groq.com/openai/v1"
+            else:
+                base_url = self._config.base_url or "https://api.x.ai/v1"
+
             self._client = httpx.AsyncClient(
                 base_url=base_url,
                 timeout=httpx.Timeout(self.TIMEOUT_SECONDS, connect=5.0),

@@ -49,9 +49,41 @@ async def request_link(payload: RequestLinkRequest) -> RequestLinkResponse:
     )
 
 
+def _is_demo_login_enabled() -> bool:
+    """Check whether demo login is explicitly allowed by server configuration.
+
+    STRICT SECURITY RULE:
+    - Disabled by default in all environments.
+    - Strictly prohibited in production environments (APP_ENV=production, ENV=production, or VERCEL).
+    - In non-production, requires explicit server-side flag ENABLE_DEMO_LOGIN=true or ROXY_ENABLE_DEMO_LOGIN=true.
+    - Client headers, query parameters, or body flags can NEVER enable demo mode.
+    """
+    is_prod = (
+        os.environ.get("APP_ENV", "").lower() in ("production", "prod")
+        or os.environ.get("ENV", "").lower() in ("production", "prod")
+        or bool(os.environ.get("VERCEL"))
+        or bool(os.environ.get("VERCEL_ENV"))
+    )
+    if is_prod:
+        return False
+
+    flag = os.environ.get("ENABLE_DEMO_LOGIN", os.environ.get("ROXY_ENABLE_DEMO_LOGIN", "")).lower()
+    return flag in ("true", "1", "yes")
+
+
 @router.post("/demo", response_model=SessionResponse, status_code=status.HTTP_200_OK)
-async def demo_login() -> SessionResponse:
-    """Instant login endpoint for demo access, testing, and judges."""
+async def demo_login(request: Request) -> SessionResponse:
+    """Instant login endpoint for demo access, testing, and judges.
+
+    Disabled by default and strictly prohibited in production.
+    """
+    if not _is_demo_login_enabled():
+        log.warning("auth.demo_login.rejected_disabled", client=request.client.host if request.client else "unknown")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo login is disabled in this environment. Authentication required.",
+        )
+
     token = await _service.request_link("demo@roxy.ai")
     result = await _service.verify(token)
     if result is None:
@@ -99,37 +131,87 @@ async def me(current_user: User = Depends(get_current_user)) -> UserResponse:
 #       GET /auth/oauth/{provider}/callback
 # ---------------------------------------------------------------------------
 
+DEFAULT_TRUSTED_ORIGINS: tuple[str, ...] = (
+    "https://roxy-personal-ai.vercel.app",
+    "https://roxy.ai",
+    "https://app.roxy.ai",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+)
+
+
+def _get_trusted_origins() -> set[str]:
+    """Compile the authoritative set of trusted frontend origins."""
+    trusted = set(DEFAULT_TRUSTED_ORIGINS)
+    for env_var in ("ALLOWED_FRONTEND_ORIGINS", "CORS_ALLOWED_ORIGINS", "APP_BASE_URL", "FRONTEND_BASE_URL"):
+        val = os.environ.get(env_var, "").strip()
+        if val:
+            for item in val.split(","):
+                clean = item.strip().rstrip("/")
+                if clean:
+                    trusted.add(clean)
+    return trusted
+
+
+def _is_origin_trusted(origin_str: str | None) -> bool:
+    """Validate candidate origin structurally against the exact trusted allowlist."""
+    if not origin_str or not isinstance(origin_str, str):
+        return False
+    from urllib.parse import urlparse
+    p = urlparse(origin_str.strip())
+    if not p.scheme or not p.netloc:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    # In production, never trust unencrypted http origins unless explicitly allowed
+    if oauth_state._is_production() and p.scheme == "http":
+        return False
+    norm = f"{p.scheme}://{p.netloc}".rstrip("/")
+    return norm in _get_trusted_origins()
+
 
 def _resolve_frontend_base(request: Request | None = None, explicit_origin: str | None = None) -> str:
-    """Resolve the frontend base URL dynamically so new users are never redirected to an unreachable localhost."""
-    # 1. Explicit origin passed from frontend
-    if explicit_origin and (explicit_origin.startswith("http://") or explicit_origin.startswith("https://")):
-        return explicit_origin.rstrip("/")
+    """Resolve the frontend base URL strictly against the trusted origin allowlist.
 
-    # 2. Check origin cookie saved during /start
+    Attacker-controlled query params, cookies, or headers that are not in the
+    trusted allowlist are REJECTED and fall back to the canonical production or dev base.
+    """
+    # 1. Explicit origin passed from frontend (must be explicitly trusted)
+    if explicit_origin and _is_origin_trusted(explicit_origin):
+        from urllib.parse import urlparse
+        p = urlparse(explicit_origin)
+        return f"{p.scheme}://{p.netloc}".rstrip("/")
+
+    # 2. Check origin cookie saved during /start (must be explicitly trusted)
     if request:
         cookie_origin = request.cookies.get(oauth_state.ORIGIN_COOKIE)
-        if cookie_origin and (cookie_origin.startswith("http://") or cookie_origin.startswith("https://")):
-            return cookie_origin.rstrip("/")
-        # Check referer or origin header
-        ref = request.headers.get("referer") or request.headers.get("origin")
-        if ref:
+        if cookie_origin and _is_origin_trusted(cookie_origin):
+            from urllib.parse import urlparse
+            p = urlparse(cookie_origin)
+            return f"{p.scheme}://{p.netloc}".rstrip("/")
+
+        # Check referer or origin header (must be explicitly trusted)
+        ref = request.headers.get("origin") or request.headers.get("referer")
+        if ref and _is_origin_trusted(ref):
             from urllib.parse import urlparse
             p = urlparse(ref)
-            if p.scheme and p.netloc:
-                return f"{p.scheme}://{p.netloc}".rstrip("/")
+            return f"{p.scheme}://{p.netloc}".rstrip("/")
 
-    # 3. Check APP_BASE_URL env var if set
+    # 3. Check APP_BASE_URL env var if set and trusted
     env_base = (os.environ.get("APP_BASE_URL") or "").strip()
-    if env_base:
+    if env_base and _is_origin_trusted(env_base):
         return env_base.rstrip("/")
 
-    # 4. In production / cloud environments (e.g. Vercel), default to production frontend
+    # 4. Canonical fallback: production frontend in prod, localhost in dev
     if oauth_state._is_production():
         return "https://roxy-personal-ai.vercel.app"
 
-    # 5. Local development fallback
     return "http://localhost:5173"
+
 
 
 @router.get("/oauth/{provider}/start")
@@ -284,8 +366,10 @@ def _redirect_with_jwt(jwt_token: str, ttl: int, frontend_base: str | None = Non
 
     Hash (not query) means the token isn't sent in `Referer` headers if the
     user clicks an outbound link on the landing page.
+    The redirect destination is strictly validated to ensure tokens are never sent to untrusted origins.
     """
-    base = (frontend_base or _resolve_frontend_base()).rstrip("/")
+    safe_base = frontend_base if (frontend_base and _is_origin_trusted(frontend_base)) else _resolve_frontend_base()
+    base = safe_base.rstrip("/")
     fragment = urlencode(
         {
             "access_token": jwt_token,
@@ -301,7 +385,8 @@ def _redirect_with_jwt(jwt_token: str, ttl: int, frontend_base: str | None = Non
 
 def _redirect_with_error(provider: str, reason: str, frontend_base: str | None = None) -> RedirectResponse:
     """Send the user back to the frontend with a short error reason in the hash."""
-    base = (frontend_base or _resolve_frontend_base()).rstrip("/")
+    safe_base = frontend_base if (frontend_base and _is_origin_trusted(frontend_base)) else _resolve_frontend_base()
+    base = safe_base.rstrip("/")
     fragment = urlencode({"error": reason, "provider": provider})
     resp = RedirectResponse(
         url=f"{base}/auth/callback#{fragment}",
@@ -309,3 +394,4 @@ def _redirect_with_error(provider: str, reason: str, frontend_base: str | None =
     )
     oauth_state.clear_state(resp)
     return resp
+

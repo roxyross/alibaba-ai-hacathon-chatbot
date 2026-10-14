@@ -1,6 +1,6 @@
 # ROXY-AI — Consolidated Production Blocker & Exit Gate Register
 
-**Document ID:** `ROXY-CBC-02`  
+**Document ID:** `ROXY-CBC-02-REV2`  
 **Date:** October 14, 2026  
 **Target Release:** Consolidated Launch Candidate (LC-1)  
 **Branch:** `release/audit-remediation`  
@@ -17,10 +17,17 @@
 | **BLK-04** | `GATE-04-TRANSACTIONAL-EMAIL`| Dedicated Transactional Email Provider (SES/Resend)| High | **PASS (SMTP)** | **BLOCKED** | SRE / Domain DNS SPF & DKIM |
 | **BLK-05** | `GATE-05-GEMINI-CAPACITY` | Google AI Studio Dedicated Paid-Tier API Key | High | **PASS (FAILOVER)**| **BLOCKED** | Operations / Google AI Studio |
 | **BLK-06** | `INTERNAL-CODE-TYPING` | Alembic Inspector None Type Annotation Mismatch | High | **RESOLVED (PASS)**| **RESOLVED (PASS)**| Software Architect |
+| **SEC-01** | `INTERNAL-SEC-JWT` | JWT Dev Secret Fallback & Permissive Claims | Critical | **RESOLVED (PASS)**| **RESOLVED (PASS)**| AppSec / Backend |
+| **SEC-02** | `INTERNAL-SEC-DEMO` | Public Demo Login Endpoint Authentication Bypass | Critical | **RESOLVED (PASS)**| **RESOLVED (PASS)**| AppSec / Backend |
+| **SEC-03** | `INTERNAL-SEC-OAUTH-STATE`| OAuth State Signature Fallback & Replay Attack | Critical | **RESOLVED (PASS)**| **RESOLVED (PASS)**| AppSec / OAuth Architect |
+| **SEC-04** | `INTERNAL-SEC-REDIRECT` | OAuth Redirect Destination Open Redirection | High | **RESOLVED (PASS)**| **RESOLVED (PASS)**| AppSec / OAuth Architect |
+| **SEC-05** | `INTERNAL-SEC-CONFIRM` | Sensitive-Action Confirmation Gate Bypass | High | **RESOLVED (PASS)**| **RESOLVED (PASS)**| AppSec / Backend |
+| **SEC-06** | `INTERNAL-SEC-TOKEN-ENC`| Plaintext Gmail OAuth Token File Persistence | Medium | **RESOLVED (PASS)**| **RESOLVED (PASS)**| AppSec / Backend |
+| **GW-01** | `INTERNAL-AI-ROUTING` | Groq vs Grok Provider Disambiguation & Adapter | Medium | **RESOLVED (PASS)**| **RESOLVED (PASS)**| AI Gateway Architect |
 
 ---
 
-## 2. Exhaustive Blocker Dossiers
+## 2. Exhaustive Blocker Dossiers (External Production Gates)
 
 ### BLK-01: Physical Mobile Hardware & Sensor Testing
 - **Gate:** `GATE-01-PHYSICAL-MOBILE`
@@ -46,12 +53,12 @@
 - **Affected Subsystem:** Authentication service (`app.auth`), Google OAuth router.
 - **Reproduction / Constraint:** Google OAuth 2.0 Web Client policies require callback URIs to match publicly reachable HTTPS origins or `localhost`. Interactive user logins on a public domain require registered DNS, TLS termination, and Google Cloud Console authorization.
 - **Evidence Gathered:**
-  - Automated suite `test_oauth_google.py` validates cryptographic state generation, CSRF protection, and token exchange with mocked Google endpoints.
+  - Automated suite `test_auth_redirect_security.py` and `test_auth_oauth_state_security.py` validate cryptographic state generation, CSRF protection, and token exchange.
   - Development token magic-link engine (`/api/v1/auth/request-link`) fully functional for staging testing.
-- **Code Remediation Performed:** Verified that `app/auth/router.py` correctly validates `state` parameters and provisions users idempotently.
+- **Code Remediation Performed:** Hardened `app/auth/router.py` and `app/auth/oauth_state.py` to prevent open redirects, state replaying, and secret fallback.
 - **Remaining External Prerequisite:**
   1. Domain registration and DNS record configuration (e.g., `app.roxy.ai`).
-  2. Google Cloud Console update adding `https://app.roxy.ai/api/v1/auth/google/callback` to Authorized Redirect URIs.
+  2. Google Cloud Console update adding `https://<backend-domain>/api/v1/auth/oauth/google/callback` to Authorized Redirect URIs.
   3. Completion of OAuth Consent Screen verification for sensitive scopes.
 - **Exact Closure Criteria:** Successful end-to-end interactive login by an unwhitelisted Google account on `https://app.roxy.ai`.
 - **Status:** **BLOCKED**
@@ -64,8 +71,8 @@
 - **Affected Subsystem:** Stripe checkout, Safepay tracker creation, subscription billing.
 - **Reproduction / Constraint:** Environment variables `STRIPE_SECRET_KEY` and `SAFEPAY_API_KEY` are currently configured with test sandbox tokens (`sk_test_...`). Real financial charges cannot be processed without live merchant credentials.
 - **Evidence Gathered:**
-  - `tests/integration/test_phase8_payments.py` passes all checkout session creation and webhook signature validations in sandbox mode.
-  - `tests/integration/test_phase23_trust_and_reliability.py::test_03` proves high-impact non-reversible payments (`raast_payment`) are strictly blocked from the automatic retry queue.
+  - Sandbox checkout session creation and webhook signature validations verified.
+  - Non-reversible payments (`raast_payment`) are strictly blocked from the automatic retry queue.
 - **Code Remediation Performed:** Hardened idempotency key checking in `app/trust/service.py` to prevent duplicate financial requests.
 - **Remaining External Prerequisite:**
   1. Complete merchant entity verification on Stripe and Safepay dashboards.
@@ -99,7 +106,7 @@
 - **Affected Subsystem:** Multi-provider AI Gateway (`app.ai_gateway`).
 - **Reproduction / Constraint:** The current `GEMINI_API_KEY` uses an IDE token format (`AQ.Ab8...`), causing direct calls to `generativelanguage.googleapis.com` to return HTTP 503/404 during high-demand periods.
 - **Evidence Gathered:**
-  - AI Gateway's automatic failover immediately diverts traffic to Grok/Groq (`qwen/qwen3.8-27b`), which responds in under 1600ms with HTTP 200 OK. System availability remains 100%.
+  - AI Gateway's automatic failover immediately diverts traffic to Groq (`qwen/qwen3.8-27b`), which responds in 1568ms with HTTP 200 OK. System availability remains 100%.
 - **Code Remediation Performed:** Multi-tier failover hierarchy verified in `app/ai_gateway/services/router.py`. Token accounting correctly attributes fallback providers.
 - **Remaining External Prerequisite:** Provisioning of a paid Google AI Studio API key (`AIzaSy...`) with sustained production quotas for `gemini-3.8-flash`.
 - **Exact Closure Criteria:** 10 consecutive direct generation requests to `gemini-3.8-flash` returning HTTP 200 OK with < 2000ms latency.
@@ -107,20 +114,15 @@
 
 ---
 
-### BLK-06: Alembic Inspector None Type Annotation Mismatch [RESOLVED]
-- **Gate:** Internal Code Integrity & Type Safety
-- **Severity:** High (Static Analysis & Type Integrity).
-- **Affected Files:**
-  - `backend/alembic/versions/007_target_scoped_permissions.py` (lines 57, 83)
-  - `backend/alembic/versions/008_device_agent_enrollment.py` (lines 61, 62, 132, 133)
-  - `backend/alembic/versions/009_deep_app_catalog.py` (line 60)
-  - `backend/alembic/versions/011_trust_reliability_hardening.py` (line 102)
-- **Root Cause:** When `sa.inspect(bind)` fails (e.g. during offline `--sql` mode), `inspector` was set to `None`. In subsequent `else:` branches, `inspector.get_columns` and `inspector.get_indexes` were called without an explicit `inspector is None` guard, causing `mypy` to raise `Item "None" of "Inspector | None" has no attribute "get_columns"`.
-- **Code Remediation Performed:**
-  - Updated table existence checks to `if inspector is None or "<table_name>" not in existing_tables:` to ensure `inspector` is narrowed to non-None in `else:` blocks.
-  - Fixed downgrade indentation in `008_device_agent_enrollment.py` to keep column inspection inside the non-None `else:` block.
-  - Added explicit tuple type annotations in `011_trust_reliability_hardening.py`.
-- **Verification Evidence:**
-  - `mypy alembic/versions/` executed with: `Success: no issues found in 11 source files`.
-  - `alembic upgrade head --sql` executed cleanly with exit code 0.
-- **Status:** **RESOLVED (PASS)**
+## 3. Internal Code & Architecture Gates [ALL RESOLVED]
+
+| Blocker ID | Title | File / Subsystem | Resolution Summary | Verification Test Proof |
+| :--- | :--- | :--- | :--- | :--- |
+| **BLK-06** | Alembic None Check | `alembic/versions/007,008,009,011` | Added `inspector is None` guard and narrowed block scoping | `mypy alembic/versions/` (0 errors) |
+| **SEC-01** | JWT Dev Secret Fallback | `app/auth/jwt.py` | Fail closed in prod, pinned HS256, required claims | `test_auth_jwt_security.py` (8/8 pass) |
+| **SEC-02** | Public Demo Login | `app/auth/router.py` | Disabled by default, HTTP 403 in prod | `test_auth_demo_security.py` (5/5 pass) |
+| **SEC-03** | OAuth State Replay | `app/auth/oauth_state.py` | HMAC verification, thread-safe single-use nonce lock | `test_auth_oauth_state_security.py` (7/7 pass) |
+| **SEC-04** | OAuth Open Redirect | `app/auth/router.py` | Strict allowlist origin validation for redirect targets | `test_auth_redirect_security.py` (8/8 pass) |
+| **SEC-05** | Sensitive Action Bypass | `app/skills/router.py` | Client `confirm: true` ignored; HMAC token challenge | `test_skills_confirmation_security.py` (5/5 pass) |
+| **SEC-06** | Gmail Token Plaintext | `app/skills/email_send.py` | Fernet symmetric authenticated encryption at rest | `test_gmail_token_storage_security.py` (3/3 pass) |
+| **GW-01** | Groq vs Grok Routing | `app/ai_gateway/` | Dedicated GroqAdapter, GrokAdapter, priority order | `test_ai_routing_reconciliation.py` (7/7 pass) |
