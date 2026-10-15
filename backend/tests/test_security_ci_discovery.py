@@ -17,6 +17,7 @@ REQUIRED_SECURITY_TEST_FILES = [
     "tests/test_auth_redirect_security.py",
     "tests/test_skills_confirmation_security.py",
     "tests/test_gmail_token_storage_security.py",
+    "tests/test_payment_production_security.py",
     "tests/test_ai_routing_reconciliation.py",
     "tests/test_phase24_adversarial_security.py",
     "tests/test_security_ci_discovery.py",
