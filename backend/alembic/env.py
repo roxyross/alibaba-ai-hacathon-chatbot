@@ -18,24 +18,15 @@ try:
 except ImportError:
     pass
 
-from alembic import context
 from sqlalchemy import inspect, pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from alembic import context
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from app.db import Base, normalize_database_url
-from app.models import (
-    ChatMessage,
-    ChatSession,
-    MagicLinkToken,
-    Model,
-    Provider,
-    TokenUsageLog,
-    User,
-    UserPreference,
-)
 
 config = context.config
 
@@ -43,12 +34,15 @@ config = context.config
 # `sqlalchemy.url` in alembic.ini. `normalize_database_url` upgrades
 # `postgresql://` → `postgresql+asyncpg://` and pulls `sslmode=...` out of
 # the query string into `connect_args` for asyncpg.
-_db_url, _db_connect_args = normalize_database_url(
-    os.environ.get(
-        "DATABASE_URL",
-        config.get_main_option("sqlalchemy.url") or "",
-    ).strip()
-)
+_configured_url = config.get_main_option("sqlalchemy.url") or ""
+if os.environ.get("ROXY_TEST_DATABASE_URL"):
+    _target_url = os.environ["ROXY_TEST_DATABASE_URL"].strip()
+elif _configured_url and "user:pass@localhost:5432/roxy" not in _configured_url:
+    _target_url = _configured_url.strip()
+else:
+    _target_url = os.environ.get("DATABASE_URL", _configured_url).strip()
+
+_db_url, _db_connect_args = normalize_database_url(_target_url)
 _db_connect_args["statement_cache_size"] = 0
 config.set_main_option("sqlalchemy.url", _db_url)
 
@@ -80,6 +74,12 @@ def do_run_migrations(connection: Connection) -> None:
                 text(
                     "UPDATE alembic_version SET version_num = '010_cowork_artifacts_open_work' "
                     "WHERE version_num = '010_cowork_artifacts_and_open_work'"
+                )
+            )
+            connection.execute(
+                text(
+                    "UPDATE alembic_version SET version_num = '012_billing_connectors' "
+                    "WHERE version_num = '012_billing_and_connectors_persistence'"
                 )
             )
     except Exception:

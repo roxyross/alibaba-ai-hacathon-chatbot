@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
@@ -37,6 +38,13 @@ def validate_migrations(alembic_ini_path: Path | None = None) -> bool:
     revisions = list(script_dir.walk_revisions("base", head_rev))
     print(f"SUCCESS: Migration chain verified with {len(revisions)} revisions:")
     for rev in reversed(revisions):
+        if len(rev.revision) > 32:
+            print(
+                f"ERROR: Revision ID '{rev.revision}' ({len(rev.revision)} chars) exceeds the 32-character "
+                f"limit for alembic_version.version_num!",
+                file=sys.stderr,
+            )
+            return False
         print(f"  - [{rev.revision}] {rev.doc} (down: {rev.down_revision})")
 
     return True

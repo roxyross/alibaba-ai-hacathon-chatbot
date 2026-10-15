@@ -165,6 +165,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres_test_password@localhost:5432/roxy_test
         run: |
           python -m alembic upgrade head
+          python -m pytest tests/test_alembic_migrations.py -v
 
       - name: Run backend security regression test suite
         env:
