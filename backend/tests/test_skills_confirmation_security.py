@@ -333,7 +333,12 @@ def test_wrong_user_cannot_invalidate_valid_token_in_redis_or_memory() -> None:
     import json
     import time
     from unittest.mock import MagicMock
-    from app.skills.router import ConfirmationRecord, RedisConfirmationStore, InMemoryConfirmationStore
+
+    from app.skills.router import (
+        ConfirmationRecord,
+        InMemoryConfirmationStore,
+        RedisConfirmationStore,
+    )
 
     # 1. Test InMemory store
     mem_store = InMemoryConfirmationStore()
@@ -370,8 +375,15 @@ def test_wrong_user_cannot_invalidate_valid_token_in_redis_or_memory() -> None:
             return redis_store_data.pop(key)
         return None  # Key is NOT deleted when user_id does not match!
 
-    mock_redis.set.side_effect = lambda k, v, **kw: redis_store_data.update({k: v}) or True
-    mock_redis.get.side_effect = lambda k: redis_store_data.get(k)
+    def _mock_redis_set(k: str, v: str, **kw: Any) -> bool:
+        redis_store_data[k] = v
+        return True
+
+    def _mock_redis_get(k: str) -> str | None:
+        return redis_store_data.get(k)
+
+    mock_redis.set.side_effect = _mock_redis_set
+    mock_redis.get.side_effect = _mock_redis_get
     mock_redis.eval.side_effect = _atomic_lua_mock
 
     redis_store = RedisConfirmationStore.__new__(RedisConfirmationStore)
@@ -410,6 +422,7 @@ def test_wrong_user_cannot_invalidate_valid_token_in_redis_or_memory() -> None:
 def test_redis_unavailability_handled_safely() -> None:
     """When Redis client raises connection or command errors, RedisConfirmationStore fails safely."""
     from unittest.mock import MagicMock
+
     from app.skills.router import ConfirmationRecord, RedisConfirmationStore
 
     mock_redis = MagicMock()
@@ -441,6 +454,7 @@ def test_concurrent_consume_only_one_consumer_succeeds() -> None:
     import json
     import time
     from unittest.mock import MagicMock
+
     from app.skills.router import ConfirmationRecord, RedisConfirmationStore
 
     stored: dict[str, str] = {}
@@ -455,7 +469,11 @@ def test_concurrent_consume_only_one_consumer_succeeds() -> None:
             return stored.pop(key, None)
         return None
 
-    mock_redis.set.side_effect = lambda k, v, **kw: stored.update({k: v}) or True
+    def _mock_redis_set_concurrent(k: str, v: str, **kw: Any) -> bool:
+        stored[k] = v
+        return True
+
+    mock_redis.set.side_effect = _mock_redis_set_concurrent
     mock_redis.eval.side_effect = _eval
 
     store = RedisConfirmationStore.__new__(RedisConfirmationStore)

@@ -457,7 +457,7 @@ async def _run_skill(
         hasattr(input_data, "__dict__") and "user_id" in getattr(input_data, "__dict__", {})
     ):
         with contextlib.suppress(Exception):
-            input_data.user_id = user_id
+            object.__setattr__(input_data, "user_id", user_id)
 
     # Read-only operations on schedule_job (like list or timezones) do not require confirmation
     op_str = str(getattr(input_data, "op", "")).lower()
@@ -473,7 +473,7 @@ async def _run_skill(
 
         # Client-supplied confirm flag CANNOT bypass server confirmation
         with contextlib.suppress(AttributeError, TypeError):
-            input_data.confirm = False
+            object.__setattr__(input_data, "confirm", False)
 
         token = secrets.token_urlsafe(24)
         issued_at = time.time()
@@ -624,7 +624,7 @@ async def skill_confirm_execute(
 
     # Stamp confirmation — the skill's confirmation gate checks this flag
     with contextlib.suppress(AttributeError, TypeError):
-        input_data.confirm = True
+        object.__setattr__(input_data, "confirm", True)
 
     try:
         await executor.execute(input_data)

@@ -324,8 +324,10 @@ def test_database_write_failure_returns_false_and_does_not_claim_success(temp_to
     """When DATABASE_URL is configured and durable database write fails, _save_encrypted_token MUST return False."""
     skill = EmailSendSkill()
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
-    # Simulate DB write failure
-    monkeypatch.setattr(skill, "_save_token_to_db", lambda uid, container: False)
+    def _mock_save_token_to_db_fail(uid: str, container: dict[str, Any]) -> bool:
+        return False
+
+    monkeypatch.setattr(skill, "_save_token_to_db", _mock_save_token_to_db_fail)
 
     with patch.dict(
         os.environ,
