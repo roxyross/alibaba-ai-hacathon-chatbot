@@ -323,7 +323,9 @@ async def stripe_webhook(request: Request) -> dict[str, Any]:
 
     result = await _service.process_webhook("stripe", headers, raw_body)
     if result.get("status") == "error":
-        raise HTTPException(status_code=400, detail=result.get("message", "Webhook verification failed"))
+        msg = result.get("message", "Webhook verification failed")
+        status_code = 500 if "Webhook processing error" in msg else 400
+        raise HTTPException(status_code=status_code, detail=msg)
     return {"received": True, **result}
 
 
@@ -335,5 +337,7 @@ async def safepay_webhook(request: Request) -> dict[str, Any]:
 
     result = await _service.process_webhook("safepay", headers, raw_body)
     if result.get("status") == "error":
-        raise HTTPException(status_code=400, detail=result.get("message", "Webhook verification failed"))
+        msg = result.get("message", "Webhook verification failed")
+        status_code = 500 if "Webhook processing error" in msg else 400
+        raise HTTPException(status_code=status_code, detail=msg)
     return {"received": True, **result}

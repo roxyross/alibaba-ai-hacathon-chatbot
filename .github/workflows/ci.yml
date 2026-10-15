@@ -194,6 +194,7 @@ jobs:
           APP_ENV: test
           JWT_SECRET: ci_test_jwt_secret_must_be_thirty_two_bytes_long!
           JWT_SERVICE_SECRET: ci_test_service_secret_thirty_two_bytes_long!
+          GMAIL_TOKEN_ENCRYPTION_KEY: ci_test_gmail_token_encryption_key_32_bytes!
         run: |
           python -m pytest tests/integration/test_phase20_docker_compose.py \
                  tests/integration/test_phase1_auth_session.py \
@@ -203,6 +204,8 @@ jobs:
                  tests/integration/test_phase34_settings_all_15_sections.py \
                  tests/integration/test_phase35_media_registry_and_jobs.py \
                  tests/integration/test_phase36_video_studio_and_canvas.py \
+                 tests/integration/test_gmail_token_real_postgres_integration.py \
+                 tests/integration/test_billing_real_postgres_integration.py \
                  -v --tb=short
 
   # ----------------------------------------------------------------------------

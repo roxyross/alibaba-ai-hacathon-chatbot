@@ -51,6 +51,20 @@ class BillingRepository:
     def __init__(self, session: AsyncSession | None = None) -> None:
         self._session = session
 
+    @staticmethod
+    def _is_production() -> bool:
+        """Detect production environment."""
+        env = os.environ.get("ENVIRONMENT", "").lower()
+        app_env = os.environ.get("APP_ENV", "").lower()
+        node_env = os.environ.get("NODE_ENV", "").lower()
+        return (
+            env in ("production", "prod")
+            or app_env in ("production", "prod")
+            or node_env in ("production", "prod")
+            or bool(os.environ.get("K_SERVICE"))
+            or bool(os.environ.get("VERCEL"))
+        )
+
     def _get_factory(self) -> async_sessionmaker[AsyncSession] | None:
         if not os.environ.get("DATABASE_URL"):
             return None
@@ -110,10 +124,13 @@ class BillingRepository:
                             "payment_method": pm_dict,
                         }
             except Exception as exc:
-                logger.warning(f"Database query failed, falling back to memory: {exc}")
+                logger.error(f"Database query failed: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"Database query failed in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
 
-        # In-memory store fallback
-        if user_id in _MEM_SUBSCRIPTIONS:
+        # In-memory store fallback (dev/test only)
+        if not self._is_production() and user_id in _MEM_SUBSCRIPTIONS:
             return _MEM_SUBSCRIPTIONS[user_id]
 
         return {
@@ -182,7 +199,12 @@ class BillingRepository:
                         sub.current_period_end = next_date
                     await db.commit()
             except Exception as exc:
-                logger.warning(f"Database update failed, falling back to memory: {exc}")
+                logger.error(f"Database update failed: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"Database subscription update failed in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+        elif self._is_production():
+            raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
         # Update in-memory store
         methods = _MEM_PAYMENT_METHODS.get(user_id, [])
@@ -216,7 +238,12 @@ class BillingRepository:
                         sub.cancel_at_period_end = True
                         await db.commit()
             except Exception as exc:
-                logger.warning(f"Database cancel failed: {exc}")
+                logger.error(f"Database cancel failed: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"Database cancel failed in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+        elif self._is_production():
+            raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
         if user_id in _MEM_SUBSCRIPTIONS:
             _MEM_SUBSCRIPTIONS[user_id]["plan"]["cancel_at_period_end"] = True
@@ -258,7 +285,13 @@ class BillingRepository:
                                 "powered_by": pm.provider.title(),
                             })
             except Exception as exc:
-                logger.warning(f"DB list payment methods failed: {exc}")
+                logger.error(f"DB list payment methods failed: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"DB list payment methods failed in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+
+        if self._is_production() and factory is None:
+            raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
         if not methods:
             methods = _MEM_PAYMENT_METHODS.get(user_id, [])
@@ -316,7 +349,12 @@ class BillingRepository:
                     db.add(db_pm)
                     await db.commit()
             except Exception as exc:
-                logger.warning(f"DB add payment method failed: {exc}")
+                logger.error(f"DB add payment method failed: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"DB add payment method failed in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+        elif self._is_production():
+            raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
         # In-memory storage
         if user_id not in _MEM_PAYMENT_METHODS:
@@ -349,7 +387,12 @@ class BillingRepository:
                         await db.commit()
                         deleted = True
             except Exception as exc:
-                logger.warning(f"DB delete payment method failed: {exc}")
+                logger.error(f"DB delete payment method failed: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"DB delete payment method failed in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+        elif self._is_production():
+            raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
         methods = _MEM_PAYMENT_METHODS.get(user_id, [])
         before = len(methods)
@@ -417,7 +460,12 @@ class BillingRepository:
                     db.add(db_p)
                     await db.commit()
             except Exception as exc:
-                logger.warning(f"DB record payment failed: {exc}")
+                logger.error(f"DB record payment failed: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"DB record payment failed in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+        elif self._is_production():
+            raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
         if user_id not in _MEM_PAYMENTS:
             _MEM_PAYMENTS[user_id] = []
@@ -466,7 +514,12 @@ class BillingRepository:
                     db.add(event)
                     await db.commit()
             except Exception as exc:
-                logger.warning(f"DB record webhook event error: {exc}")
+                logger.error(f"DB record webhook event error: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"DB record webhook event error in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+        elif self._is_production():
+            raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
         _MEM_EVENTS.add(key)
         return True
@@ -493,9 +546,12 @@ class BillingRepository:
                             "estimated_cost_pkr": wallet.estimated_cost_pkr,
                         }
             except Exception as exc:
-                logger.warning(f"DB get wallet failed: {exc}")
+                logger.error(f"DB get wallet failed: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"DB get wallet failed in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
 
-        if user_id in _MEM_WALLETS:
+        if not self._is_production() and user_id in _MEM_WALLETS:
             return _MEM_WALLETS[user_id]
 
         initial = {
@@ -536,7 +592,18 @@ class BillingRepository:
                         wallet.remaining_credits += credits
                     await db.commit()
             except Exception as exc:
-                logger.warning(f"DB credit wallet failed: {exc}")
+                logger.error(f"DB credit wallet failed: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"DB credit wallet failed in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+        elif self._is_production():
+            raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
+
+        if factory is not None:
+            # DB committed the credit; fetch true balance without double-adding
+            wallet_mem = await self.get_credit_wallet(user_id)
+            _MEM_WALLETS[user_id] = wallet_mem
+            return wallet_mem
 
         wallet_mem = await self.get_credit_wallet(user_id)
         wallet_mem["remaining_credits"] += credits
@@ -561,7 +628,12 @@ class BillingRepository:
                         w.used_this_month += credits
                         await db.commit()
             except Exception as exc:
-                logger.warning(f"DB deduct credits failed: {exc}")
+                logger.error(f"DB deduct credits failed: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"DB deduct credits failed in production: {exc}") from exc
+                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+        elif self._is_production():
+            raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
         wallet["remaining_credits"] -= credits
         wallet["used_this_month"] += credits
