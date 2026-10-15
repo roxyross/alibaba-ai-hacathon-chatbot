@@ -436,15 +436,20 @@ def test_refreshed_token_persistence_failure_fails_closed(monkeypatch: pytest.Mo
     monkeypatch.setenv("GMAIL_CLIENT_SECRET", "dummy_client_secret")
     monkeypatch.setenv("APP_ENV", "production")
 
-    class MockResp:
-        status_code = 200
-        def json(self) -> dict[str, Any]:
-            return {"access_token": "ya29.new_refreshed_token", "expires_in": 3600}
-
     import httpx
-    monkeypatch.setattr(httpx, "post", lambda *a, **kw: MockResp())
-    # Mock persistence failure
-    monkeypatch.setattr(skill, "_save_encrypted_token", lambda uid, payload: False)
+
+    def _mock_post(*args: Any, **kwargs: Any) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            json={"access_token": "ya29.new_refreshed_token", "expires_in": 3600},
+            request=httpx.Request("POST", "https://oauth2.googleapis.com/token"),
+        )
+
+    def _mock_save_encrypted_fail(uid: str, payload: dict[str, Any]) -> bool:
+        return False
+
+    monkeypatch.setattr(httpx, "post", _mock_post)
+    monkeypatch.setattr(skill, "_save_encrypted_token", _mock_save_encrypted_fail)
 
     token = skill._refresh_token("user_test", "1//dummy_refresh_token")
     assert token is None, "Must not return success when refreshed token could not be persisted"
@@ -456,7 +461,12 @@ def test_revocation_clears_database_and_local_token(temp_token_data_dir: str, mo
     monkeypatch.setattr(skill, "_token_dir", lambda: temp_token_data_dir)
 
     db_deleted: list[str] = []
-    monkeypatch.setattr(skill, "_delete_token_from_db", lambda uid: db_deleted.append(uid) or True)
+
+    def _mock_delete_from_db(uid: str) -> bool:
+        db_deleted.append(uid)
+        return True
+
+    monkeypatch.setattr(skill, "_delete_token_from_db", _mock_delete_from_db)
 
     # Place a local file as well
     token_file = os.path.join(temp_token_data_dir, "gmail_token_user_revoked.json")
@@ -478,17 +488,24 @@ async def test_oauth_callback_fails_closed_in_production_when_token_persistence_
     from app.skills.email_send import EmailSendSkill
 
     monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setattr(EmailSendSkill, "_save_encrypted_token", lambda self, uid, payload: False)
+
+    def _mock_cls_save_fail(self: Any, uid: str, payload: dict[str, Any]) -> bool:
+        return False
+
+    monkeypatch.setattr(EmailSendSkill, "_save_encrypted_token", _mock_cls_save_fail)
 
     class DummyUser:
         id = "user_oauth_123"
         email = "test@example.com"
 
+    def _mock_create_session(uid: str, email: str | None = None) -> tuple[str, int]:
+        return ("jwt_token", 3600)
+
     import app.auth.oauth as oauth_mod
     monkeypatch.setattr(oauth_mod, "exchange_code", AsyncMock(return_value={"access_token": "ya29.test", "id_token": "dummy", "refresh_token": "dummy_ref"}))
     monkeypatch.setattr(oauth_mod, "_verify_with_jwks", AsyncMock(return_value={"email": "test@example.com", "email_verified": True}))
     monkeypatch.setattr(oauth_mod, "upsert_user_by_email", AsyncMock(return_value=DummyUser()))
-    monkeypatch.setattr(oauth_mod, "create_session_token", lambda uid, email: ("jwt_token", 3600))
+    monkeypatch.setattr(oauth_mod, "create_session_token", _mock_create_session)
 
     cfg = GoogleConfig(client_id="cid", client_secret="csec", redirect_uri="https://roxy.ai/callback")
 
