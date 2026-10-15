@@ -293,9 +293,30 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
         is_prod = self._is_production()
 
         # Enforce SEC-06 durable persistence rules:
+        if is_prod:
+            # When running in production, durable database persistence is strictly required.
+            if not has_db:
+                log.error(
+                    "email_send.production_missing_database_url",
+                    user_id=user_id,
+                    detail="DATABASE_URL not configured in production mode. Refusing to fall back to ephemeral local container storage.",
+                )
+                return False
+
+            db_saved = self._save_token_to_db(user_id, container)
+            if not db_saved:
+                log.error(
+                    "email_send.durable_db_write_failed",
+                    user_id=user_id,
+                    detail="Durable database write failed in production mode. Refusing to report successful persistence.",
+                )
+                return False
+
+            # In production, never write tokens to a local container disk file.
+            return True
+
+        # Non-production (development / test) mode:
         if has_db:
-            # When DATABASE_URL is configured, durable database persistence is REQUIRED.
-            # Do not return successful persistence if the durable database write fails.
             db_saved = self._save_token_to_db(user_id, container)
             if not db_saved:
                 log.error(
@@ -304,23 +325,15 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                     detail="Durable database write failed when DATABASE_URL was configured. Refusing to report successful persistence.",
                 )
                 return False
-        elif is_prod:
-            # Explicit production behavior when DATABASE_URL is missing:
-            # If strict durable storage is mandated, fail closed.
-            if os.environ.get("REQUIRE_DURABLE_TOKEN_STORE", "false").lower() in ("true", "1"):
-                log.error(
-                    "email_send.production_missing_database_url",
-                    user_id=user_id,
-                    detail="REQUIRE_DURABLE_TOKEN_STORE enforced in production but DATABASE_URL is missing. Failing closed.",
-                )
-                return False
-            log.warning(
-                "email_send.production_missing_database_url_warning",
+        elif os.environ.get("REQUIRE_DURABLE_TOKEN_STORE", "false").lower() in ("true", "1"):
+            log.error(
+                "email_send.missing_database_url_strict",
                 user_id=user_id,
-                detail="DATABASE_URL not configured in production mode. Saving to local container storage; token will not survive stateless instance restarts.",
+                detail="REQUIRE_DURABLE_TOKEN_STORE enforced but DATABASE_URL is missing. Failing closed.",
             )
+            return False
 
-        # 2. Persist to local container disk for fast cached reads and local execution
+        # In development/test mode only, persist to local container disk for offline/test execution
         data_dir = self._token_dir()
         token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
         try:
@@ -336,6 +349,7 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
 
     def _load_user_token_payload(self, user_id: str) -> dict[str, Any] | None:
         """Load and decrypt stored token payload from durable shared database or local disk."""
+        is_prod = self._is_production()
         data: Any = None
 
         # 1. Attempt load from durable shared database (NeonDB PostgreSQL)
@@ -343,8 +357,8 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
         if db_data and isinstance(db_data, dict):
             data = db_data
 
-        # 2. Fall back to local file storage if not in database
-        if not data:
+        # 2. Fall back to local file storage only in development/test mode
+        if not data and not is_prod:
             data_dir = self._token_dir()
             token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
             if not os.path.exists(token_path):
@@ -366,9 +380,8 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                     log.error("email_send.load_token_failed_no_cipher", user_id=user_id)
                     return None
                 ciphertext = data["ciphertext"]
+                from cryptography.fernet import InvalidToken
                 try:
-                    from cryptography.fernet import InvalidToken
-
                     decrypted_bytes = cipher.decrypt(ciphertext.encode("utf-8"))
                 except InvalidToken:
                     log.warning("email_send.invalid_token_or_tampered_ciphertext", user_id=user_id)
@@ -439,7 +452,7 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             data = resp.json()
             access_token = data.get("access_token")
             # Persist refreshed token securely encrypted
-            self._save_encrypted_token(
+            saved = self._save_encrypted_token(
                 user_id,
                 {
                     "access_token": access_token,
@@ -447,11 +460,54 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                     "expires_at": datetime.now(UTC).timestamp() + data.get("expires_in", 3600),
                 },
             )
+            if not saved:
+                log.error("email_send.token_refresh_persistence_failed", user_id=user_id)
+                return None
             return str(access_token) if isinstance(access_token, str) else None
         except Exception as exc:
             log.warning("email_send.refresh_exception", error=str(exc))
             return None
 
+    def _delete_token_from_db(self, user_id: str) -> bool:
+        """Remove revoked token from durable PostgreSQL connector_instances table."""
+        if not os.environ.get("DATABASE_URL"):
+            return False
+        try:
+            import concurrent.futures
+
+            from sqlalchemy import delete
+
+            from app.db import get_session_factory
+            from app.models.connector import ConnectorInstance
+
+            factory = get_session_factory()
+            if factory is None:
+                return False
+
+            async def _async_delete() -> bool:
+                async with factory() as session:
+                    stmt = delete(ConnectorInstance).where(
+                        ConnectorInstance.user_id == user_id,
+                        ConnectorInstance.connector_type == "gmail",
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+                    return True
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return bool(pool.submit(asyncio.run, _async_delete()).result(timeout=4.0))
+        except Exception as exc:
+            log.warning("email_send.db_token_delete_failed", user_id=user_id, error=str(exc))
+            return False
+
+    def _delete_user_token(self, user_id: str) -> None:
+        """Remove user OAuth token from database and local storage upon revocation."""
+        self._delete_token_from_db(user_id)
+        data_dir = self._token_dir()
+        token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
+        with contextlib.suppress(Exception):
+            if os.path.exists(token_path):
+                os.remove(token_path)
 
     async def _send_via_gmail_api(
         self, input_data: EmailSendRequest, raw_bytes: bytes
@@ -486,13 +542,8 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                 )
 
             if resp.status_code == 401:
-                # Token revoked — clear stored token
-                token_path = os.path.join(
-                    os.path.dirname(__file__), "..", "..", "..", "data",
-                    f"gmail_token_{user_id}.json",
-                )
-                with contextlib.suppress(Exception):
-                    os.remove(token_path)
+                # Token revoked — clear stored token from durable DB and local cache
+                self._delete_user_token(user_id)
                 return EmailSendResponse(
                     success=False,
                     delivery_status="not_sent",

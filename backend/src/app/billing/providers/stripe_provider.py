@@ -11,6 +11,7 @@ from app.billing.providers.base import (
     NormalizedWebhookEvent,
     PaymentProvider,
     PaymentVerificationResult,
+    is_production_environment,
 )
 
 try:
@@ -30,17 +31,50 @@ class StripeProvider(PaymentProvider):
         webhook_secret: str | None = None,
         publishable_key: str | None = None,
     ) -> None:
-        self.api_key = api_key or os.getenv("STRIPE_SECRET_KEY", "")
-        self.webhook_secret = webhook_secret or os.getenv("STRIPE_WEBHOOK_SECRET", "")
-        self.publishable_key = publishable_key or os.getenv("STRIPE_PUBLISHABLE_KEY", "")
-        self.additional_webhook_secrets = [
-            s.strip() for s in [
+        self._explicit_api_key = api_key
+        self._explicit_webhook_secret = webhook_secret
+        self._explicit_publishable_key = publishable_key
+
+    @property
+    def api_key(self) -> str:
+        if self._explicit_api_key is not None:
+            return self._explicit_api_key
+        return os.getenv("STRIPE_SECRET_KEY", "")
+
+    @api_key.setter
+    def api_key(self, value: str) -> None:
+        self._explicit_api_key = value
+
+    @property
+    def webhook_secret(self) -> str:
+        if self._explicit_webhook_secret is not None:
+            return self._explicit_webhook_secret
+        return os.getenv("STRIPE_WEBHOOK_SECRET", "")
+
+    @webhook_secret.setter
+    def webhook_secret(self, value: str) -> None:
+        self._explicit_webhook_secret = value
+
+    @property
+    def publishable_key(self) -> str:
+        if self._explicit_publishable_key is not None:
+            return self._explicit_publishable_key
+        return os.getenv("STRIPE_PUBLISHABLE_KEY", "")
+
+    @publishable_key.setter
+    def publishable_key(self, value: str) -> None:
+        self._explicit_publishable_key = value
+
+    @property
+    def additional_webhook_secrets(self) -> list[str]:
+        return [
+            s.strip()
+            for s in [
                 os.getenv("STRIPE_WEBHOOK_SNAPSHOT_SECRET", ""),
                 os.getenv("STRIPE_WEBHOOK_THIN_SECRET", ""),
-            ] if s and s.strip()
+            ]
+            if s and s.strip()
         ]
-        if self.api_key and stripe:
-            stripe.api_key = self.api_key
 
     def is_configured(self) -> bool:
         """Check if required Stripe API key is provided."""
@@ -62,12 +96,22 @@ class StripeProvider(PaymentProvider):
         metadata: dict[str, Any] | None = None,
     ) -> CheckoutSessionResult:
         """Create a Stripe Checkout Session for subscription or one-time payment."""
+        is_prod = is_production_environment()
+
+        # In production, check prerequisites strictly and fail closed
+        if is_prod:
+            if not self.is_configured():
+                raise RuntimeError("Stripe secret key is not configured in production environment.")
+            if not stripe:
+                raise RuntimeError("Stripe SDK is not installed in production environment.")
+
         meta = metadata.copy() if metadata else {}
         meta.setdefault("user_id", user_id)
         meta.setdefault("plan_id", plan_id)
 
         # Real Stripe integration if configured and stripe SDK available
         if self.is_configured() and stripe:
+            stripe.api_key = self.api_key
             try:
                 # Mode is subscription for recurring plans, payment for top-ups
                 is_topup = plan_id.startswith("pack_") or meta.get("type") == "topup"
@@ -105,9 +149,16 @@ class StripeProvider(PaymentProvider):
                     metadata=meta,
                 )
 
+                session_id = getattr(session, "id", None)
+                checkout_url = getattr(session, "url", None)
+                if not session_id or not isinstance(session_id, str) or not session_id.strip():
+                    raise RuntimeError("Stripe returned an invalid or empty session ID.")
+                if not checkout_url or not isinstance(checkout_url, str) or not checkout_url.strip():
+                    raise RuntimeError("Stripe returned an invalid or empty checkout URL.")
+
                 return CheckoutSessionResult(
-                    session_id=session.id,
-                    checkout_url=session.url or "",
+                    session_id=session_id,
+                    checkout_url=checkout_url,
                     provider=self.name,
                     amount=amount,
                     currency=currency.upper(),
@@ -116,11 +167,13 @@ class StripeProvider(PaymentProvider):
                     metadata=meta,
                 )
             except Exception as exc:
-                # In testing or development, fall through to simulation if live call fails
-                if os.getenv("APP_ENV", "").lower() in ("production", "prod") or os.getenv("ENV", "").lower() in ("production", "prod"):
-                    raise exc
+                if is_prod:
+                    raise RuntimeError(f"Stripe checkout session creation failed: {exc}") from exc
 
-        # Simulated / Test session when Stripe keys are unset or in test mocks
+        if is_prod:
+            raise RuntimeError("Stripe checkout failed to initialize in production environment.")
+
+        # Simulated / Test session when Stripe keys are unset or in test mocks (non-production only)
         session_id = f"cs_test_{uuid.uuid4().hex}"
         checkout_url = f"https://checkout.stripe.com/c/pay/{session_id}"
         return CheckoutSessionResult(
@@ -140,6 +193,7 @@ class StripeProvider(PaymentProvider):
     ) -> PaymentVerificationResult:
         """Verify Stripe payment/checkout session status."""
         if self.is_configured() and stripe:
+            stripe.api_key = self.api_key
             try:
                 session = stripe.checkout.Session.retrieve(session_or_tracker_id)
                 status = "paid" if session.payment_status == "paid" else session.payment_status
@@ -166,7 +220,7 @@ class StripeProvider(PaymentProvider):
                 )
 
         # In production, unconfigured provider must never return simulated payment success
-        if os.getenv("APP_ENV", "").lower() in ("production", "prod") or os.getenv("ENV", "").lower() in ("production", "prod"):
+        if is_production_environment():
             return PaymentVerificationResult(
                 payment_id=session_or_tracker_id,
                 status="failed",
@@ -272,7 +326,10 @@ class StripeProvider(PaymentProvider):
         provider_subscription_id: str,
     ) -> bool:
         """Cancel a subscription with Stripe."""
+        if is_production_environment() and (not self.is_configured() or not stripe):
+            return False
         if self.is_configured() and stripe:
+            stripe.api_key = self.api_key
             try:
                 stripe.Subscription.modify(
                     provider_subscription_id,

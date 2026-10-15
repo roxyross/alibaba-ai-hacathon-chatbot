@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
+from datetime import UTC
 from typing import Any
 from urllib.parse import urlencode
 
@@ -61,7 +62,7 @@ class GoogleConfig:
     scopes: tuple[str, ...] = ("openid", "email", "profile")
 
     @classmethod
-    def from_env(cls) -> "GoogleConfig | None":
+    def from_env(cls) -> GoogleConfig | None:
         client_id = (os.environ.get("GOOGLE_CLIENT_ID") or "").strip()
         client_secret = (os.environ.get("GOOGLE_CLIENT_SECRET") or "").strip()
         if not client_id or not client_secret:
@@ -269,6 +270,7 @@ async def _verify_with_jwks(id_token: str, config: GoogleConfig) -> dict[str, An
 
     try:
         import json as _json
+
         from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
         from jwt.algorithms import RSAAlgorithm
 
@@ -316,16 +318,16 @@ def _memory_upsert(email: str) -> User:
     user = _MEM_USERS.get(email)
     if user is None:
         import secrets as _s
-        from datetime import datetime, timezone
+        from datetime import datetime
         user = User(
             id=_s.token_urlsafe(16),
             email=email,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         _MEM_USERS[email] = user
     try:
-        from app.auth.service import _MEM_USERS as _service_mem_users
-        _service_mem_users[email] = user
+        from app.auth.service import _MEM_USERS as _SERVICE_MEM_USERS
+        _SERVICE_MEM_USERS[email] = user
     except Exception:
         pass
     return user
@@ -347,13 +349,13 @@ async def _db_upsert(email: str) -> User:
                     await session.execute(select(User).where(User.email == email))
                 ).scalar_one_or_none()
                 if existing is not None:
-                    from datetime import datetime, timezone
-                    existing.last_login_at = datetime.now(timezone.utc)
+                    from datetime import datetime
+                    existing.last_login_at = datetime.now(UTC)
                     await session.commit()
                     _MEM_USERS[email] = existing
                     try:
-                        from app.auth.service import _MEM_USERS as _service_mem_users
-                        _service_mem_users[email] = existing
+                        from app.auth.service import _MEM_USERS as _SERVICE_MEM_USERS
+                        _SERVICE_MEM_USERS[email] = existing
                     except Exception:
                         pass
                     return existing
@@ -363,8 +365,8 @@ async def _db_upsert(email: str) -> User:
                 await session.refresh(user)
                 _MEM_USERS[email] = user
                 try:
-                    from app.auth.service import _MEM_USERS as _service_mem_users
-                    _service_mem_users[email] = user
+                    from app.auth.service import _MEM_USERS as _SERVICE_MEM_USERS
+                    _SERVICE_MEM_USERS[email] = user
                 except Exception:
                     pass
                 return user
@@ -379,8 +381,8 @@ async def _db_upsert(email: str) -> User:
                         await session.execute(select(User).where(User.email == email))
                     ).scalar_one_or_none()
                     if existing is not None:
-                        from datetime import datetime, timezone
-                        existing.last_login_at = datetime.now(timezone.utc)
+                        from datetime import datetime
+                        existing.last_login_at = datetime.now(UTC)
                         await session.commit()
                         _MEM_USERS[email] = existing
                         return existing
@@ -456,28 +458,27 @@ async def complete_google_callback(
     log.info("auth.oauth.signed_in", user_id=user.id)
     jwt_token, ttl = create_session_token(user.id, email=user.email)
 
-    # Persist Google tokens for email_send and calendar skills
+    # Persist Google tokens for email_send and calendar skills (encrypted at rest)
     try:
-        import json as _json
-        token_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
-        try:
-            os.makedirs(token_dir, exist_ok=True)
-        except OSError:
-            token_dir = "/tmp/roxy_data"
-            os.makedirs(token_dir, exist_ok=True)
-
+        from app.skills.email_send import EmailSendSkill
+        email_skill = EmailSendSkill()
         token_data = {
             "access_token": token_payload.get("access_token"),
             "refresh_token": token_payload.get("refresh_token"),
             "expires_at": time.time() + float(token_payload.get("expires_in", 3600)),
             "email": email,
         }
-        with open(os.path.join(token_dir, f"gmail_token_{user.id}.json"), "w", encoding="utf-8") as f:
-            _json.dump(token_data, f)
-        with open(os.path.join(token_dir, "gmail_token_default.json"), "w", encoding="utf-8") as f:
-            _json.dump(token_data, f)
+        saved = email_skill._save_encrypted_token(str(user.id), token_data)
+        if not saved and EmailSendSkill._is_production():
+            log.error("auth.oauth.durable_token_persistence_failed", user_id=user.id)
+            raise OAuthError("token_persistence_failed", "Failed to durably persist OAuth credentials in production")
+    except OAuthError:
+        raise
     except Exception as exc:
         log.warning("auth.oauth.persist_token_failed", error=str(exc))
+        from app.skills.email_send import EmailSendSkill
+        if EmailSendSkill._is_production():
+            raise OAuthError("token_persistence_failed", "Failed to durably persist OAuth credentials in production") from exc
 
     return user, jwt_token, ttl
 
@@ -513,7 +514,7 @@ class GitHubConfig:
     redirect_uri: str
 
     @classmethod
-    def from_env(cls) -> "GitHubConfig | None":
+    def from_env(cls) -> GitHubConfig | None:
         client_id = (os.environ.get("GITHUB_CLIENT_ID") or "").strip()
         client_secret = (os.environ.get("GITHUB_CLIENT_SECRET") or "").strip()
         if not client_id or not client_secret:
