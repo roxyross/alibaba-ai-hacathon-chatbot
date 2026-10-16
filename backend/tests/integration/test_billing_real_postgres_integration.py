@@ -226,7 +226,20 @@ async def test_03_payment_and_event_idempotency_in_postgres(pg_engine: AsyncEngi
             evt_res = await session.execute(evt_stmt)
             evt_row = evt_res.scalars().first()
             assert evt_row is not None, "PaymentEvent was not committed to PostgreSQL!"
-            assert evt_row.processed is True
+            assert evt_row.processed is False, "Newly recorded event must start in pending/unprocessed state"
+
+        # Complete event operations and mark processed
+        await repo.mark_webhook_event_processed("stripe", event_id)
+
+        async with AsyncSession(pg_engine) as session:
+            evt_stmt = select(PaymentEvent).where(
+                PaymentEvent.provider == "stripe",
+                PaymentEvent.provider_event_id == event_id,
+            )
+            evt_res = await session.execute(evt_stmt)
+            evt_row = evt_res.scalars().first()
+            assert evt_row is not None
+            assert evt_row.processed is True, "PaymentEvent must be marked processed=True after completion"
 
         # Duplicate event check: must return False (idempotent)
         fresh_repo = BillingRepository()

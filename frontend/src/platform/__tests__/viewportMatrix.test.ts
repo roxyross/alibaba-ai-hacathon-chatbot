@@ -10,20 +10,24 @@ interface ViewportSpec {
 }
 
 const VIEWPORT_MATRIX: ViewportSpec[] = [
-  { name: 'iPhone SE / Compact', width: 320, height: 568, category: 'mobile-compact', isTouch: true, minTouchTargetPx: 44 },
-  { name: 'Android Standard / Galaxy', width: 360, height: 800, category: 'mobile-standard', isTouch: true, minTouchTargetPx: 44 },
-  { name: 'iOS Standard / iPhone 13', width: 390, height: 844, category: 'mobile-standard', isTouch: true, minTouchTargetPx: 44 },
-  { name: 'iPad Portrait', width: 768, height: 1024, category: 'tablet', isTouch: true, minTouchTargetPx: 44 },
-  { name: 'iPad Landscape', width: 1024, height: 768, category: 'tablet', isTouch: true, minTouchTargetPx: 44 },
-  { name: 'Laptop / Desktop Standard', width: 1440, height: 900, category: 'desktop', isTouch: false, minTouchTargetPx: 32 },
-  { name: 'FHD Monitor / Desktop Ultra', width: 1920, height: 1080, category: 'desktop', isTouch: false, minTouchTargetPx: 32 },
+  { name: 'Mobile Ultra-Compact (320x700)', width: 320, height: 700, category: 'mobile-compact', isTouch: true, minTouchTargetPx: 44 },
+  { name: 'Android Standard (360x800)', width: 360, height: 800, category: 'mobile-standard', isTouch: true, minTouchTargetPx: 44 },
+  { name: 'iPhone Mini/X (375x812)', width: 375, height: 812, category: 'mobile-standard', isTouch: true, minTouchTargetPx: 44 },
+  { name: 'iPhone Standard (390x844)', width: 390, height: 844, category: 'mobile-standard', isTouch: true, minTouchTargetPx: 44 },
+  { name: 'iPhone Pro Max (430x932)', width: 430, height: 932, category: 'mobile-standard', isTouch: true, minTouchTargetPx: 44 },
+  { name: 'iPad Portrait (768x1024)', width: 768, height: 1024, category: 'tablet', isTouch: true, minTouchTargetPx: 44 },
+  { name: 'iPad Landscape (1024x768)', width: 1024, height: 768, category: 'tablet', isTouch: true, minTouchTargetPx: 44 },
+  { name: 'Laptop Compact (1280x800)', width: 1280, height: 800, category: 'desktop', isTouch: false, minTouchTargetPx: 32 },
+  { name: 'Desktop WXGA (1366x768)', width: 1366, height: 768, category: 'desktop', isTouch: false, minTouchTargetPx: 32 },
+  { name: 'Laptop Standard (1440x900)', width: 1440, height: 900, category: 'desktop', isTouch: false, minTouchTargetPx: 32 },
+  { name: 'Desktop FHD (1920x1080)', width: 1920, height: 1080, category: 'desktop', isTouch: false, minTouchTargetPx: 32 },
 ];
 
 describe('Phase 5 Mobile & Viewport Responsiveness Matrix', () => {
-  it('covers all 7 required viewports without gaps', () => {
-    expect(VIEWPORT_MATRIX).toHaveLength(7);
+  it('covers all 11 required viewports without gaps', () => {
+    expect(VIEWPORT_MATRIX).toHaveLength(11);
     const widths = VIEWPORT_MATRIX.map((v) => v.width);
-    expect(widths).toEqual([320, 360, 390, 768, 1024, 1440, 1920]);
+    expect(widths).toEqual([320, 360, 375, 390, 430, 768, 1024, 1280, 1366, 1440, 1920]);
   });
 
   VIEWPORT_MATRIX.forEach((spec) => {

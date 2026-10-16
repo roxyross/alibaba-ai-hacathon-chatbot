@@ -69,6 +69,13 @@ async def list_models() -> ModelListResponse:
             enabled=True,
             models=[
                 ModelInfo(
+                    name="gemini-4-argon",
+                    display_name="Gemini 4 Argon (Default General Reasoning)",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning", "multimodal"],
+                    max_tokens=32768,
+                ),
+                ModelInfo(
                     name="gemini-3.8-flash",
                     display_name="Gemini 3.8 Flash (Multimodal Audio & Modulation)",
                     enabled=True,
@@ -131,6 +138,13 @@ async def list_models() -> ModelListResponse:
             display_name="xAI / Groq",
             enabled=True,
             models=[
+                ModelInfo(
+                    name="grok-4.7",
+                    display_name="xAI Grok 4.7 (Flagship Reasoning & Coding)",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=16384,
+                ),
                 ModelInfo(
                     name="grok-3",
                     display_name="xAI Grok 3 (Flagship Reasoning & Coding)",

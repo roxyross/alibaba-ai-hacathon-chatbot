@@ -12,6 +12,7 @@ def test_migration_chain_integrity_and_revision_id_lengths() -> None:
     """Audit that every revision ID is <= 32 characters and exactly 1 head exists."""
     alembic_ini_path = Path(__file__).resolve().parents[1] / "alembic.ini"
     config = Config(str(alembic_ini_path))
+    config.set_main_option("script_location", str(alembic_ini_path.parent / "alembic"))
     script_dir = ScriptDirectory.from_config(config)
 
     heads = script_dir.get_heads()
@@ -41,6 +42,7 @@ def test_migration_fresh_and_incremental_upgrade_paths() -> None:
     """Verify that Alembic can traverse upgrade paths for both fresh and incremental migrations."""
     alembic_ini_path = Path(__file__).resolve().parents[1] / "alembic.ini"
     config = Config(str(alembic_ini_path))
+    config.set_main_option("script_location", str(alembic_ini_path.parent / "alembic"))
     script_dir = ScriptDirectory.from_config(config)
 
     # 1. Fresh path: base -> 012_billing_connectors

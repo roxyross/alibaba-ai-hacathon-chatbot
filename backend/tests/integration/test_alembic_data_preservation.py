@@ -77,6 +77,7 @@ async def test_01_migration_upgrade_and_single_head_in_postgres(pg_engine: Async
     alembic_ini = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "alembic.ini")
     cfg = Config(alembic_ini)
     cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL or "")
+    cfg.set_main_option("script_location", os.path.join(os.path.dirname(alembic_ini), "alembic"))
 
     # Execute upgrade head in a thread pool so alembic's asyncio.run() does not conflict with pytest loop
     await asyncio.to_thread(command.upgrade, cfg, "head")
@@ -147,6 +148,7 @@ async def test_02_historical_data_preservation_and_non_null_provider(pg_engine: 
         alembic_ini = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "alembic.ini")
         cfg = Config(alembic_ini)
         cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL or "")
+        cfg.set_main_option("script_location", os.path.join(os.path.dirname(alembic_ini), "alembic"))
         await asyncio.to_thread(command.upgrade, cfg, "head")
 
         # Verify all synthetic rows exist with 100% data integrity
@@ -206,6 +208,7 @@ async def test_03_downgrade_and_reupgrade_safety(pg_engine: AsyncEngine) -> None
     alembic_ini = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "alembic.ini")
     cfg = Config(alembic_ini)
     cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL or "")
+    cfg.set_main_option("script_location", os.path.join(os.path.dirname(alembic_ini), "alembic"))
 
     # Downgrade to 011
     await asyncio.to_thread(command.downgrade, cfg, "-1")

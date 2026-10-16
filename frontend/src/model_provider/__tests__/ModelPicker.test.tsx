@@ -12,16 +12,16 @@ vi.mock('../useModels', () => ({
   }),
 }));
 
-describe('ModelPicker — Phase 5.1 Gemini 3.8 Flash Default & Grok Preservation', () => {
-  it('renders with gemini-3.8-flash as the fallback default selected value', () => {
+describe('ModelPicker — Gemini 4 Argon Default & Gemini 3.8 / Grok Preservation', () => {
+  it('renders with gemini-4-argon as the fallback default selected value', () => {
     const handleChange = vi.fn();
     const html = renderToString(<ModelPicker value={null} onChange={handleChange} />);
 
-    // Value should default to gemini/gemini-3.8-flash
-    expect(html).toContain('value="gemini/gemini-3.8-flash"');
+    // Value should default to gemini/gemini-4-argon
+    expect(html).toContain('value="gemini/gemini-4-argon"');
   });
 
-  it('preserves gemini-3.6-flash when explicitly provided', () => {
+  it('preserves gemini-3.8-flash and gemini-3.6-flash when explicitly provided', () => {
     const handleChange = vi.fn();
     const html = renderToString(
       <ModelPicker
@@ -32,20 +32,20 @@ describe('ModelPicker — Phase 5.1 Gemini 3.8 Flash Default & Grok Preservation
 
     // Selected value must reflect gemini-3.6-flash
     expect(html).toContain('value="gemini/gemini-3.6-flash"');
-    // And must have option gemini-3.6-flash
     expect(html).toContain('Gemini 3.6 Flash');
   });
 
-  it('renders all baseline Gemini models in the model picker options', () => {
+  it('renders all baseline Gemini models with gemini-4-argon as primary', () => {
     const handleChange = vi.fn();
     const html = renderToString(
       <ModelPicker
-        value={{ provider: 'gemini', model: 'gemini-3.8-flash' }}
+        value={{ provider: 'gemini', model: 'gemini-4-argon' }}
         onChange={handleChange}
       />
     );
 
     const expectedGeminiOptions = [
+      'value="gemini/gemini-4-argon"',
       'value="gemini/gemini-3.8-flash"',
       'value="gemini/gemini-3.6-flash"',
       'value="gemini/gemini-3.7-flash"',
@@ -61,11 +61,11 @@ describe('ModelPicker — Phase 5.1 Gemini 3.8 Flash Default & Grok Preservation
     }
   });
 
-  it('renders all baseline Grok models under xAI / Groq optgroup', () => {
+  it('renders all baseline Grok models under xAI / Groq optgroup including grok-4.7', () => {
     const handleChange = vi.fn();
     const html = renderToString(
       <ModelPicker
-        value={{ provider: 'gemini', model: 'gemini-3.8-flash' }}
+        value={{ provider: 'gemini', model: 'gemini-4-argon' }}
         onChange={handleChange}
       />
     );
@@ -73,6 +73,7 @@ describe('ModelPicker — Phase 5.1 Gemini 3.8 Flash Default & Grok Preservation
     expect(html).toContain('label="xAI / Groq"');
 
     const expectedGrokOptions = [
+      'value="grok/grok-4.7"',
       'value="grok/qwen/qwen3.8-27b"',
       'value="grok/openai/gpt-oss-120b"',
       'value="grok/qwen/qwen3.6-27b"',
@@ -90,21 +91,23 @@ describe('ModelPicker — Phase 5.1 Gemini 3.8 Flash Default & Grok Preservation
     }
   });
 
-  it('ensures gemini-3.8-flash is the first option under Google Gemini group', () => {
+  it('ensures gemini-4-argon is first and gemini-3.8-flash is second under Google Gemini group', () => {
     const handleChange = vi.fn();
     const html = renderToString(
       <ModelPicker
-        value={{ provider: 'gemini', model: 'gemini-3.8-flash' }}
+        value={{ provider: 'gemini', model: 'gemini-4-argon' }}
         onChange={handleChange}
       />
     );
 
     const geminiGroupIdx = html.indexOf('label="Google Gemini"');
+    const gemini4Idx = html.indexOf('value="gemini/gemini-4-argon"');
     const gemini38Idx = html.indexOf('value="gemini/gemini-3.8-flash"');
     const gemini36Idx = html.indexOf('value="gemini/gemini-3.6-flash"');
 
     expect(geminiGroupIdx).toBeGreaterThan(-1);
-    expect(gemini38Idx).toBeGreaterThan(geminiGroupIdx);
+    expect(gemini4Idx).toBeGreaterThan(geminiGroupIdx);
+    expect(gemini38Idx).toBeGreaterThan(gemini4Idx);
     expect(gemini36Idx).toBeGreaterThan(gemini38Idx);
   });
 });

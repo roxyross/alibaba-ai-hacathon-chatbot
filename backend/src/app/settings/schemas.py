@@ -30,7 +30,7 @@ class SettingsResponse(BaseModel):
 
     # 3. Models & Providers
     preferred_provider: str | None = None
-    default_chat_model: str = "gemini-3.8-flash"
+    default_chat_model: str = "gemini-4-argon"
     stream_speed: str = "fast"
     auto_scroll: bool = True
 

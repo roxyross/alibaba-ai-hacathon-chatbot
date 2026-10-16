@@ -201,6 +201,10 @@ if _static_dir.exists():
 @app.on_event("startup")
 async def on_startup() -> None:
     """Start the APScheduler job runner and ensure DB tables exist."""
+    # Enforce P0 production billing configuration gate before accepting traffic or operations
+    from app.billing.validator import validate_billing_configuration
+    validate_billing_configuration()
+
     # Ensure all ORM models are registered before creating tables
     try:
         import app.auth.models  # noqa: F401

@@ -24,6 +24,7 @@ def validate_migrations(alembic_ini_path: Path | None = None) -> bool:
         return False
 
     config = Config(str(alembic_ini_path))
+    config.set_main_option("script_location", str(alembic_ini_path.parent / "alembic"))
     script_dir = ScriptDirectory.from_config(config)
 
     heads = script_dir.get_heads()

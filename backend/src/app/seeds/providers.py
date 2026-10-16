@@ -68,6 +68,14 @@ def _seed_data() -> list[dict[str, Any]]:
             "supports_streaming": True,
             "models": [
                 {
+                    "name": "grok-4.7",
+                    "display_name": "Grok 4.7",
+                    "task_types": ["general", "coding", "reasoning"],
+                    "cost_per_1k_input_tokens": 0.005,
+                    "cost_per_1k_output_tokens": 0.015,
+                    "max_tokens": 131072,
+                },
+                {
                     "name": "grok-3",
                     "display_name": "Grok 3",
                     "task_types": ["general", "coding", "reasoning"],
@@ -185,6 +193,14 @@ def _seed_data() -> list[dict[str, Any]]:
             "routing_priority": DEFAULT_ROUTING_PRIORITY.get("gemini", 1),
             "supports_streaming": True,
             "models": [
+                {
+                    "name": "gemini-4-argon",
+                    "display_name": "Gemini 4 Argon (Default)",
+                    "task_types": ["general", "coding", "reasoning", "multimodal"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 2000000,
+                },
                 {
                     "name": "gemini-3.8-flash",
                     "display_name": "Gemini 3.8 Flash",

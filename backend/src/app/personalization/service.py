@@ -163,7 +163,7 @@ class PersonalizationService:
             "frequently_used_tools": extra.get("frequently_used_tools", ["calendar", "email", "device"]),
             "frequently_used_workflows": extra.get("frequently_used_workflows", ["daily_standup_briefing"]),
             "confirmation_preferences": extra.get("confirmation_preferences", "standard"),
-            "preferred_models": extra.get("preferred_models", ["gemini-3.8-flash"]),
+            "preferred_models": extra.get("preferred_models", ["gemini-4-argon"]),
             "preferred_devices": extra.get("preferred_devices", ["workstation"]),
             "preferred_apps": extra.get("preferred_apps", ["code", "whatsapp", "browser"]),
             "recurring_tasks": extra.get("recurring_tasks", []),

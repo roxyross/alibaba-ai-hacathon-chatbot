@@ -98,9 +98,9 @@ class PaymentEvent(Base):
     provider_event_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
-    processed: Mapped[bool] = mapped_column(Boolean, default=True)
-    processed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    processed: Mapped[bool] = mapped_column(Boolean, default=False)
+    processed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
@@ -159,7 +159,7 @@ class UsageLog(Base):
     )
     user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     feature: Mapped[str] = mapped_column(String(64), default="chat")  # chat, image_studio, jobs, finance
-    model: Mapped[str] = mapped_column(String(64), default="gemini-3.8-flash")
+    model: Mapped[str] = mapped_column(String(64), default="gemini-4-argon")
     tokens_input: Mapped[int] = mapped_column(Integer, default=0)
     tokens_output: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)

@@ -142,7 +142,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 
   // Tab 4: Models & Providers
   preferred_provider: 'gemini',
-  default_chat_model: 'gemini-3.8-flash',
+  default_chat_model: 'gemini-4-argon',
   stream_speed: 'fast',
   auto_scroll: true,
 
@@ -912,7 +912,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         id="default-model"
                         type="text"
                         className="settings-input"
-                        placeholder="e.g. gemini-3.8-flash or qwen-max"
+                        placeholder="e.g. gemini-4-argon or grok-4.7"
                         value={settings.default_chat_model}
                         onChange={(e) => updateSetting('default_chat_model', e.target.value)}
                       />

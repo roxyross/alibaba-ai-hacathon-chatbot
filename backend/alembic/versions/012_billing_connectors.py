@@ -101,8 +101,11 @@ def upgrade() -> None:
             sa.Column("status", sa.String(32), nullable=False, server_default=sa.text("'active'"), index=True),
             sa.Column("amount_usd", sa.Float(), nullable=False, server_default=sa.text("0.0")),
             sa.Column("amount_pkr", sa.Float(), nullable=False, server_default=sa.text("0.0")),
+            sa.Column("stripe_customer_id", sa.String(128), nullable=True),
+            sa.Column("stripe_subscription_id", sa.String(128), nullable=True),
             sa.Column("provider_customer_id", sa.String(128), nullable=True),
             sa.Column("provider_subscription_id", sa.String(128), nullable=True),
+            sa.Column("current_period_start", sa.DateTime(timezone=True), nullable=True, server_default=sa.func.now()),
             sa.Column("current_period_end", sa.DateTime(timezone=True), nullable=True),
             sa.Column("cancel_at_period_end", sa.Boolean(), nullable=False, server_default=sa.text("false")),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
@@ -140,6 +143,16 @@ def upgrade() -> None:
                 "subscriptions",
                 sa.Column("amount_usd", sa.Float(), nullable=False, server_default=sa.text("0.0")),
             )
+        if "stripe_customer_id" not in sub_cols:
+            op.add_column(
+                "subscriptions",
+                sa.Column("stripe_customer_id", sa.String(128), nullable=True),
+            )
+        if "stripe_subscription_id" not in sub_cols:
+            op.add_column(
+                "subscriptions",
+                sa.Column("stripe_subscription_id", sa.String(128), nullable=True),
+            )
         if "provider_customer_id" not in sub_cols:
             op.add_column(
                 "subscriptions",
@@ -149,6 +162,11 @@ def upgrade() -> None:
             op.add_column(
                 "subscriptions",
                 sa.Column("provider_subscription_id", sa.String(128), nullable=True),
+            )
+        if "current_period_start" not in sub_cols:
+            op.add_column(
+                "subscriptions",
+                sa.Column("current_period_start", sa.DateTime(timezone=True), nullable=True, server_default=sa.func.now()),
             )
 
     # -------------------------------------------------------------------------
@@ -162,14 +180,35 @@ def upgrade() -> None:
             sa.Column("provider", sa.String(32), nullable=False, index=True),
             sa.Column("provider_payment_id", sa.String(128), nullable=True, index=True),
             sa.Column("provider_customer_id", sa.String(128), nullable=True),
+            sa.Column("provider_session_id", sa.String(128), nullable=True, index=True),
             sa.Column("amount", sa.Float(), nullable=False),
             sa.Column("currency", sa.String(8), nullable=False, server_default=sa.text("'USD'")),
             sa.Column("status", sa.String(32), nullable=False, server_default=sa.text("'paid'")),
             sa.Column("payment_type", sa.String(32), nullable=False, server_default=sa.text("'subscription'")),
             sa.Column("plan_id", sa.String(64), nullable=True),
+            sa.Column("metadata_json", sa.dialects.postgresql.JSONB().with_variant(sa.JSON(), "sqlite"), nullable=False, server_default=sa.text("'{}'")),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         )
         created_tables.append("payments")
+    else:
+        pay_cols = {c["name"] for c in inspector.get_columns("payments")}
+        if "provider_session_id" not in pay_cols:
+            op.add_column(
+                "payments",
+                sa.Column("provider_session_id", sa.String(128), nullable=True),
+            )
+            op.create_index("ix_payments_provider_session_id", "payments", ["provider_session_id"], unique=False)
+        if "metadata_json" not in pay_cols:
+            op.add_column(
+                "payments",
+                sa.Column("metadata_json", sa.dialects.postgresql.JSONB().with_variant(sa.JSON(), "sqlite"), nullable=False, server_default=sa.text("'{}'")),
+            )
+        if "updated_at" not in pay_cols:
+            op.add_column(
+                "payments",
+                sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            )
 
     # -------------------------------------------------------------------------
     # 4. payment_events table (Webhook Deduplication)
@@ -181,8 +220,9 @@ def upgrade() -> None:
             sa.Column("provider", sa.String(32), nullable=False, index=True),
             sa.Column("provider_event_id", sa.String(128), nullable=False, index=True),
             sa.Column("event_type", sa.String(64), nullable=False),
-            sa.Column("processed", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-            sa.Column("raw_payload", sa.Text(), nullable=True),
+            sa.Column("processed", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+            sa.Column("processed_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("payload", sa.dialects.postgresql.JSONB().with_variant(sa.JSON(), "sqlite"), nullable=False, server_default=sa.text("'{}'")),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         )
         op.create_unique_constraint(
@@ -191,6 +231,24 @@ def upgrade() -> None:
             ["provider", "provider_event_id"],
         )
         created_tables.append("payment_events")
+    else:
+        pe_cols = {c["name"] for c in inspector.get_columns("payment_events")}
+        if "processed_at" not in pe_cols:
+            op.add_column(
+                "payment_events",
+                sa.Column("processed_at", sa.DateTime(timezone=True), nullable=True),
+            )
+        else:
+            op.alter_column(
+                "payment_events",
+                "processed_at",
+                nullable=True,
+            )
+        if "payload" not in pe_cols:
+            op.add_column(
+                "payment_events",
+                sa.Column("payload", sa.dialects.postgresql.JSONB().with_variant(sa.JSON(), "sqlite"), nullable=False, server_default=sa.text("'{}'")),
+            )
 
     # -------------------------------------------------------------------------
     # 5. payment_methods table (Customer Payment Methods)
@@ -201,6 +259,8 @@ def upgrade() -> None:
             sa.Column("id", sa.String(64), primary_key=True),
             sa.Column("user_id", sa.String(64), nullable=False, index=True),
             sa.Column("provider", sa.String(32), nullable=False, server_default=sa.text("'stripe'")),
+            sa.Column("stripe_payment_method_id", sa.String(128), nullable=False, server_default=sa.text("''")),
+            sa.Column("provider_payment_method_id", sa.String(128), nullable=True),
             sa.Column("brand", sa.String(32), nullable=False, server_default=sa.text("'visa'")),
             sa.Column("last4", sa.String(4), nullable=False),
             sa.Column("exp_month", sa.Integer(), nullable=False),
@@ -209,6 +269,18 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         )
         created_tables.append("payment_methods")
+    else:
+        pm_cols = {c["name"] for c in inspector.get_columns("payment_methods")}
+        if "stripe_payment_method_id" not in pm_cols:
+            op.add_column(
+                "payment_methods",
+                sa.Column("stripe_payment_method_id", sa.String(128), nullable=False, server_default=sa.text("''")),
+            )
+        if "provider_payment_method_id" not in pm_cols:
+            op.add_column(
+                "payment_methods",
+                sa.Column("provider_payment_method_id", sa.String(128), nullable=True),
+            )
 
     # -------------------------------------------------------------------------
     # 6. credit_wallets table (User Token Balance)

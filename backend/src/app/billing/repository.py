@@ -483,7 +483,7 @@ class BillingRepository:
         event_type: str,
         raw_payload: dict[str, Any] | None = None,
     ) -> bool:
-        """Atomically record event ID. Return True if new event, False if duplicate (idempotent)."""
+        """Atomically record event ID. Return True if event should be processed (new or pending retry), False if already processed."""
         key = f"{provider}:{event_id}"
         if key in _MEM_EVENTS:
             logger.info(f"Duplicate webhook event detected in memory: {key}")
@@ -500,16 +500,20 @@ class BillingRepository:
                     res = await db.execute(stmt)
                     existing = res.scalars().first()
                     if existing:
-                        logger.info(f"Duplicate webhook event detected in DB: {key}")
-                        _MEM_EVENTS.add(key)
-                        return False
+                        if existing.processed:
+                            logger.info(f"Duplicate completed webhook event detected in DB: {key}")
+                            _MEM_EVENTS.add(key)
+                            return False
+                        # If existing record is not yet marked processed, allow retry
+                        logger.info(f"Retrying incomplete webhook event from DB: {key}")
+                        return True
 
                     event = PaymentEvent(
                         provider=provider,
                         provider_event_id=event_id,
                         event_type=event_type,
                         payload=raw_payload or {},
-                        processed=True,
+                        processed=False,
                     )
                     db.add(event)
                     await db.commit()
@@ -521,8 +525,34 @@ class BillingRepository:
         elif self._is_production():
             raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
-        _MEM_EVENTS.add(key)
         return True
+
+    async def mark_webhook_event_processed(
+        self,
+        provider: str,
+        event_id: str,
+    ) -> None:
+        """Mark event processed=True only after all financial operations succeed."""
+        key = f"{provider}:{event_id}"
+        factory = self._get_factory()
+        if factory is not None:
+            try:
+                async with factory() as db:
+                    stmt = select(PaymentEvent).where(
+                        PaymentEvent.provider == provider,
+                        PaymentEvent.provider_event_id == event_id,
+                    )
+                    res = await db.execute(stmt)
+                    event = res.scalars().first()
+                    if event:
+                        event.processed = True
+                        event.processed_at = datetime.now(UTC)
+                        await db.commit()
+            except Exception as exc:
+                logger.error(f"DB mark webhook event processed error: {exc}")
+                if self._is_production():
+                    raise RuntimeError(f"DB mark webhook event processed error in production: {exc}") from exc
+        _MEM_EVENTS.add(key)
 
     # -------------------------------------------------------------------------
     # Credit Wallet

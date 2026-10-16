@@ -30,7 +30,7 @@ class GeminiAdapter(AIProviderAdapter):
 
     NAME = "gemini"
     TIMEOUT_SECONDS = 30.0
-    DEFAULT_MODEL = "gemini-3.8-flash"
+    DEFAULT_MODEL = "gemini-4-argon"
 
     def _resolve_model(self, model: str | None) -> str:
         if not model:

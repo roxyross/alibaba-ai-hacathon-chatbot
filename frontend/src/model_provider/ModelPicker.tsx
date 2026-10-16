@@ -19,6 +19,13 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
     enabled: true,
     models: [
       {
+        name: 'gemini-4-argon',
+        display_name: 'Gemini 4 Argon (Default)',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning', 'multimodal'],
+        max_tokens: 32768,
+      },
+      {
         name: 'gemini-3.8-flash',
         display_name: 'Gemini 3.8 Flash',
         enabled: true,
@@ -81,6 +88,13 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
     display_name: 'xAI / Groq',
     enabled: true,
     models: [
+      {
+        name: 'grok-4.7',
+        display_name: 'Grok 4.7',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 16384,
+      },
       {
         name: 'qwen/qwen3.8-27b',
         display_name: 'Groq Qwen 27B',
@@ -212,17 +226,17 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
       .filter((p) => p.models.length > 0);
   }, [providers]);
 
-  // Default to gemini-3.8-flash if not initialized or invalid runtime
+  // Default to gemini-4-argon if not initialized or invalid runtime
   useEffect(() => {
     if (!value || value.provider === 'runtime' || value.model === 'coordinator') {
-      onChange({ provider: 'gemini', model: 'gemini-3.8-flash' });
+      onChange({ provider: 'gemini', model: 'gemini-4-argon' });
     }
   }, [value, onChange]);
 
   const currentValue =
     value && value.provider !== 'runtime'
       ? `${value.provider}/${value.model}`
-      : 'gemini/gemini-3.8-flash';
+      : 'gemini/gemini-4-argon';
 
   return (
     <div className="model-picker">

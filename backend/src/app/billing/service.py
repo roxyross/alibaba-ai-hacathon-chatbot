@@ -389,6 +389,12 @@ class PaymentService:
                 elif event_type == "subscription.deleted":
                     await self.repo.cancel_subscription(user_id)
 
+            # Atomically mark event processed only after all financial side effects succeed
+            await self.repo.mark_webhook_event_processed(
+                provider=prov_name,
+                event_id=event.event_id,
+            )
+
             return {
                 "status": "success",
                 "event_id": event.event_id,

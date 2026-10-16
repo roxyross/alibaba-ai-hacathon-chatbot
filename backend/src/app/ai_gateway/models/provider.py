@@ -126,6 +126,7 @@ def _default_models(provider: str) -> tuple[ModelConfig, ...]:
             ModelConfig(name="mixtral-8x7b-32768", display_name="Groq / Mixtral 8x7B", task_types=("general", "coding"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
         ),
         "grok": (
+            ModelConfig(name="grok-4.7", display_name="Grok 4.7 (Default General Reasoning)", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.005, cost_per_1k_output=0.015, max_tokens=131072),
             ModelConfig(name="grok-3", display_name="Grok 3", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.005, cost_per_1k_output=0.015, max_tokens=131072),
             ModelConfig(name="grok-3-mini", display_name="Grok 3 Mini", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.001, cost_per_1k_output=0.003, max_tokens=131072),
             ModelConfig(name="grok-2", display_name="Grok 2", task_types=("general", "coding"), cost_per_1k_input=0.002, cost_per_1k_output=0.01, max_tokens=131072),
@@ -142,6 +143,7 @@ def _default_models(provider: str) -> tuple[ModelConfig, ...]:
             ModelConfig(name="gpt-4o-mini", display_name="GPT-4o Mini", task_types=("general", "coding"), cost_per_1k_input=0.00015, cost_per_1k_output=0.0006, max_tokens=128000),
         ),
         "gemini": (
+            ModelConfig(name="gemini-4-argon", display_name="Gemini 4 Argon (Default General Reasoning)", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=2000000),
             ModelConfig(name="gemini-3.8-flash", display_name="Gemini 3.8 Flash (Multimodal Audio & Modulation)", task_types=("general", "coding", "reasoning", "multimodal", "audio"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
             ModelConfig(name="gemini-3.6-flash", display_name="Gemini 3.6 Flash (Fast & Full Reasoning)", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
             ModelConfig(name="gemini-3.7-flash", display_name="Gemini 3.7 Flash", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
