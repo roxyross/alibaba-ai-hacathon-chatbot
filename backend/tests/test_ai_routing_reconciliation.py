@@ -83,6 +83,7 @@ def test_sorted_providers_respects_priority_and_active_keys() -> None:
         "GROK_API_KEY": "",
         "DEEPSEEK_API_KEY": "",
         "OPENAI_API_KEY": "sk_test",
+        "PROVIDER_OPENAI_ENABLED": "true",
     }
     with patch.dict(os.environ, env):
         sorted_p = _sorted_providers()

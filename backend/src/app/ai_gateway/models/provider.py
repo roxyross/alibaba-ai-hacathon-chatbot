@@ -17,6 +17,7 @@ PROVIDER_FEATURE_FLAGS: dict[str, str] = {
     "grok": "PROVIDER_GROK_ENABLED",
     "groq": "PROVIDER_GROQ_ENABLED",
     "openai": "PROVIDER_OPENAI_ENABLED",
+    "anthropic": "PROVIDER_ANTHROPIC_ENABLED",
     "gemini": "PROVIDER_GEMINI_ENABLED",
 }
 
@@ -25,6 +26,7 @@ PROVIDER_API_KEY_VARS: dict[str, str] = {
     "grok": "GROK_API_KEY",
     "groq": "GROQ_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
 }
 
@@ -33,17 +35,19 @@ PROVIDER_BASE_URLS: dict[str, str] = {
     "grok": "https://api.x.ai/v1",
     "groq": "https://api.groq.com/openai/v1",
     "openai": "https://api.openai.com/v1",
+    "anthropic": "https://api.anthropic.com/v1",
     "gemini": "https://generativelanguage.googleapis.com/v1beta",
 }
 
 # Routing priority: lower number = higher priority.
-# Gemini (primary product default) → Groq (fast LPU) → Grok (xAI) → DeepSeek → OpenAI.
+# Gemini (primary product default) → Groq (fast LPU) → Grok (xAI) → DeepSeek → OpenAI → Anthropic.
 DEFAULT_ROUTING_PRIORITY: dict[str, int] = {
     "gemini": 1,
     "groq": 2,
     "grok": 3,
     "deepseek": 4,
     "openai": 5,
+    "anthropic": 6,
 }
 
 
@@ -98,9 +102,11 @@ class ProviderConfig:
     @property
     def is_enabled(self) -> bool:
         flag_env = PROVIDER_FEATURE_FLAGS.get(self.name)
+        # OpenAI and Anthropic are strictly disabled by default unless explicitly turned on
+        default_val = "false" if self.name in ("openai", "anthropic") else "true"
         if flag_env is None:
-            return True
-        return os.environ.get(flag_env, "true").lower() in ("true", "1", "yes")
+            return self.name not in ("openai", "anthropic")
+        return os.environ.get(flag_env, default_val).lower() in ("true", "1", "yes")
 
     @property
     def has_api_key(self) -> bool:
@@ -132,15 +138,14 @@ def _default_models(provider: str) -> tuple[ModelConfig, ...]:
             ModelConfig(name="grok-2", display_name="Grok 2", task_types=("general", "coding"), cost_per_1k_input=0.002, cost_per_1k_output=0.01, max_tokens=131072),
             ModelConfig(name="grok-2-vision-1212", display_name="Grok 2 Vision", task_types=("general", "multimodal"), cost_per_1k_input=0.002, cost_per_1k_output=0.01, max_tokens=131072),
             ModelConfig(name="grok-beta", display_name="Grok Beta", task_types=("general", "coding"), cost_per_1k_input=0.005, cost_per_1k_output=0.015, max_tokens=131072),
-            ModelConfig(name="qwen/qwen3.8-27b", display_name="Grok / Qwen 27B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
-            ModelConfig(name="openai/gpt-oss-120b", display_name="Grok / GPT-OSS 120B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
-            ModelConfig(name="qwen/qwen3.6-27b", display_name="Grok / Qwen 3.6 27B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
-            ModelConfig(name="llama-3.3-70b-versatile", display_name="Groq / Llama 3.3 70B", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
-            ModelConfig(name="mixtral-8x7b-32768", display_name="Groq / Mixtral 8x7B", task_types=("general", "coding"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=32768),
         ),
         "openai": (
             ModelConfig(name="gpt-4o", display_name="GPT-4o", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0025, cost_per_1k_output=0.01, max_tokens=128000),
             ModelConfig(name="gpt-4o-mini", display_name="GPT-4o Mini", task_types=("general", "coding"), cost_per_1k_input=0.00015, cost_per_1k_output=0.0006, max_tokens=128000),
+        ),
+        "anthropic": (
+            ModelConfig(name="claude-3-5-sonnet-latest", display_name="Claude 3.5 Sonnet", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.003, cost_per_1k_output=0.015, max_tokens=8192),
+            ModelConfig(name="claude-3-5-haiku-latest", display_name="Claude 3.5 Haiku", task_types=("general", "coding"), cost_per_1k_input=0.0008, cost_per_1k_output=0.004, max_tokens=8192),
         ),
         "gemini": (
             ModelConfig(name="gemini-4-argon", display_name="Gemini 4 Argon (Default General Reasoning)", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=2000000),

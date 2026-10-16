@@ -129,7 +129,13 @@ class GroqAdapter(AIProviderAdapter):
             {"role": m.role.value if hasattr(m.role, "value") else str(m.role), "content": m.content}
             for m in request.messages
         ]
-        model = request.model or "qwen/qwen3.8-27b"
+        model = request.model
+        if not model:
+            try:
+                from app.ai_gateway.services.catalog_discovery import ModelCatalogDiscoveryService
+                model = ModelCatalogDiscoveryService.get_instance().get_default_model(self.NAME)
+            except Exception:
+                model = "qwen/qwen3.8-27b"
         max_tokens = min(request.max_tokens or 1000, 1000)
         return {
             "model": model,

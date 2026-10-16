@@ -148,7 +148,11 @@ class GrokAdapter(AIProviderAdapter):
                 model = "qwen/qwen3.8-27b"
         else:
             if not model:
-                model = "grok-3"
+                try:
+                    from app.ai_gateway.services.catalog_discovery import ModelCatalogDiscoveryService
+                    model = ModelCatalogDiscoveryService.get_instance().get_default_model(self.NAME)
+                except Exception:
+                    model = "grok-4.7"
 
         if is_groq:
             # On Groq on-demand / free tier, models like qwen/qwen3.8-27b enforce strict

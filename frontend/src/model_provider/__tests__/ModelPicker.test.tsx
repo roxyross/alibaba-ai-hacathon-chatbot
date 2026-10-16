@@ -61,7 +61,7 @@ describe('ModelPicker — Gemini 4 Argon Default & Gemini 3.8 / Grok Preservatio
     }
   });
 
-  it('renders all baseline Grok models under xAI / Groq optgroup including grok-4.7', () => {
+  it('renders native Grok models under xAI Grok and separate Groq models under Groq optgroup', () => {
     const handleChange = vi.fn();
     const html = renderToString(
       <ModelPicker
@@ -70,25 +70,38 @@ describe('ModelPicker — Gemini 4 Argon Default & Gemini 3.8 / Grok Preservatio
       />
     );
 
-    expect(html).toContain('label="xAI / Groq"');
+    // Strict provider separation per Section 2
+    expect(html).toContain('label="xAI Grok"');
+    expect(html).toContain('label="Groq"');
 
     const expectedGrokOptions = [
       'value="grok/grok-4.7"',
-      'value="grok/qwen/qwen3.8-27b"',
-      'value="grok/openai/gpt-oss-120b"',
-      'value="grok/qwen/qwen3.6-27b"',
       'value="grok/grok-3"',
       'value="grok/grok-3-mini"',
       'value="grok/grok-2"',
       'value="grok/grok-2-vision-1212"',
       'value="grok/grok-beta"',
-      'value="grok/llama-3.3-70b-versatile"',
-      'value="grok/mixtral-8x7b-32768"',
     ];
 
     for (const opt of expectedGrokOptions) {
       expect(html).toContain(opt);
     }
+
+    const expectedGroqOptions = [
+      'value="groq/qwen/qwen3.8-27b"',
+      'value="groq/openai/gpt-oss-120b"',
+      'value="groq/qwen/qwen3.6-27b"',
+      'value="groq/llama-3.3-70b-versatile"',
+      'value="groq/mixtral-8x7b-32768"',
+    ];
+
+    for (const opt of expectedGroqOptions) {
+      expect(html).toContain(opt);
+    }
+
+    // Never expose Qwen or GPT-OSS under xAI grok
+    expect(html).not.toContain('value="grok/qwen/qwen3.8-27b"');
+    expect(html).not.toContain('value="grok/openai/gpt-oss-120b"');
   });
 
   it('ensures gemini-4-argon is first and gemini-3.8-flash is second under Google Gemini group', () => {

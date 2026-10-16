@@ -29,11 +29,14 @@ import pytest_asyncio
 # Block the real DATABASE_URL from being loaded → forces in-memory auth storage.
 os.environ["DATABASE_URL"] = ""
 
-# Ensure all providers start in known enabled state (override .env defaults).
+# Ensure providers start in known enabled state (override .env defaults).
+# Gemini (primary), Groq, Grok, DeepSeek are enabled; OpenAI and Anthropic are disabled by default.
 os.environ["PROVIDER_DEEPSEEK_ENABLED"] = "true"
-os.environ["PROVIDER_OPENAI_ENABLED"] = "true"
 os.environ["PROVIDER_GROK_ENABLED"] = "true"
+os.environ["PROVIDER_GROQ_ENABLED"] = "true"
 os.environ["PROVIDER_GEMINI_ENABLED"] = "true"
+os.environ["PROVIDER_OPENAI_ENABLED"] = "false"
+os.environ["PROVIDER_ANTHROPIC_ENABLED"] = "false"
 
 sys.path.insert(0, "src")
 
@@ -127,6 +130,7 @@ def _reset_provider_flags() -> Iterator[None]:
     Without this, a prior test that left it at 'false' breaks the next test.
     """
     os.environ["PROVIDER_DEEPSEEK_ENABLED"] = "true"
-    os.environ["PROVIDER_OPENAI_ENABLED"] = "true"
+    os.environ["PROVIDER_OPENAI_ENABLED"] = "false"
+    os.environ["PROVIDER_ANTHROPIC_ENABLED"] = "false"
     yield
     # No cleanup needed — each test gets a fresh known state.

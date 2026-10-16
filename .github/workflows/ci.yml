@@ -185,6 +185,8 @@ jobs:
                  tests/test_payment_production_security.py \
                  tests/test_startup_billing_gate.py \
                  tests/test_model_catalog_and_failover.py \
+                 tests/test_model_catalog_discovery.py \
+                 tests/test_universal_adapter_resilience.py \
                  tests/test_ai_routing_reconciliation.py \
                  tests/test_phase24_adversarial_security.py \
                  tests/test_security_ci_discovery.py \
@@ -208,6 +210,7 @@ jobs:
                  tests/integration/test_phase35_media_registry_and_jobs.py \
                  tests/integration/test_phase36_video_studio_and_canvas.py \
                  tests/integration/test_alembic_data_preservation.py \
+                 tests/integration/test_payment_events_legacy_migration.py \
                  tests/integration/test_gmail_token_real_postgres_integration.py \
                  tests/integration/test_billing_real_postgres_integration.py \
                  tests/integration/test_webhook_transactional_integrity.py \

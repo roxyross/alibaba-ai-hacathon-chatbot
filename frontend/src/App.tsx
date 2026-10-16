@@ -827,6 +827,7 @@ export function ChatScreen() {
               className="app__header-quick-action app__header-quick-action--task"
               onClick={() => setIsNewTaskModalOpen(true)}
               title="Launch Autonomous / Guided Task (Ctrl+N)"
+              aria-label="New Task"
             >
               <span className="app__header-quick-icon">⚡</span>
               <span>New Task</span>
@@ -838,6 +839,7 @@ export function ChatScreen() {
               className={`app__header-quick-action app__header-quick-action--cowork ${isCoworkMode ? 'app__header-quick-action--active' : ''}`}
               onClick={() => setIsCoworkMode((prev) => !prev)}
               title={isCoworkMode ? 'Exit Cowork Mode' : 'Enter Cowork Pair Copilot Mode'}
+              aria-label={isCoworkMode ? 'Exit Cowork Mode' : 'Enter Cowork Mode'}
             >
               <span className="app__header-quick-icon">👥</span>
               <span>{isCoworkMode ? 'Exit Cowork' : 'Cowork'}</span>
@@ -925,7 +927,8 @@ export function ChatScreen() {
               title="Choose Your Roxy-AI Plan"
               aria-label="Upgrade Plan"
             >
-              ⚡ Upgrade
+              <span>⚡</span>
+              <span className="app__upgrade-text"> Upgrade</span>
             </button>
 
             {user ? (

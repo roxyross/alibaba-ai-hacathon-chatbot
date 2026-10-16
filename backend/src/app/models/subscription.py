@@ -96,6 +96,7 @@ class PaymentEvent(Base):
     )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)  # stripe, safepay
     provider_event_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     processed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -105,6 +106,13 @@ class PaymentEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+    def __init__(self, **kwargs: Any) -> None:
+        if "event_id" in kwargs and "provider_event_id" not in kwargs:
+            kwargs["provider_event_id"] = kwargs["event_id"]
+        elif "provider_event_id" in kwargs and "event_id" not in kwargs:
+            kwargs["event_id"] = kwargs["provider_event_id"]
+        super().__init__(**kwargs)
 
 
 class PaymentMethod(Base):

@@ -211,6 +211,7 @@ def upgrade() -> None:
             )
 
     # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # 4. payment_events table (Webhook Deduplication)
     # -------------------------------------------------------------------------
     if "payment_events" not in existing_tables:
@@ -219,6 +220,7 @@ def upgrade() -> None:
             sa.Column("id", sa.String(64), primary_key=True),
             sa.Column("provider", sa.String(32), nullable=False, index=True),
             sa.Column("provider_event_id", sa.String(128), nullable=False, index=True),
+            sa.Column("event_id", sa.String(128), nullable=True, index=True),
             sa.Column("event_type", sa.String(64), nullable=False),
             sa.Column("processed", sa.Boolean(), nullable=False, server_default=sa.text("false")),
             sa.Column("processed_at", sa.DateTime(timezone=True), nullable=True),
@@ -233,6 +235,76 @@ def upgrade() -> None:
         created_tables.append("payment_events")
     else:
         pe_cols = {c["name"] for c in inspector.get_columns("payment_events")}
+        
+        # 1. Ensure provider column exists
+        if "provider" not in pe_cols:
+            op.add_column("payment_events", sa.Column("provider", sa.String(32), nullable=True))
+            op.execute("UPDATE payment_events SET provider = 'stripe' WHERE provider IS NULL")
+            op.alter_column("payment_events", "provider", nullable=False, server_default=sa.text("'stripe'"))
+
+        # 2. Reconcile event_id vs provider_event_id
+        if "provider_event_id" not in pe_cols and "event_id" in pe_cols:
+            op.add_column("payment_events", sa.Column("provider_event_id", sa.String(128), nullable=True))
+            op.execute("UPDATE payment_events SET provider_event_id = event_id WHERE provider_event_id IS NULL AND event_id IS NOT NULL")
+            op.execute("UPDATE payment_events SET provider_event_id = id WHERE provider_event_id IS NULL")
+            op.alter_column("payment_events", "provider_event_id", nullable=False)
+            op.create_index("ix_payment_events_provider_event_id", "payment_events", ["provider_event_id"], unique=False)
+            op.alter_column("payment_events", "event_id", nullable=True)
+        elif "provider_event_id" in pe_cols and "event_id" not in pe_cols:
+            op.add_column("payment_events", sa.Column("event_id", sa.String(128), nullable=True))
+            op.execute("UPDATE payment_events SET event_id = provider_event_id WHERE event_id IS NULL AND provider_event_id IS NOT NULL")
+        elif "provider_event_id" in pe_cols and "event_id" in pe_cols:
+            op.execute("UPDATE payment_events SET provider_event_id = event_id WHERE (provider_event_id IS NULL OR provider_event_id = '') AND event_id IS NOT NULL")
+            op.execute("UPDATE payment_events SET event_id = provider_event_id WHERE (event_id IS NULL OR event_id = '') AND provider_event_id IS NOT NULL")
+            op.alter_column("payment_events", "event_id", nullable=True)
+
+        # 3. Ensure event_type exists
+        if "event_type" not in pe_cols:
+            op.add_column("payment_events", sa.Column("event_type", sa.String(64), nullable=True))
+            op.execute("UPDATE payment_events SET event_type = 'unknown' WHERE event_type IS NULL")
+            op.alter_column("payment_events", "event_type", nullable=False, server_default=sa.text("'unknown'"))
+
+        # 4. Reconcile raw_payload vs payload and migrate actual historical data
+        if "payload" not in pe_cols:
+            op.add_column(
+                "payment_events",
+                sa.Column("payload", sa.dialects.postgresql.JSONB().with_variant(sa.JSON(), "sqlite"), nullable=True),
+            )
+
+        if "raw_payload" in pe_cols:
+            # Migrate actual data from raw_payload to payload safely
+            import json as _json
+            res = bind.execute(sa.text("SELECT id, raw_payload FROM payment_events WHERE raw_payload IS NOT NULL"))
+            for row in res.fetchall():
+                row_id, r_payload = row[0], row[1]
+                parsed_payload = {}
+                if isinstance(r_payload, dict):
+                    parsed_payload = r_payload
+                elif isinstance(r_payload, str):
+                    try:
+                        parsed_payload = _json.loads(r_payload)
+                        if not isinstance(parsed_payload, dict):
+                            parsed_payload = {"raw": parsed_payload}
+                    except Exception:
+                        parsed_payload = {"raw": r_payload}
+                if parsed_payload:
+                    bind.execute(
+                        sa.text("UPDATE payment_events SET payload = :p WHERE id = :id"),
+                        {"p": _json.dumps(parsed_payload), "id": row_id},
+                    )
+            # Make raw_payload nullable so new inserts using the updated ORM model succeed
+            op.alter_column("payment_events", "raw_payload", nullable=True)
+
+        op.execute("UPDATE payment_events SET payload = '{}' WHERE payload IS NULL")
+        op.alter_column("payment_events", "payload", nullable=False, server_default=sa.text("'{}'"))
+
+        # 5. Reconcile processed flag
+        if "processed" not in pe_cols:
+            op.add_column("payment_events", sa.Column("processed", sa.Boolean(), nullable=False, server_default=sa.text("false")))
+            if "processed_at" in pe_cols:
+                op.execute("UPDATE payment_events SET processed = true WHERE processed_at IS NOT NULL")
+
+        # 6. Reconcile processed_at timestamp (ensure nullable)
         if "processed_at" not in pe_cols:
             op.add_column(
                 "payment_events",
@@ -244,11 +316,45 @@ def upgrade() -> None:
                 "processed_at",
                 nullable=True,
             )
-        if "payload" not in pe_cols:
-            op.add_column(
-                "payment_events",
-                sa.Column("payload", sa.dialects.postgresql.JSONB().with_variant(sa.JSON(), "sqlite"), nullable=False, server_default=sa.text("'{}'")),
-            )
+
+        # 7. Deduplicate legacy duplicate provider_event_id records before applying unique constraint
+        try:
+            # Check for duplicate (provider, provider_event_id)
+            dup_res = bind.execute(sa.text(
+                "SELECT provider, provider_event_id FROM payment_events "
+                "WHERE provider IS NOT NULL AND provider_event_id IS NOT NULL "
+                "GROUP BY provider, provider_event_id HAVING count(*) > 1"
+            ))
+            dups = dup_res.fetchall()
+            for dup in dups:
+                d_prov, d_evid = dup[0], dup[1]
+                # Keep the first/most recent, rename subsequent with unique suffix so NO row is dropped
+                rows_res = bind.execute(
+                    sa.text("SELECT id FROM payment_events WHERE provider = :prv AND provider_event_id = :eid ORDER BY processed DESC, created_at DESC, id DESC"),
+                    {"prv": d_prov, "eid": d_evid}
+                )
+                matching_ids = [r[0] for r in rows_res.fetchall()]
+                # Keep matching_ids[0], modify subsequent
+                for idx, dup_id in enumerate(matching_ids[1:], start=1):
+                    new_eid = f"{d_evid}-legacy-dup-{idx}"
+                    bind.execute(
+                        sa.text("UPDATE payment_events SET provider_event_id = :neid, event_id = :neid WHERE id = :id"),
+                        {"neid": new_eid, "id": dup_id}
+                    )
+        except Exception:
+            pass
+
+        # 8. Ensure unique constraint exists
+        try:
+            constraints = {c["name"] for c in inspector.get_unique_constraints("payment_events")}
+            if "uq_payment_events_provider_event" not in constraints:
+                op.create_unique_constraint(
+                    "uq_payment_events_provider_event",
+                    "payment_events",
+                    ["provider", "provider_event_id"],
+                )
+        except Exception:
+            pass
 
     # -------------------------------------------------------------------------
     # 5. payment_methods table (Customer Payment Methods)

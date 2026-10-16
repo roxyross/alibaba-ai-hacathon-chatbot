@@ -135,7 +135,7 @@ async def list_models() -> ModelListResponse:
         ),
         ProviderModels(
             name="grok",
-            display_name="xAI / Groq",
+            display_name="xAI Grok",
             enabled=True,
             models=[
                 ModelInfo(
@@ -180,6 +180,13 @@ async def list_models() -> ModelListResponse:
                     task_types=["general", "coding"],
                     max_tokens=8192,
                 ),
+            ],
+        ),
+        ProviderModels(
+            name="groq",
+            display_name="Groq",
+            enabled=True,
+            models=[
                 ModelInfo(
                     name="qwen/qwen3.8-27b",
                     display_name="Groq / Qwen 27B (Fast Inference)",
@@ -217,11 +224,10 @@ async def list_models() -> ModelListResponse:
                 ),
             ],
         ),
-
         ProviderModels(
             name="openai",
             display_name="OpenAI",
-            enabled=True,
+            enabled=False,
             models=[
                 ModelInfo(
                     name="gpt-4o",
@@ -236,6 +242,27 @@ async def list_models() -> ModelListResponse:
                     enabled=True,
                     task_types=["general", "coding"],
                     max_tokens=4096,
+                ),
+            ],
+        ),
+        ProviderModels(
+            name="anthropic",
+            display_name="Anthropic Claude",
+            enabled=False,
+            models=[
+                ModelInfo(
+                    name="claude-3-5-sonnet-latest",
+                    display_name="Claude 3.5 Sonnet",
+                    enabled=True,
+                    task_types=["general", "coding", "reasoning"],
+                    max_tokens=8192,
+                ),
+                ModelInfo(
+                    name="claude-3-5-haiku-latest",
+                    display_name="Claude 3.5 Haiku",
+                    enabled=True,
+                    task_types=["general", "coding"],
+                    max_tokens=8192,
                 ),
             ],
         ),

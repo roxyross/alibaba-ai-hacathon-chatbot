@@ -85,16 +85,58 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
   },
   {
     name: 'grok',
-    display_name: 'xAI / Groq',
+    display_name: 'xAI Grok',
     enabled: true,
     models: [
       {
         name: 'grok-4.7',
-        display_name: 'Grok 4.7',
+        display_name: 'xAI Grok 4.7',
         enabled: true,
         task_types: ['general', 'coding', 'reasoning'],
         max_tokens: 16384,
       },
+      {
+        name: 'grok-3',
+        display_name: 'xAI Grok 3',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'grok-3-mini',
+        display_name: 'xAI Grok 3 Mini',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'grok-2',
+        display_name: 'xAI Grok 2',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'grok-2-vision-1212',
+        display_name: 'xAI Grok 2 Vision',
+        enabled: true,
+        task_types: ['general', 'multimodal'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'grok-beta',
+        display_name: 'xAI Grok Beta',
+        enabled: true,
+        task_types: ['general'],
+        max_tokens: 8192,
+      },
+    ],
+  },
+  {
+    name: 'groq',
+    display_name: 'Groq',
+    enabled: true,
+    models: [
       {
         name: 'qwen/qwen3.8-27b',
         display_name: 'Groq Qwen 27B',
@@ -117,41 +159,6 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
         max_tokens: 4096,
       },
       {
-        name: 'grok-3',
-        display_name: 'Grok 3',
-        enabled: true,
-        task_types: ['general', 'coding', 'reasoning'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'grok-3-mini',
-        display_name: 'Grok 3 Mini',
-        enabled: true,
-        task_types: ['general', 'coding', 'reasoning'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'grok-2',
-        display_name: 'Grok 2',
-        enabled: true,
-        task_types: ['general', 'coding'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'grok-2-vision-1212',
-        display_name: 'Grok 2 Vision',
-        enabled: true,
-        task_types: ['general'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'grok-beta',
-        display_name: 'Grok Beta',
-        enabled: true,
-        task_types: ['general'],
-        max_tokens: 8192,
-      },
-      {
         name: 'llama-3.3-70b-versatile',
         display_name: 'Llama 3.3 70B',
         enabled: true,
@@ -170,7 +177,7 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
   {
     name: 'openai',
     display_name: 'OpenAI',
-    enabled: true,
+    enabled: false,
     models: [
       {
         name: 'gpt-4o',
@@ -185,6 +192,27 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
         enabled: true,
         task_types: ['general', 'coding'],
         max_tokens: 4096,
+      },
+    ],
+  },
+  {
+    name: 'anthropic',
+    display_name: 'Anthropic Claude',
+    enabled: false,
+    models: [
+      {
+        name: 'claude-3-5-sonnet-latest',
+        display_name: 'Claude 3.5 Sonnet',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'claude-3-5-haiku-latest',
+        display_name: 'Claude 3.5 Haiku',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 8192,
       },
     ],
   },

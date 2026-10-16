@@ -33,17 +33,23 @@ class GeminiAdapter(AIProviderAdapter):
     DEFAULT_MODEL = "gemini-4-argon"
 
     def _resolve_model(self, model: str | None) -> str:
+        try:
+            from app.ai_gateway.services.catalog_discovery import ModelCatalogDiscoveryService
+            active_default = ModelCatalogDiscoveryService.get_instance().get_default_model(self.NAME)
+        except Exception:
+            active_default = self.DEFAULT_MODEL
+
         if not model:
-            return self.DEFAULT_MODEL
+            return active_default
         # Strip provider prefix if present (e.g. "gemini/gemini-3.8-flash")
         if "/" in model:
             model = model.split("/", 1)[-1]
         # Preserve legitimate provider models and map generic legacy aliases to default
         alias_map = {
-            "gemini-flash": self.DEFAULT_MODEL,
-            "gemini": self.DEFAULT_MODEL,
-            "default": self.DEFAULT_MODEL,
-            "auto": self.DEFAULT_MODEL,
+            "gemini-flash": active_default,
+            "gemini": active_default,
+            "default": active_default,
+            "auto": active_default,
         }
         if model in alias_map:
             return alias_map[model]
