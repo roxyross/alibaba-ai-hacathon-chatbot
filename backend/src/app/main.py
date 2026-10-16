@@ -153,11 +153,11 @@ async def readiness_check() -> JSONResponse:
             },
         )
 
-    # Optional AI providers without keys do NOT fail readiness
     return JSONResponse(
         status_code=200 if db_ok else 200,
         content={
-            "status": "ready" if db_ok else "degraded",
+            "status": "ok" if db_ok else "degraded",
+            "readiness": "ready" if db_ok else "degraded",
             "service": "roxy-ai-gateway",
             "database": db_msg,
             "version": os.environ.get("ROXY_VERSION", "2.0.0"),
