@@ -7,6 +7,7 @@ from typing import Any
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Load .env from the working directory (or backend/.env if cwd is the repo
 # root) so `python -m app.main` works without `set -a; source .env; set +a`.
@@ -106,8 +107,8 @@ app.add_middleware(CorrelationMiddleware)
 @app.get("/api/v1/health")
 @app.get("/health")
 @app.get("/health/live")
-@app.get("/health/ready")
-async def health_check() -> dict[str, str]:
+async def liveness_check() -> dict[str, str]:
+    """Process liveness probe."""
     return {
         "status": "ok",
         "service": "roxy-ai-gateway",
@@ -115,6 +116,54 @@ async def health_check() -> dict[str, str]:
         "commit_sha": os.environ.get("COMMIT_SHA", os.environ.get("GIT_SHA", "unknown")),
         "environment": os.environ.get("APP_ENV", "development"),
     }
+
+
+@app.get("/health/ready")
+async def readiness_check() -> JSONResponse:
+    """Readiness probe checking database connectivity and critical configuration."""
+    db_ok = True
+    db_msg = "configured"
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        try:
+            from sqlalchemy import text
+            from app.db import get_engine
+            engine = get_engine()
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            db_msg = "healthy"
+        except Exception as exc:
+            db_ok = False
+            db_msg = "unreachable"
+            import structlog
+            structlog.get_logger().warning("health.db_readiness_failed", error=str(exc))
+    else:
+        db_msg = "not_configured"
+
+    # In production, database is mandatory for serving traffic
+    is_prod = os.environ.get("APP_ENV", "").lower() in ("production", "prod") or os.environ.get("ENVIRONMENT", "").lower() in ("production", "prod")
+    if is_prod and not db_ok:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unavailable",
+                "service": "roxy-ai-gateway",
+                "database": db_msg,
+                "environment": os.environ.get("APP_ENV", "production"),
+            },
+        )
+
+    # Optional AI providers without keys do NOT fail readiness
+    return JSONResponse(
+        status_code=200 if db_ok else 200,
+        content={
+            "status": "ready" if db_ok else "degraded",
+            "service": "roxy-ai-gateway",
+            "database": db_msg,
+            "version": os.environ.get("ROXY_VERSION", "2.0.0"),
+            "environment": os.environ.get("APP_ENV", "development"),
+        },
+    )
 
 
 @app.get("/system-health")
@@ -253,6 +302,13 @@ async def on_startup() -> None:
     except Exception as exc:
         import structlog
         structlog.get_logger().warning("job_scheduler.startup_failed", error=str(exc))
+
+    try:
+        from app.trust.confirmation_gate import ConfirmationGate
+        ConfirmationGate._load_from_disk()
+    except Exception as exc:
+        import structlog
+        structlog.get_logger().warning("confirmation_gate.startup_load_failed", error=str(exc))
 
     try:
         register_builtin_tools()

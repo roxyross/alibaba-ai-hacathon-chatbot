@@ -24,18 +24,16 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import uuid
-from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
+from collections.abc import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from alembic import command
 from app.billing.repository import BillingRepository, clear_in_memory_stores
 from app.db import _session_factory, get_engine, normalize_database_url
 from app.models.subscription import PaymentEvent
@@ -76,7 +74,7 @@ async def pg_engine() -> AsyncGenerator[AsyncEngine, None]:
 
 
 @pytest.fixture(scope="function", autouse=True)
-def setup_test_env():
+def setup_test_env() -> Generator[None, None, None]:
     prev_db = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
     clear_in_memory_stores()
@@ -97,7 +95,7 @@ def setup_test_env():
 @pytest.mark.asyncio
 async def test_legacy_payment_events_schema_reconciliation_and_preservation(pg_engine: AsyncEngine) -> None:
     """Test full legacy schema migration, payload preservation, and ORM compatibility."""
-    
+
     # Step 1: Deliberately construct a legacy payment_events schema in PostgreSQL
     async with pg_engine.begin() as conn:
         await conn.execute(text("UPDATE alembic_version SET version_num = '011_trust_reliability_hardening'"))
@@ -237,7 +235,9 @@ async def test_legacy_payment_events_schema_reconciliation_and_preservation(pg_e
 
     # Step 5: ORM Assertions — Query and persist via SQLAlchemy models
     repo = BillingRepository()
-    async with (repo._get_factory())() as session:
+    factory = repo._get_factory()
+    assert factory is not None, "Database session factory must be initialized for PostgreSQL integration"
+    async with factory() as session:
         # Query Row A through ORM
         stmt = select(PaymentEvent).where(PaymentEvent.id == "pe_leg_001")
         res_orm = await session.execute(stmt)

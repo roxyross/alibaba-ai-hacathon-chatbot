@@ -17,7 +17,8 @@
 }
 
 .model-picker__label {
-  display: none; /* Keep clean and compact inside input capsule */
+  display: none;
+  /* Keep clean and compact inside input capsule */
 }
 
 .model-picker__select {

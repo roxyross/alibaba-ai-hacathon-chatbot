@@ -287,6 +287,15 @@ class PaymentService:
             logger.error(f"Failed to parse webhook event: {exc}")
             return {"status": "error", "message": f"Malformed webhook body: {exc}"}
 
+        return await self.process_webhook_event(prov_name, event)
+
+    async def process_webhook_event(
+        self,
+        provider_name: str,
+        event: NormalizedWebhookEvent,
+    ) -> dict[str, Any]:
+        """Atomically process a parsed normalized webhook event with durable idempotency."""
+        prov_name = provider_name.lower()
         # 3. Idempotent deduplication check & 4. Handle normalized event actions
         try:
             is_new = await self.repo.record_webhook_event(
@@ -370,6 +379,8 @@ class PaymentService:
                             credits=credits,
                             cost_usd=cost_usd or 0.0,
                             cost_pkr=cost_pkr or 0.0,
+                            event_id=event.event_id,
+                            provider=prov_name,
                         )
 
                         await self.repo.add_invoice(

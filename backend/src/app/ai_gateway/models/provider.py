@@ -8,6 +8,20 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+from enum import Enum
+
+
+class ProviderState(str, Enum):
+    """Explicit operational and authentication state for an AI provider."""
+
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    DISABLED = "DISABLED"
+    CONFIGURED = "CONFIGURED"
+    HEALTHY = "HEALTHY"
+    DEGRADED = "DEGRADED"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
 # -----------------------------------------------------------------------------
 # Provider feature flags
 # -----------------------------------------------------------------------------
@@ -19,6 +33,7 @@ PROVIDER_FEATURE_FLAGS: dict[str, str] = {
     "openai": "PROVIDER_OPENAI_ENABLED",
     "anthropic": "PROVIDER_ANTHROPIC_ENABLED",
     "gemini": "PROVIDER_GEMINI_ENABLED",
+    "dashscope": "PROVIDER_DASHSCOPE_ENABLED",
 }
 
 PROVIDER_API_KEY_VARS: dict[str, str] = {
@@ -28,6 +43,7 @@ PROVIDER_API_KEY_VARS: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
+    "dashscope": "DASHSCOPE_API_KEY",
 }
 
 PROVIDER_BASE_URLS: dict[str, str] = {
@@ -37,17 +53,19 @@ PROVIDER_BASE_URLS: dict[str, str] = {
     "openai": "https://api.openai.com/v1",
     "anthropic": "https://api.anthropic.com/v1",
     "gemini": "https://generativelanguage.googleapis.com/v1beta",
+    "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
 }
 
 # Routing priority: lower number = higher priority.
-# Gemini (primary product default) → Groq (fast LPU) → Grok (xAI) → DeepSeek → OpenAI → Anthropic.
+# Gemini (primary product default) → DashScope (Qwen) → Groq (fast LPU) → Grok (xAI) → DeepSeek → OpenAI → Anthropic.
 DEFAULT_ROUTING_PRIORITY: dict[str, int] = {
     "gemini": 1,
-    "groq": 2,
-    "grok": 3,
-    "deepseek": 4,
-    "openai": 5,
-    "anthropic": 6,
+    "dashscope": 2,
+    "groq": 3,
+    "grok": 4,
+    "deepseek": 5,
+    "openai": 6,
+    "anthropic": 7,
 }
 
 
@@ -93,6 +111,13 @@ class ProviderConfig:
     def api_key(self) -> str | None:
         key = os.environ.get(self.api_key_env_var) or None
         if not key:
+            if self.name in ("dashscope", "qwen", "alibaba"):
+                return (
+                    os.environ.get("DASHSCOPE_API_KEY")
+                    or os.environ.get("QWEN_API_KEY")
+                    or os.environ.get("ALIBABA_API_KEY")
+                    or None
+                )
             if self.name == "groq" and os.environ.get("GROK_API_KEY", "").startswith("gsk_"):
                 return os.environ.get("GROK_API_KEY") or None
             if self.name == "grok" and os.environ.get("XAI_API_KEY"):
@@ -113,6 +138,14 @@ class ProviderConfig:
         key = self.api_key
         return key is not None and key != ""
 
+    @property
+    def state(self) -> ProviderState:
+        if not self.is_enabled:
+            return ProviderState.DISABLED
+        if not self.has_api_key:
+            return ProviderState.NOT_CONFIGURED
+        return ProviderState.CONFIGURED
+
 
 # -----------------------------------------------------------------------------
 # Provider registry
@@ -120,6 +153,13 @@ class ProviderConfig:
 
 def _default_models(provider: str) -> tuple[ModelConfig, ...]:
     defaults: dict[str, tuple[ModelConfig, ...]] = {
+        "dashscope": (
+            ModelConfig(name="qwen-max", display_name="Qwen Max (Flagship)", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0028, cost_per_1k_output=0.0084, max_tokens=32768),
+            ModelConfig(name="qwen-plus", display_name="Qwen Plus (Balanced)", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.0004, cost_per_1k_output=0.0012, max_tokens=32768),
+            ModelConfig(name="qwen-turbo", display_name="Qwen Turbo (Fast)", task_types=("general", "coding"), cost_per_1k_input=0.0001, cost_per_1k_output=0.0003, max_tokens=16384),
+            ModelConfig(name="qwen-2.5-coder-32b", display_name="Qwen 2.5 Coder 32B", task_types=("coding", "reasoning"), cost_per_1k_input=0.001, cost_per_1k_output=0.002, max_tokens=32768),
+            ModelConfig(name="qwen-2.5-72b-instruct", display_name="Qwen 2.5 72B Instruct", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.002, cost_per_1k_output=0.006, max_tokens=32768),
+        ),
         "deepseek": (
             ModelConfig(name="deepseek-chat-v3", display_name="DeepSeek V3", task_types=("general", "coding", "reasoning"), cost_per_1k_input=0.001, cost_per_1k_output=0.002, max_tokens=64000),
             ModelConfig(name="deepseek-reasoner", display_name="DeepSeek R1", task_types=("reasoning",), cost_per_1k_input=0.001, cost_per_1k_output=0.006, max_tokens=64000),
@@ -163,22 +203,22 @@ def _default_models(provider: str) -> tuple[ModelConfig, ...]:
     return defaults.get(provider, ())
 
 
-
 def get_provider_config(name: str) -> ProviderConfig | None:
     """Build ProviderConfig for a named provider, reading from env."""
-    api_key_var = PROVIDER_API_KEY_VARS.get(name)
-    base_url = PROVIDER_BASE_URLS.get(name)
+    canonical_name = "dashscope" if name in ("qwen", "alibaba") else name
+    api_key_var = PROVIDER_API_KEY_VARS.get(canonical_name)
+    base_url = PROVIDER_BASE_URLS.get(canonical_name)
     if api_key_var is None or base_url is None:
         return None
 
     return ProviderConfig(
-        name=name,
+        name=canonical_name,
         api_key_env_var=api_key_var,
         base_url=base_url,
-        routing_priority=DEFAULT_ROUTING_PRIORITY.get(name, 99),
+        routing_priority=DEFAULT_ROUTING_PRIORITY.get(canonical_name, 99),
         timeout_seconds=10.0,
         supports_streaming=True,
-        models=_default_models(name),
+        models=_default_models(canonical_name),
     )
 
 

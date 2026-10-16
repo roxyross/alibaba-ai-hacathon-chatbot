@@ -235,7 +235,7 @@ def upgrade() -> None:
         created_tables.append("payment_events")
     else:
         pe_cols = {c["name"] for c in inspector.get_columns("payment_events")}
-        
+
         # 1. Ensure provider column exists
         if "provider" not in pe_cols:
             op.add_column("payment_events", sa.Column("provider", sa.String(32), nullable=True))
@@ -274,24 +274,25 @@ def upgrade() -> None:
         if "raw_payload" in pe_cols:
             # Migrate actual data from raw_payload to payload safely
             import json as _json
+            from typing import Any as _Any
             res = bind.execute(sa.text("SELECT id, raw_payload FROM payment_events WHERE raw_payload IS NOT NULL"))
             for row in res.fetchall():
                 row_id, r_payload = row[0], row[1]
-                parsed_payload = {}
+                parsed_payload: dict[str, _Any] = {}
                 if isinstance(r_payload, dict):
                     parsed_payload = r_payload
                 elif isinstance(r_payload, str):
                     try:
-                        parsed_payload = _json.loads(r_payload)
-                        if not isinstance(parsed_payload, dict):
-                            parsed_payload = {"raw": parsed_payload}
+                        loaded = _json.loads(r_payload)
+                        parsed_payload = loaded if isinstance(loaded, dict) else {"raw": loaded}
                     except Exception:
                         parsed_payload = {"raw": r_payload}
-                if parsed_payload:
-                    bind.execute(
-                        sa.text("UPDATE payment_events SET payload = :p WHERE id = :id"),
-                        {"p": _json.dumps(parsed_payload), "id": row_id},
-                    )
+                else:
+                    parsed_payload = {"raw": str(r_payload)}
+                bind.execute(
+                    sa.text("UPDATE payment_events SET payload = :p WHERE id = :id"),
+                    {"p": _json.dumps(parsed_payload), "id": row_id},
+                )
             # Make raw_payload nullable so new inserts using the updated ORM model succeed
             op.alter_column("payment_events", "raw_payload", nullable=True)
 
@@ -341,20 +342,24 @@ def upgrade() -> None:
                         sa.text("UPDATE payment_events SET provider_event_id = :neid, event_id = :neid WHERE id = :id"),
                         {"neid": new_eid, "id": dup_id}
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError(
+                f"Migration 012 failed during duplicate provider_event_id reconciliation: {exc}"
+            ) from exc
 
         # 8. Ensure unique constraint exists
-        try:
-            constraints = {c["name"] for c in inspector.get_unique_constraints("payment_events")}
-            if "uq_payment_events_provider_event" not in constraints:
+        constraints = {c["name"] for c in inspector.get_unique_constraints("payment_events")}
+        if "uq_payment_events_provider_event" not in constraints:
+            try:
                 op.create_unique_constraint(
                     "uq_payment_events_provider_event",
                     "payment_events",
                     ["provider", "provider_event_id"],
                 )
-        except Exception:
-            pass
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Migration 012 failed to create unique constraint 'uq_payment_events_provider_event': {exc}"
+                ) from exc
 
     # -------------------------------------------------------------------------
     # 5. payment_methods table (Customer Payment Methods)

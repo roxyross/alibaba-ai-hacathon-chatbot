@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db import get_session_factory
@@ -27,22 +29,26 @@ from app.models.subscription import (
 logger = logging.getLogger(__name__)
 
 # Thread-safe in-memory stores for testing and offline development
+_MEM_LOCK = threading.RLock()
 _MEM_SUBSCRIPTIONS: dict[str, dict[str, Any]] = {}
 _MEM_PAYMENT_METHODS: dict[str, list[dict[str, Any]]] = {}
 _MEM_INVOICES: dict[str, list[dict[str, Any]]] = {}
 _MEM_PAYMENTS: dict[str, list[dict[str, Any]]] = {}
 _MEM_EVENTS: set[str] = set()
+_MEM_CREDITED_EVENTS: set[str] = set()
 _MEM_WALLETS: dict[str, dict[str, Any]] = {}
 
 
 def clear_in_memory_stores() -> None:
     """Clear in-memory billing stores (useful for test isolation)."""
-    _MEM_SUBSCRIPTIONS.clear()
-    _MEM_PAYMENT_METHODS.clear()
-    _MEM_INVOICES.clear()
-    _MEM_PAYMENTS.clear()
-    _MEM_EVENTS.clear()
-    _MEM_WALLETS.clear()
+    with _MEM_LOCK:
+        _MEM_SUBSCRIPTIONS.clear()
+        _MEM_PAYMENT_METHODS.clear()
+        _MEM_INVOICES.clear()
+        _MEM_PAYMENTS.clear()
+        _MEM_EVENTS.clear()
+        _MEM_CREDITED_EVENTS.clear()
+        _MEM_WALLETS.clear()
 
 
 class BillingRepository:
@@ -485,9 +491,10 @@ class BillingRepository:
     ) -> bool:
         """Atomically record event ID. Return True if event should be processed (new or pending retry), False if already processed."""
         key = f"{provider}:{event_id}"
-        if key in _MEM_EVENTS:
-            logger.info(f"Duplicate webhook event detected in memory: {key}")
-            return False
+        with _MEM_LOCK:
+            if key in _MEM_EVENTS:
+                logger.info(f"Duplicate webhook event detected in memory: {key}")
+                return False
 
         factory = self._get_factory()
         if factory is not None:
@@ -502,9 +509,14 @@ class BillingRepository:
                     if existing:
                         if existing.processed:
                             logger.info(f"Duplicate completed webhook event detected in DB: {key}")
-                            _MEM_EVENTS.add(key)
+                            with _MEM_LOCK:
+                                _MEM_EVENTS.add(key)
                             return False
-                        # If existing record is not yet marked processed, allow retry
+                        # If existing record has already credited wallet, prevent duplicate processing
+                        if existing.payload and existing.payload.get("wallet_credited") is True:
+                            logger.info(f"Webhook event already credited in DB, skipping duplicate processing: {key}")
+                            return False
+                        # If existing record is not yet marked processed, allow safe retry
                         logger.info(f"Retrying incomplete webhook event from DB: {key}")
                         return True
 
@@ -517,11 +529,29 @@ class BillingRepository:
                     )
                     db.add(event)
                     await db.commit()
+            except IntegrityError:
+                # Concurrent worker delivery conflict: another worker inserted this event row
+                logger.info(f"Concurrent webhook insert conflict on {key}; verifying existing record.")
+                try:
+                    async with factory() as db_retry:
+                        stmt = select(PaymentEvent).where(
+                            PaymentEvent.provider == provider,
+                            PaymentEvent.provider_event_id == event_id,
+                        )
+                        res = await db_retry.execute(stmt)
+                        existing = res.scalars().first()
+                        if existing:
+                            if existing.processed or (existing.payload and existing.payload.get("wallet_credited") is True):
+                                return False
+                            return True
+                except Exception as check_exc:
+                    logger.error(f"Failed to check existing event after IntegrityError: {check_exc}")
+                    return False
             except Exception as exc:
                 logger.error(f"DB record webhook event error: {exc}")
                 if self._is_production():
                     raise RuntimeError(f"DB record webhook event error in production: {exc}") from exc
-                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+                raise
         elif self._is_production():
             raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
@@ -552,7 +582,9 @@ class BillingRepository:
                 logger.error(f"DB mark webhook event processed error: {exc}")
                 if self._is_production():
                     raise RuntimeError(f"DB mark webhook event processed error in production: {exc}") from exc
-        _MEM_EVENTS.add(key)
+                raise
+        with _MEM_LOCK:
+            _MEM_EVENTS.add(key)
 
     # -------------------------------------------------------------------------
     # Credit Wallet
@@ -591,7 +623,8 @@ class BillingRepository:
             "estimated_cost_usd": 0.0,
             "estimated_cost_pkr": 0.0,
         }
-        _MEM_WALLETS[user_id] = initial
+        with _MEM_LOCK:
+            _MEM_WALLETS[user_id] = initial
         return initial
 
     async def credit_wallet(
@@ -600,13 +633,56 @@ class BillingRepository:
         credits: float,
         cost_usd: float = 0.0,
         cost_pkr: float = 0.0,
+        event_id: str | None = None,
+        provider: str = "stripe",
     ) -> dict[str, Any]:
-        """Add credits to user's wallet."""
+        """Add credits to user's wallet with durable event-bound idempotency."""
+        mem_key = f"{provider}:{event_id}" if event_id else None
+        with _MEM_LOCK:
+            if mem_key and mem_key in _MEM_CREDITED_EVENTS:
+                logger.info(f"In-memory duplicate credit prevented for event: {mem_key}")
+                return await self.get_credit_wallet(user_id)
+
         factory = self._get_factory()
         if factory is not None:
             try:
                 async with factory() as db:
-                    stmt = select(CreditWallet).where(CreditWallet.user_id == user_id)
+                    # If event_id is supplied, check under row-lock if already credited
+                    if event_id:
+                        ev_stmt = (
+                            select(PaymentEvent)
+                            .where(
+                                PaymentEvent.provider == provider,
+                                PaymentEvent.provider_event_id == event_id,
+                            )
+                            .with_for_update()
+                        )
+                        ev_res = await db.execute(ev_stmt)
+                        ev = ev_res.scalars().first()
+                        if ev:
+                            ev_payload = dict(ev.payload or {})
+                            if ev_payload.get("wallet_credited") is True:
+                                logger.info(f"Durable duplicate credit prevented for event: {event_id}")
+                                w_stmt = select(CreditWallet).where(CreditWallet.user_id == user_id)
+                                w_res = await db.execute(w_stmt)
+                                w = w_res.scalars().first()
+                                return {
+                                    "user_id": user_id,
+                                    "remaining_credits": w.remaining_credits if w else 100.0,
+                                    "used_this_month": w.used_this_month if w else 0.0,
+                                    "estimated_cost_usd": w.estimated_cost_usd if w else 0.0,
+                                    "estimated_cost_pkr": w.estimated_cost_pkr if w else 0.0,
+                                }
+                            # Mark wallet credited on the event record
+                            ev_payload["wallet_credited"] = True
+                            ev_payload["credited_amount"] = credits
+                            ev.payload = ev_payload
+
+                    stmt = (
+                        select(CreditWallet)
+                        .where(CreditWallet.user_id == user_id)
+                        .with_for_update()
+                    )
                     res = await db.execute(stmt)
                     wallet = res.scalars().first()
                     if not wallet:
@@ -620,25 +696,32 @@ class BillingRepository:
                         db.add(wallet)
                     else:
                         wallet.remaining_credits += credits
+                        wallet.estimated_cost_usd = (wallet.estimated_cost_usd or 0.0) + cost_usd
+                        wallet.estimated_cost_pkr = (wallet.estimated_cost_pkr or 0.0) + cost_pkr
                     await db.commit()
             except Exception as exc:
                 logger.error(f"DB credit wallet failed: {exc}")
                 if self._is_production():
                     raise RuntimeError(f"DB credit wallet failed in production: {exc}") from exc
-                logger.warning(f"Falling back to in-memory store in non-production environment: {exc}")
+                raise
         elif self._is_production():
             raise RuntimeError("Durable database persistence required in production, but DATABASE_URL is not configured.")
 
+        if mem_key:
+            with _MEM_LOCK:
+                _MEM_CREDITED_EVENTS.add(mem_key)
+
         if factory is not None:
-            # DB committed the credit; fetch true balance without double-adding
             wallet_mem = await self.get_credit_wallet(user_id)
-            _MEM_WALLETS[user_id] = wallet_mem
+            with _MEM_LOCK:
+                _MEM_WALLETS[user_id] = wallet_mem
             return wallet_mem
 
-        wallet_mem = await self.get_credit_wallet(user_id)
-        wallet_mem["remaining_credits"] += credits
-        _MEM_WALLETS[user_id] = wallet_mem
-        return wallet_mem
+        with _MEM_LOCK:
+            wallet_mem = await self.get_credit_wallet(user_id)
+            wallet_mem["remaining_credits"] += credits
+            _MEM_WALLETS[user_id] = wallet_mem
+            return wallet_mem
 
     async def deduct_credits(self, user_id: str, credits: float) -> bool:
         """Deduct credits from user wallet if sufficient balance exists."""

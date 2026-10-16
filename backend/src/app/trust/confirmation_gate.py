@@ -32,9 +32,38 @@ log = structlog.get_logger()
 
 # Storage and synchronization locks
 _CHALLENGES: dict[str, dict[str, Any]] = {}
-_SECRET_KEY = secrets.token_bytes(32)
 _LOCK = threading.RLock()
 _STORAGE_PATH = Path(os.getenv("ROXY_CONFIRMATION_STORE", "data/confirmation_challenges.json"))
+
+
+def _is_production() -> bool:
+    """Detect whether current execution environment is a production deployment."""
+    app_env = os.environ.get("APP_ENV", "").lower()
+    env = os.environ.get("ENV", "").lower()
+    environment = os.environ.get("ENVIRONMENT", "").lower()
+    return (
+        app_env in ("production", "prod")
+        or env in ("production", "prod")
+        or environment in ("production", "prod")
+        or bool(os.environ.get("VERCEL"))
+        or bool(os.environ.get("K_SERVICE"))
+    )
+
+
+def _get_signing_key() -> bytes:
+    """Return stable HMAC signing secret derived from environment, avoiding ephemeral per-process keys."""
+    secret = (
+        os.environ.get("ROXY_CONFIRMATION_SECRET")
+        or os.environ.get("SECRET_KEY")
+        or os.environ.get("JWT_SECRET")
+    )
+    if secret:
+        return hashlib.sha256(secret.encode("utf-8")).digest()
+    if _is_production():
+        raise RuntimeError(
+            "Production security configuration error: ROXY_CONFIRMATION_SECRET, SECRET_KEY, or JWT_SECRET must be configured."
+        )
+    return b"roxy_stable_dev_confirmation_signing_key_32bytes"
 
 
 def canonicalize_parameters(params: dict[str, Any] | None) -> str:
@@ -60,6 +89,25 @@ class ConfirmationGate:
         return _STORAGE_PATH
 
     @classmethod
+    def is_independent_verification_configured(cls) -> bool:
+        """Check whether a legitimate independent verification channel is configured."""
+        if os.environ.get("ROXY_FORCE_DISABLE_2FA_DELIVERY", "").lower() == "true":
+            return False
+        # Legitimate channels: configured SMTP host/user, TOTP authenticator secret, or explicit 2FA delivery provider
+        has_smtp = bool(os.environ.get("SMTP_HOST") and (os.environ.get("SMTP_USER") or os.environ.get("SMTP_PASS")))
+        has_authenticator = bool(
+            os.environ.get("ROXY_STEP_UP_AUTH_SECRET")
+            or os.environ.get("ROXY_TOTP_SECRET")
+            or os.environ.get("ROXY_STEP_UP_DELIVERY_PROVIDER")
+        )
+        if has_smtp or has_authenticator:
+            return True
+        # In non-production testing, allow if ROXY_ALLOW_TEST_STEP_UP is explicitly true (defaulting to true in tests)
+        if not _is_production():
+            return os.environ.get("ROXY_ALLOW_TEST_STEP_UP", "true").lower() == "true"
+        return False
+
+    @classmethod
     def _save_to_disk(cls) -> None:
         """Atomically persist active and consumed challenges to disk."""
         try:
@@ -80,9 +128,13 @@ class ConfirmationGate:
             temp_fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix="conf_", suffix=".tmp")
             with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
                 json.dump(serializable, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(temp_name, path)
         except Exception as exc:
             log.warning("confirmation_gate.save_disk_failed", error=str(exc))
+            if _is_production():
+                raise RuntimeError(f"ConfirmationGate durable persistence failed in production: {exc}") from exc
 
     @classmethod
     def _load_from_disk(cls) -> None:
@@ -147,18 +199,27 @@ class ConfirmationGate:
             now = datetime.now(timezone.utc)
             expires_at = now + timedelta(seconds=ttl_seconds)
 
-            # Generate HMAC token for challenge verification
+            # Generate HMAC token for challenge verification using stable key
             token_seed = f"{challenge_id}:{user_id}:{action_type}:{int(expires_at.timestamp())}".encode()
-            challenge_token = hmac.new(_SECRET_KEY, token_seed, hashlib.sha256).hexdigest()
+            challenge_token = hmac.new(_get_signing_key(), token_seed, hashlib.sha256).hexdigest()
 
             step_up_code = None
             step_up_hint = None
             is_step_up = requires_2fa or risk_tier == RiskTier.CRITICAL or risk_score >= 85
 
             if is_step_up:
+                # Enforce independent verification configuration: fail closed if missing
+                if not cls.is_independent_verification_configured():
+                    log.error("confirmation_gate.step_up_unconfigured", action_type=action_type, user_id=user_id)
+                    raise RuntimeError(
+                        "Critical security policy: Independent step-up verification is not configured. "
+                        "Operations requiring 2FA step-up cannot proceed without a configured authenticator or delivery provider."
+                    )
+
                 # Generate 6-digit numeric step-up code
                 step_up_code = f"{secrets.randbelow(900000) + 100000:06d}"
-                step_up_hint = f"Enter verification code {step_up_code} or approve via biometric authenticator"
+                # P0 Security: Never leak verification code in hint, API response, or browser-visible metadata
+                step_up_hint = "Enter the 6-digit verification code sent to your registered authenticator or out-of-band channel."
 
             challenge_data = {
                 "challenge_id": challenge_id,
@@ -174,6 +235,7 @@ class ConfirmationGate:
                 "step_up_code": step_up_code,
                 "step_up_hint": step_up_hint,
                 "status": ConfirmationStatus.PENDING,
+                "attempts": 0,
                 "created_at": now,
                 "expires_at": expires_at,
                 "resolved_at": None,
@@ -286,8 +348,17 @@ class ConfirmationGate:
             if rec["status"] != ConfirmationStatus.PENDING:
                 raise ValueError(f"Challenge already resolved as {rec['status'].value if hasattr(rec['status'], 'value') else rec['status']}.")
 
+            # Enforce bounded attempts lockout (maximum 3 attempts)
+            attempts = rec.get("attempts", 0)
+            if attempts >= 3:
+                rec["status"] = ConfirmationStatus.REJECTED
+                cls._save_to_disk()
+                raise ValueError("Maximum verification attempts exceeded. Challenge has been locked out.")
+
             # Constant-time HMAC comparison
             if not hmac.compare_digest(rec["challenge_token"], challenge_token):
+                rec["attempts"] = attempts + 1
+                cls._save_to_disk()
                 raise ValueError("Invalid challenge verification token.")
 
             decision_clean = decision.strip().lower()
@@ -296,9 +367,16 @@ class ConfirmationGate:
 
             # Validate step-up code if required and approving
             if decision_clean == "approve" and rec["step_up_required"]:
-                expected_code = rec["step_up_code"]
+                expected_code = str(rec["step_up_code"])
                 if not step_up_code or not hmac.compare_digest(step_up_code.strip(), expected_code):
-                    raise ValueError("Invalid step-up verification code. Please check your authenticator code.")
+                    rec["attempts"] = attempts + 1
+                    cls._save_to_disk()
+                    remaining = 3 - rec["attempts"]
+                    if remaining <= 0:
+                        rec["status"] = ConfirmationStatus.REJECTED
+                        cls._save_to_disk()
+                        raise ValueError("Maximum verification attempts exceeded. Challenge has been locked out.")
+                    raise ValueError(f"Invalid step-up verification code. {remaining} attempt(s) remaining.")
 
             status = ConfirmationStatus.APPROVED if decision_clean == "approve" else ConfirmationStatus.REJECTED
             rec["status"] = status
@@ -469,3 +547,7 @@ class ConfirmationGate:
                 dirty = True
         if dirty:
             cls._save_to_disk()
+
+
+# Initialize stored challenges on module load
+ConfirmationGate._load_from_disk()

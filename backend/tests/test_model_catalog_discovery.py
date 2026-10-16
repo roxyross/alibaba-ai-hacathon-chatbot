@@ -225,3 +225,114 @@ async def test_missing_credentials_fails_safe_without_crashing(discovery_service
     active_models = discovery_service.get_active_models("gemini")
     assert len(active_models) > 0
     assert active_models[0].model_id == "gemini-4-argon"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_model_discovery_includes_o1_o3_and_filters_specialized(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+    """Discovers models beyond gpt- prefix (e.g. o1, o3-mini) and filters specialized non-chat models."""
+    monkeypatch.setenv("PROVIDER_OPENAI_ENABLED", "true")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake-openai-key")
+
+    mock_openai_response = {
+        "data": [
+            {"id": "o1", "object": "model"},
+            {"id": "o1-mini", "object": "model"},
+            {"id": "o3-mini", "object": "model"},
+            {"id": "gpt-4o", "object": "model"},
+            {"id": "gpt-4o-mini", "object": "model"},
+            {"id": "dall-e-3", "object": "model"},              # Image generation -> specialized
+            {"id": "text-embedding-3-large", "object": "model"}, # Embedding -> specialized
+            {"id": "whisper-1", "object": "model"},             # Transcription -> specialized
+            {"id": "tts-1-hd", "object": "model"},              # TTS -> specialized
+        ]
+    }
+
+    respx.get("https://api.openai.com/v1/models").mock(
+        return_value=httpx.Response(200, json=mock_openai_response)
+    )
+
+    result = await discovery_service.refresh_provider_catalog("openai")
+    assert result.success is True
+    model_ids = [m.model_id for m in result.models]
+
+    # Reasoning and chat models included
+    assert "o1" in model_ids
+    assert "o1-mini" in model_ids
+    assert "o3-mini" in model_ids
+    assert "gpt-4o" in model_ids
+    assert "gpt-4o-mini" in model_ids
+
+    # Specialized models excluded from general chat routing
+    assert "dall-e-3" not in model_ids
+    assert "text-embedding-3-large" not in model_ids
+    assert "whisper-1" not in model_ids
+    assert "tts-1-hd" not in model_ids
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_anthropic_model_discovery_haiku_sonnet_opus(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+    """Discovers official Claude models across Haiku, Sonnet, and Opus families."""
+    monkeypatch.setenv("PROVIDER_ANTHROPIC_ENABLED", "true")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-key")
+
+    mock_anthropic_response = {
+        "data": [
+            {"id": "claude-3-5-sonnet-20241022", "display_name": "Claude 3.5 Sonnet", "type": "model"},
+            {"id": "claude-3-5-haiku-20241022", "display_name": "Claude 3.5 Haiku", "type": "model"},
+            {"id": "claude-3-opus-20240229", "display_name": "Claude 3 Opus", "type": "model"},
+            {"id": "unverified-fable-fake", "display_name": "Unverified Model", "type": "model"},
+        ],
+        "has_more": False,
+    }
+
+    respx.get("https://api.anthropic.com/v1/models").mock(
+        return_value=httpx.Response(200, json=mock_anthropic_response)
+    )
+
+    result = await discovery_service.refresh_provider_catalog("anthropic")
+    assert result.success is True
+    model_ids = [m.model_id for m in result.models]
+    assert "claude-3-5-sonnet-20241022" in model_ids
+    assert "claude-3-5-haiku-20241022" in model_ids
+    assert "claude-3-opus-20240229" in model_ids
+    # Unverified fabricated name excluded
+    assert "unverified-fable-fake" not in model_ids
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_transient_failure_preserves_last_known_good_catalog(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+    """When a transient error (e.g. 500 or 429) occurs during refresh, the existing catalog is never wiped."""
+    monkeypatch.setenv("GEMINI_API_KEY", "fake_gemini_key")
+
+    # Step 1: Successful initial population
+    respx.get("https://generativelanguage.googleapis.com/v1beta/models?key=fake_gemini_key").mock(
+        return_value=httpx.Response(200, json={
+            "models": [
+                {
+                    "name": "models/gemini-4-argon",
+                    "displayName": "Gemini 4 Argon",
+                    "supportedGenerationMethods": ["generateContent"],
+                }
+            ]
+        })
+    )
+    res1 = await discovery_service.refresh_provider_catalog("gemini")
+    assert res1.success is True
+    assert len(discovery_service.get_active_models("gemini")) == 1
+
+    # Step 2: Transient 500 error on subsequent refresh
+    respx.get("https://generativelanguage.googleapis.com/v1beta/models?key=fake_gemini_key").mock(
+        return_value=httpx.Response(500, json={"error": "Internal server error"})
+    )
+    res2 = await discovery_service.refresh_provider_catalog("gemini")
+    assert res2.success is False
+    assert res2.is_stale is True
+
+    # Last-known-good catalog was preserved, NOT wiped to empty
+    active_models = discovery_service.get_active_models("gemini")
+    assert len(active_models) == 1
+    assert active_models[0].model_id == "gemini-4-argon"
+

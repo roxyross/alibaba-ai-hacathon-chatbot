@@ -180,6 +180,7 @@ jobs:
                  tests/test_auth_demo_security.py \
                  tests/test_auth_oauth_state_security.py \
                  tests/test_auth_redirect_security.py \
+                 tests/test_p0_security_step_up_regression.py \
                  tests/test_skills_confirmation_security.py \
                  tests/test_gmail_token_storage_security.py \
                  tests/test_payment_production_security.py \
@@ -214,6 +215,7 @@ jobs:
                  tests/integration/test_gmail_token_real_postgres_integration.py \
                  tests/integration/test_billing_real_postgres_integration.py \
                  tests/integration/test_webhook_transactional_integrity.py \
+                 tests/integration/test_p0_financial_integrity_failure_injection.py \
                  -v --tb=short
 
   # ----------------------------------------------------------------------------

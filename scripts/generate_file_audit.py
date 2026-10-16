@@ -3,60 +3,68 @@
 Generate ROXY_FINAL_FILE_AUDIT.csv
 Forensic inventory and classification of all tracked repository files in Roxy-AI.
 """
-import os
-import subprocess
 import csv
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path("d:/USER/Documents/alibaba-ai-hacathon-chatbot/roxy-personal-ai")
 
-def get_tracked_files():
+
+def get_tracked_files() -> list[str]:
     result = subprocess.run(
         ["git", "ls-files"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
-        check=True
+        check=True,
     )
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
-def get_changed_files():
+
+def get_changed_files() -> set[str]:
     result = subprocess.run(
         ["git", "diff", "--name-only", "origin/master...HEAD"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
-        check=True
+        check=True,
     )
-    changed = set(line.strip() for line in result.stdout.splitlines() if line.strip())
-    
+    changed = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
     # Also check working tree changes
     res_status = subprocess.run(
         ["git", "status", "--porcelain"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
-        check=True
+        check=True,
     )
     for line in res_status.stdout.splitlines():
         if len(line) > 3:
-            status_code = line[:2]
             filepath = line[3:].strip()
             changed.add(filepath)
     return changed
 
-def categorize_file(path_str):
+
+def categorize_file(path_str: str) -> tuple[str, str]:
     p = Path(path_str)
-    parts = p.parts
     ext = p.suffix.lower()
-    
+
     if path_str.startswith(".github/"):
         return "CI_WORKFLOW", "P1_HIGH"
-    if path_str.startswith("deploy/") or path_str in ["Dockerfile", "backend/Dockerfile", "frontend/Dockerfile", "cloudbuild.yaml", "docker-compose.yml", "deploy-gcp.ps1", "deploy-gcp.sh"]:
+    if path_str.startswith("deploy/") or path_str in [
+        "Dockerfile",
+        "backend/Dockerfile",
+        "frontend/Dockerfile",
+        "cloudbuild.yaml",
+        "docker-compose.yml",
+        "deploy-gcp.ps1",
+        "deploy-gcp.sh",
+    ]:
         return "DEPLOYMENT_CONFIG", "P1_HIGH"
     if path_str.startswith("desktop/"):
         return "DESKTOP_CLIENT", "P2_MEDIUM"
-    if path_str.startswith("android/") or path_str.startswith("ios/"):
+    if path_str.startswith(("android/", "ios/")):
         return "MOBILE_CLIENT", "P2_MEDIUM"
     if ext in [".md", ".txt", ".rst"] or path_str.endswith("LICENSE"):
         return "DOCUMENTATION_REPORT", "P3_LOW"
@@ -88,7 +96,10 @@ def categorize_file(path_str):
         return "PROJECT_CONFIG", "P1_HIGH"
     return "REPOSITORY_ASSET", "P3_LOW"
 
-def determine_audit_info(path_str, category, criticality, is_changed):
+
+def determine_audit_info(
+    path_str: str, category: str, criticality: str, is_changed: bool
+) -> tuple[str, str, str, str, str, str, str]:
     # Specialized mappings for key fixed and tested files
     if any(term in path_str for term in ["012_billing_connectors", "validate_migrations", "test_alembic_migrations", "test_alembic_data_preservation"]):
         return (
@@ -188,10 +199,11 @@ def determine_audit_info(path_str, category, criticality, is_changed):
         "Repository lint and static file verification",
         "Master baseline",
         "Negligible",
-        "Clean repository status"
+        "Clean repository status",
     )
 
-def main():
+
+def main() -> None:
     tracked = get_tracked_files()
     changed = get_changed_files()
     
