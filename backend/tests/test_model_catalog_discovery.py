@@ -46,7 +46,10 @@ def discovery_service() -> ModelCatalogDiscoveryService:
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_gemini_model_discovery_and_promotion(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+async def test_gemini_model_discovery_and_promotion(
+    discovery_service: ModelCatalogDiscoveryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Discovers models from Gemini API, identifies stable GA models, and promotes newest."""
     monkeypatch.setenv("GEMINI_API_KEY", "fake_gemini_key")
 
@@ -87,7 +90,10 @@ async def test_gemini_model_discovery_and_promotion(discovery_service: ModelCata
     )
 
     # Allow canary to pass
-    discovery_service.canary_hook = lambda prov, m_id: True
+    def _canary_pass(_prov: str, _m_id: str) -> bool:
+        return True
+
+    discovery_service.canary_hook = _canary_pass
 
     result = await discovery_service.refresh_provider_catalog("gemini")
     assert result.success is True
@@ -104,7 +110,10 @@ async def test_gemini_model_discovery_and_promotion(discovery_service: ModelCata
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_canary_failure_keeps_last_known_good_default(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+async def test_canary_failure_keeps_last_known_good_default(
+    discovery_service: ModelCatalogDiscoveryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """If canary validation fails on a new model, previous default is kept and failure recorded."""
     monkeypatch.setenv("GEMINI_API_KEY", "fake_gemini_key")
 
@@ -125,7 +134,10 @@ async def test_canary_failure_keeps_last_known_good_default(discovery_service: M
     )
 
     # Canary fails
-    discovery_service.canary_hook = lambda prov, m_id: False
+    def _canary_fail(_prov: str, _m_id: str) -> bool:
+        return False
+
+    discovery_service.canary_hook = _canary_fail
 
     result = await discovery_service.refresh_provider_catalog("gemini")
     assert result.success is True
@@ -136,7 +148,10 @@ async def test_canary_failure_keeps_last_known_good_default(discovery_service: M
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_grok_model_discovery_and_provider_isolation(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+async def test_grok_model_discovery_and_provider_isolation(
+    discovery_service: ModelCatalogDiscoveryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """xAI endpoint only discovers native Grok models, never Qwen or GPT-OSS."""
     monkeypatch.setenv("GROK_API_KEY", "fake_xai_key")
 
@@ -163,7 +178,10 @@ async def test_grok_model_discovery_and_provider_isolation(discovery_service: Mo
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_groq_model_discovery_excludes_deprecated(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+async def test_groq_model_discovery_excludes_deprecated(
+    discovery_service: ModelCatalogDiscoveryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Groq endpoint discovers active fast models and excludes deprecated or inactive models."""
     monkeypatch.setenv("GROQ_API_KEY", "gsk_fake_groq_key")
 
@@ -190,7 +208,10 @@ async def test_groq_model_discovery_excludes_deprecated(discovery_service: Model
 
 
 @pytest.mark.asyncio
-async def test_disabled_providers_do_not_send_requests(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+async def test_disabled_providers_do_not_send_requests(
+    discovery_service: ModelCatalogDiscoveryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """OpenAI and Anthropic remain disabled by default and make zero outbound requests."""
     # Even if environment variables exist, feature flags default to disabled
     monkeypatch.setenv("OPENAI_API_KEY", "sk-proj-fake")
@@ -208,7 +229,10 @@ async def test_disabled_providers_do_not_send_requests(discovery_service: ModelC
 
 
 @pytest.mark.asyncio
-async def test_missing_credentials_fails_safe_without_crashing(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+async def test_missing_credentials_fails_safe_without_crashing(
+    discovery_service: ModelCatalogDiscoveryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """When credentials are not present, service falls back to static baseline without raising."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
@@ -224,7 +248,10 @@ async def test_missing_credentials_fails_safe_without_crashing(discovery_service
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_model_discovery_includes_o1_o3_and_filters_specialized(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+async def test_openai_model_discovery_includes_o1_o3_and_filters_specialized(
+    discovery_service: ModelCatalogDiscoveryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Discovers models beyond gpt- prefix (e.g. o1, o3-mini) and filters specialized non-chat models."""
     monkeypatch.setenv("PROVIDER_OPENAI_ENABLED", "true")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-fake-openai-key")
@@ -267,7 +294,10 @@ async def test_openai_model_discovery_includes_o1_o3_and_filters_specialized(dis
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_anthropic_model_discovery_haiku_sonnet_opus(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+async def test_anthropic_model_discovery_haiku_sonnet_opus(
+    discovery_service: ModelCatalogDiscoveryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Discovers official Claude models across Haiku, Sonnet, and Opus families."""
     monkeypatch.setenv("PROVIDER_ANTHROPIC_ENABLED", "true")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-key")
@@ -298,7 +328,10 @@ async def test_anthropic_model_discovery_haiku_sonnet_opus(discovery_service: Mo
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_transient_failure_preserves_last_known_good_catalog(discovery_service: ModelCatalogDiscoveryService, monkeypatch) -> None:
+async def test_transient_failure_preserves_last_known_good_catalog(
+    discovery_service: ModelCatalogDiscoveryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """When a transient error (e.g. 500 or 429) occurs during refresh, the existing catalog is never wiped."""
     monkeypatch.setenv("GEMINI_API_KEY", "fake_gemini_key")
 
