@@ -216,6 +216,7 @@ jobs:
                  tests/integration/test_billing_real_postgres_integration.py \
                  tests/integration/test_webhook_transactional_integrity.py \
                  tests/integration/test_p0_financial_integrity_failure_injection.py \
+                 tests/integration/test_p0_final_targeted_security_closure.py \
                  -v --tb=short
 
   # ----------------------------------------------------------------------------

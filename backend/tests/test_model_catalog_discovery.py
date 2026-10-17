@@ -18,12 +18,7 @@ import httpx
 import pytest
 import respx
 
-from app.ai_gateway.models.provider import ProviderConfig
-from app.ai_gateway.services.catalog_discovery import (
-    CatalogSyncResult,
-    DiscoveredModel,
-    ModelCatalogDiscoveryService,
-)
+from app.ai_gateway.services.catalog_discovery import ModelCatalogDiscoveryService
 
 
 @pytest.fixture
@@ -204,12 +199,12 @@ async def test_disabled_providers_do_not_send_requests(discovery_service: ModelC
     openai_res = await discovery_service.refresh_provider_catalog("openai")
     assert openai_res.success is True
     assert openai_res.live_verified is False
-    assert "disabled" in openai_res.error_reason.lower()
+    assert openai_res.error_reason is not None and "disabled" in openai_res.error_reason.lower()
 
     anthropic_res = await discovery_service.refresh_provider_catalog("anthropic")
     assert anthropic_res.success is True
     assert anthropic_res.live_verified is False
-    assert "disabled" in anthropic_res.error_reason.lower()
+    assert anthropic_res.error_reason is not None and "disabled" in anthropic_res.error_reason.lower()
 
 
 @pytest.mark.asyncio
@@ -220,7 +215,7 @@ async def test_missing_credentials_fails_safe_without_crashing(discovery_service
     result = await discovery_service.refresh_provider_catalog("gemini")
     assert result.success is True
     assert result.live_verified is False
-    assert "not configured" in result.error_reason.lower()
+    assert result.error_reason is not None and "not configured" in result.error_reason.lower()
     # Baseline defaults still returned safely
     active_models = discovery_service.get_active_models("gemini")
     assert len(active_models) > 0

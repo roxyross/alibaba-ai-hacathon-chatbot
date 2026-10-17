@@ -19,12 +19,11 @@ import asyncio
 import os
 import uuid
 from collections.abc import AsyncGenerator, Generator
-from typing import Any
 from unittest import mock
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -32,7 +31,6 @@ from app.billing.providers.base import NormalizedWebhookEvent
 from app.billing.repository import BillingRepository, clear_in_memory_stores
 from app.billing.service import PaymentService
 from app.db import _session_factory, get_engine, normalize_database_url
-from app.models.subscription import CreditWallet, Payment, PaymentEvent
 
 VALID_TEST_DB_NAMES = {"roxy_isolated_test_db", "roxy_test"}
 PROD_DB_MARKERS = {"prod", "production", "neon.tech", "aws.neon", "cloudsql"}
@@ -187,7 +185,6 @@ async def test_03_credit_commits_then_failure_occurs_retry_prevents_double_credi
     )
 
     # Simulate failure in mark_webhook_event_processed (e.g. temporary network glitch or DB blip after wallet credit)
-    original_mark = repo.mark_webhook_event_processed
     with mock.patch.object(repo, "mark_webhook_event_processed", side_effect=RuntimeError("Simulated failure after credit")):
         res_fail = await svc.process_webhook_event("stripe", event)
         assert res_fail["status"] == "error"
@@ -199,7 +196,8 @@ async def test_03_credit_commits_then_failure_occurs_retry_prevents_double_credi
             {"uid": user_id},
         )
         credited_bal = res.scalar()
-        assert credited_bal >= 1200000.0
+        assert credited_bal is not None
+        assert float(credited_bal) >= 1200000.0
 
         # Event is NOT marked processed yet
         ev_res = await conn.execute(
@@ -276,11 +274,13 @@ async def test_05_db_failure_during_event_insert_returns_failure_in_production(p
         raw_data={},
     )
 
-    with mock.patch.dict(os.environ, {"ENVIRONMENT": "production", "APP_ENV": "production"}):
-        with mock.patch.object(repo, "record_webhook_event", side_effect=RuntimeError("Postgres I/O connection lost")):
-            result = await svc.process_webhook_event("stripe", event)
-            assert result["status"] == "error"
-            assert "Postgres I/O connection lost" in result["message"]
+    with (
+        mock.patch.dict(os.environ, {"ENVIRONMENT": "production", "APP_ENV": "production"}),
+        mock.patch.object(repo, "record_webhook_event", side_effect=RuntimeError("Postgres I/O connection lost")),
+    ):
+        result = await svc.process_webhook_event("stripe", event)
+        assert result["status"] == "error"
+        assert "Postgres I/O connection lost" in result["message"]
 
     # Verify no unpersisted credit occurred
     wallet = await repo.get_credit_wallet(user_id)
@@ -351,7 +351,6 @@ async def test_07_concurrent_delivery_two_workers_zero_double_credits(pg_engine:
 async def test_08_restart_between_steps_does_not_permit_double_crediting(pg_engine: AsyncEngine) -> None:
     """Scenario 8: Process restart between steps does not permit double-crediting."""
     repo1 = BillingRepository()
-    svc1 = PaymentService(repository=repo1)
     user_id = f"usr_test_{uuid.uuid4().hex[:8]}"
     event_id = f"evt_restart_{uuid.uuid4().hex[:12]}"
 
@@ -375,7 +374,8 @@ async def test_08_restart_between_steps_does_not_permit_double_crediting(pg_engi
     svc2 = PaymentService(repository=repo2)
 
     # Redeliver event on new worker instance
-    res = await svc2.process_webhook_event("stripe", event)
+    res_retry = await svc2.process_webhook_event("stripe", event)
+    assert res_retry["status"] in ("success", "already_processed")
 
     # Verify wallet credits in PostgreSQL: remains 100 + 500,000 (NOT 100 + 1,000,000)
     async with pg_engine.connect() as conn:
@@ -392,7 +392,6 @@ async def test_09_invalid_signature_cannot_alter_payment_or_wallet_state(pg_engi
     """Scenario 9: Invalid signatures cannot alter payment or wallet state."""
     repo = BillingRepository()
     svc = PaymentService(repository=repo)
-    user_id = f"usr_test_{uuid.uuid4().hex[:8]}"
 
     raw_body = b'{"id": "evt_fake", "type": "payment.succeeded"}'
     fake_headers = {"stripe-signature": "t=123456,v1=invalidsignature0000000000"}
@@ -404,10 +403,10 @@ async def test_09_invalid_signature_cannot_alter_payment_or_wallet_state(pg_engi
 
     # Verify no records added to DB
     async with pg_engine.connect() as conn:
-        res = await conn.execute(
+        db_res = await conn.execute(
             text("SELECT count(*) FROM payment_events WHERE provider_event_id = 'evt_fake'")
         )
-        assert res.scalar() == 0
+        assert db_res.scalar() == 0
 
 
 @pytest.mark.asyncio

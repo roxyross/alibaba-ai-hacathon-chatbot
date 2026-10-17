@@ -13,21 +13,23 @@ Verifies:
 
 from __future__ import annotations
 
-import asyncio
 import os
 import threading
+from collections.abc import Generator
 from unittest import mock
 
 import pytest
 
-from app.trust.confirmation_gate import ConfirmationGate, canonicalize_parameters
+from app.trust.confirmation_gate import ConfirmationGate, MockStepUpDeliveryProvider
 from app.trust.schemas import ConfirmationStatus, RiskTier
 
 
 @pytest.fixture(autouse=True)
-def clean_gate():
+def clean_gate() -> Generator[None, None, None]:
     """Reset ConfirmationGate storage before and after each test."""
     ConfirmationGate.clear()
+    provider = MockStepUpDeliveryProvider()
+    ConfirmationGate.register_delivery_provider(provider)
     yield
     ConfirmationGate.clear()
 
@@ -61,9 +63,11 @@ def test_step_up_code_never_in_response_or_hint() -> None:
 
 def test_missing_independent_verification_fails_closed() -> None:
     """Requirement: If independent verification is unconfigured in production/strict mode, fail closed."""
-    with mock.patch.dict(os.environ, {"ROXY_FORCE_DISABLE_2FA_DELIVERY": "true"}, clear=False):
-        with pytest.raises(RuntimeError, match="Independent step-up verification is not configured"):
-            ConfirmationGate.create_challenge(
+    with (
+        mock.patch.dict(os.environ, {"ROXY_FORCE_DISABLE_2FA_DELIVERY": "true"}, clear=False),
+        pytest.raises(RuntimeError, match="Independent step-up verification is not configured"),
+    ):
+        ConfirmationGate.create_challenge(
                 user_id="usr_sec_02",
                 action_type="delete_database",
                 title="Wipe database",
@@ -211,7 +215,7 @@ def test_concurrent_consumption_race_condition_safety() -> None:
 
     results: list[bool] = []
 
-    def _worker():
+    def _worker() -> None:
         ok, _, _ = ConfirmationGate.consume_challenge(
             challenge_id_or_token=chal.challenge_id,
             user_id="usr_race",
