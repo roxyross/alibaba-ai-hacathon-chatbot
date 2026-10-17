@@ -153,18 +153,28 @@ def test_orchestrator_stage_plan_whatsapp() -> None:
 async def test_shared_dispatch_unauthenticated_fails_closed_blocked() -> None:
     """Without QR scan or Cloud API, shared execution returns stage='blocked' fail-closed."""
     controller = UniversalAppController.get_instance()
-    req = AppControlExecutionRequest(
-        application="WhatsApp",
-        capability="send_message",
-        parameters={"recipient": "+15551234567", "message": "Live send attempt"},
-        confirmed=True,  # Caller confirmed, but session is not authenticated
-    )
-    result = await controller.execute_lifecycle(req)
-    assert result.success is False
-    assert result.verified is False
-    assert result.stage == "blocked"
-    assert "No authenticated WhatsApp route is available" in (result.error or "")
-    assert result.execution_output.get("status") == "BLOCKED"
+    wa = WhatsAppService.get_instance()
+    from app.integrations.whatsapp.models import WhatsAppConnectionReport, ConnectionState
+
+    unauth_reports = {
+        WhatsAppRoute.DESKTOP: WhatsAppConnectionReport(route=WhatsAppRoute.DESKTOP, state=ConnectionState.INACCESSIBLE, details="Not running", is_ready=False),
+        WhatsAppRoute.WEB: WhatsAppConnectionReport(route=WhatsAppRoute.WEB, state=ConnectionState.UNAUTHENTICATED, details="No session", is_ready=False),
+        WhatsAppRoute.CLOUD_API: WhatsAppConnectionReport(route=WhatsAppRoute.CLOUD_API, state=ConnectionState.NOT_CONFIGURED, details="Missing config", is_ready=False),
+    }
+
+    with patch.object(wa, "probe_all_routes", new=AsyncMock(return_value=unauth_reports)):
+        req = AppControlExecutionRequest(
+            application="WhatsApp",
+            capability="send_message",
+            parameters={"recipient": "+15551234567", "message": "Live send attempt"},
+            confirmed=True,  # Caller confirmed, but session is not authenticated
+        )
+        result = await controller.execute_lifecycle(req)
+        assert result.success is False
+        assert result.verified is False
+        assert result.stage == "blocked"
+        assert "No authenticated WhatsApp route is available" in (result.error or "")
+        assert result.execution_output.get("status") == "BLOCKED"
 
 
 @pytest.mark.asyncio

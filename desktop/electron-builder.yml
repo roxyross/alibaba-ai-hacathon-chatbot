@@ -27,7 +27,6 @@ win:
         - arm64
   icon: resources/icon.ico
   publisherName: Roxy-AI Inc.
-  verifyUpdateCodeSignature: false
 
 nsis:
   oneClick: false
@@ -56,6 +55,7 @@ linux:
   target:
     - AppImage
     - deb
+  maintainer: "Roxy-AI Team <support@roxy-ai.internal>"
   icon: resources/icon.png
   category: Utility;Development;
   artifactName: "Roxy-AI-${version}.${ext}"

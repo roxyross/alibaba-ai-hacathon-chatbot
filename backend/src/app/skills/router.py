@@ -6,8 +6,16 @@ Each skill module provides get_executor() which returns a SkillExecutor instance
 
 from __future__ import annotations
 
-from typing import Any, TypeVar, cast
+import contextlib
+import hashlib
+import json
+import os
+import secrets
+import threading
+import time
+from typing import Any, Protocol, TypeVar, cast
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi import Request as StarletteRequest
 from pydantic import BaseModel
@@ -20,6 +28,7 @@ from app.skills.browser_navigate import get_executor as browser_navigate_executo
 from app.skills.calculator import get_executor as calculator_executor
 from app.skills.calendar_read import get_executor as calendar_read_executor
 from app.skills.critic_review import get_executor as critic_review_executor
+from app.skills.custom_skills import CustomSkillService
 from app.skills.document_ingest import get_executor as document_ingest_executor
 from app.skills.document_rag_query import get_executor as document_rag_query_executor
 from app.skills.email_draft import get_executor as email_draft_executor
@@ -48,6 +57,8 @@ from app.skills.schemas import (
     CalendarReadResponse,
     CriticReviewRequest,
     CriticReviewResponse,
+    CustomSkillCreateRequest,
+    CustomSkillExecuteRequest,
     DocumentIngestRequest,
     DocumentIngestResponse,
     DocumentRagQueryRequest,
@@ -83,8 +94,10 @@ from app.skills.store_memory import get_executor as store_memory_executor
 from app.skills.text_to_speech import get_executor as text_to_speech_executor
 from app.skills.web_search import get_executor as web_search_executor
 
+log = structlog.get_logger(__name__)
+
 # Sensitive skills that require security-privacy confirmation gate
-SENSITIVE_SKILLS = {"email_draft", "email_send", "browser_fill_form", "bank_connect"}
+SENSITIVE_SKILLS = {"email_draft", "email_send", "browser_fill_form", "bank_connect", "schedule_job"}
 
 # Centralized registry of all skill executor factories
 _SKILL_EXECUTORS: dict[str, Any] = {
@@ -117,8 +130,312 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 
 T = TypeVar("T")
 
-# In-memory pending confirmations: user_id -> token -> (executor, input_data)
-_pending_confirmations: dict[str, dict[str, tuple[Any, Any]]] = {}
+CONFIRMATION_TTL_SECONDS = 10 * 60  # 10 minutes
+
+_CONFIRMATION_LOCK = threading.Lock()
+# In-memory pending confirmations for backward compatibility with test fixtures:
+# user_id -> token -> (executor, input_data, issued_at, params_digest, skill_slug)
+_pending_confirmations: dict[str, dict[str, tuple[Any, Any, float, str, str]]] = {}
+
+
+def _is_production() -> bool:
+    """Detect production deployment environments including Vercel and Cloud Run."""
+    app_env = os.environ.get("APP_ENV", "").lower()
+    env = os.environ.get("ENV", "").lower()
+    environment = os.environ.get("ENVIRONMENT", "").lower()
+    return (
+        app_env in ("production", "prod")
+        or env in ("production", "prod")
+        or environment in ("production", "prod")
+        or bool(os.environ.get("VERCEL"))
+        or bool(os.environ.get("VERCEL_ENV"))
+        or bool(os.environ.get("VERCEL_URL"))
+        or os.environ.get("APP_BASE_URL", "").startswith("https://")
+    )
+
+
+class ConfirmationRecord:
+    """Encapsulates a pending sensitive action confirmation request."""
+
+    def __init__(
+        self,
+        token: str,
+        user_id: str,
+        skill_slug: str,
+        input_data: Any,
+        params_digest: str,
+        issued_at: float,
+        executor: Any = None,
+    ) -> None:
+        self.token = token
+        self.user_id = user_id
+        self.skill_slug = skill_slug
+        self.input_data = input_data
+        self.params_digest = params_digest
+        self.issued_at = issued_at
+        self.executor = executor
+
+
+class ConfirmationStore(Protocol):
+    """Protocol for single-use confirmation token storage across instances."""
+
+    def save(self, record: ConfirmationRecord) -> bool: ...
+    def get(self, token: str, user_id: str) -> ConfirmationRecord | None: ...
+    def consume(self, token: str, user_id: str) -> ConfirmationRecord | None: ...
+    def clear(self) -> None: ...
+
+
+class InMemoryConfirmationStore:
+    """Thread-safe in-memory confirmation store for test and single-instance local runs."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
+    def save(self, record: ConfirmationRecord) -> bool:
+        with self._lock:
+            if record.user_id not in _pending_confirmations:
+                _pending_confirmations[record.user_id] = {}
+            cutoff = record.issued_at - CONFIRMATION_TTL_SECONDS
+            _pending_confirmations[record.user_id] = {
+                t: item
+                for t, item in _pending_confirmations[record.user_id].items()
+                if item[2] >= cutoff
+            }
+            _pending_confirmations[record.user_id][record.token] = (
+                record.executor,
+                record.input_data,
+                record.issued_at,
+                record.params_digest,
+                record.skill_slug,
+            )
+            return True
+
+    def get(self, token: str, user_id: str) -> ConfirmationRecord | None:
+        with self._lock:
+            if user_id not in _pending_confirmations or token not in _pending_confirmations[user_id]:
+                return None
+            executor, input_data, issued_at, params_digest, skill_slug = _pending_confirmations[user_id][token]
+            if time.time() - issued_at > CONFIRMATION_TTL_SECONDS:
+                _pending_confirmations[user_id].pop(token, None)
+                return None
+            return ConfirmationRecord(
+                token=token,
+                user_id=user_id,
+                skill_slug=skill_slug,
+                input_data=input_data,
+                params_digest=params_digest,
+                issued_at=issued_at,
+                executor=executor,
+            )
+
+    def consume(self, token: str, user_id: str) -> ConfirmationRecord | None:
+        with self._lock:
+            if user_id not in _pending_confirmations or token not in _pending_confirmations[user_id]:
+                return None
+            executor, input_data, issued_at, params_digest, skill_slug = _pending_confirmations[user_id].pop(token)
+            if not _pending_confirmations[user_id]:
+                del _pending_confirmations[user_id]
+            if time.time() - issued_at > CONFIRMATION_TTL_SECONDS:
+                return None
+            return ConfirmationRecord(
+                token=token,
+                user_id=user_id,
+                skill_slug=skill_slug,
+                input_data=input_data,
+                params_digest=params_digest,
+                issued_at=issued_at,
+                executor=executor,
+            )
+
+    def clear(self) -> None:
+        with self._lock:
+            _pending_confirmations.clear()
+
+
+class RedisConfirmationStore:
+    """Atomic distributed Redis store for confirmation tokens across horizontal instances."""
+
+    def __init__(self, redis_url: str) -> None:
+        import redis
+
+        self._client: redis.Redis = redis.Redis.from_url(
+            redis_url,
+            socket_timeout=2.0,
+            socket_connect_timeout=2.0,
+            decode_responses=True,
+            protocol=2,
+        )
+
+    def _key(self, token: str) -> str:
+        return f"roxy:confirm:{token}"
+
+    def save(self, record: ConfirmationRecord) -> bool:
+        try:
+            key = self._key(record.token)
+            if isinstance(record.input_data, BaseModel):
+                data_dict = record.input_data.model_dump()
+            elif hasattr(record.input_data, "__dict__"):
+                data_dict = dict(record.input_data.__dict__)
+            elif isinstance(record.input_data, dict):
+                data_dict = record.input_data
+            else:
+                data_dict = cast(dict[str, Any], {})
+
+            payload = {
+                "token": record.token,
+                "user_id": record.user_id,
+                "skill_slug": record.skill_slug,
+                "params_digest": record.params_digest,
+                "issued_at": record.issued_at,
+                "input_data": data_dict,
+            }
+            res = self._client.set(key, json.dumps(payload), ex=CONFIRMATION_TTL_SECONDS)
+            return bool(res)
+        except Exception as exc:
+            log.error("skills_confirmation.redis_save_error", error=str(exc))
+            return False
+
+    def get(self, token: str, user_id: str) -> ConfirmationRecord | None:
+        try:
+            key = self._key(token)
+            raw = self._client.get(key)
+            if not raw or not isinstance(raw, str):
+                return None
+            data = json.loads(raw)
+            if data.get("user_id") != user_id:
+                return None
+            issued_at = float(data.get("issued_at", 0))
+            if time.time() - issued_at > CONFIRMATION_TTL_SECONDS:
+                self._client.delete(key)
+                return None
+            return ConfirmationRecord(
+                token=token,
+                user_id=user_id,
+                skill_slug=data["skill_slug"],
+                input_data=data.get("input_data", {}),
+                params_digest=data.get("params_digest", ""),
+                issued_at=issued_at,
+            )
+        except Exception as exc:
+            log.error("skills_confirmation.redis_get_error", error=str(exc))
+            return None
+
+    def consume(self, token: str, user_id: str) -> ConfirmationRecord | None:
+        try:
+            key = self._key(token)
+            # Atomic single-use get-and-delete that strictly verifies ownership BEFORE deleting.
+            # If user_id does not match, the key is left completely untouched in Redis.
+            lua_script = """
+            local val = redis.call('GET', KEYS[1])
+            if not val then
+                return nil
+            end
+            local expected_user = ARGV[1]
+            local ok, data = pcall(cjson.decode, val)
+            if ok and data and type(data) == 'table' then
+                if data.user_id == expected_user then
+                    redis.call('DEL', KEYS[1])
+                    return val
+                else
+                    return nil
+                end
+            else
+                local needle = '"user_id": "' .. expected_user .. '"'
+                if string.find(val, needle, 1, true) then
+                    redis.call('DEL', KEYS[1])
+                    return val
+                else
+                    return nil
+                end
+            end
+            """
+            raw = self._client.eval(lua_script, 1, key, user_id)
+            if not raw or not isinstance(raw, str):
+                return None
+            data = json.loads(raw)
+            if data.get("user_id") != user_id:
+                return None
+            issued_at = float(data.get("issued_at", 0))
+            if time.time() - issued_at > CONFIRMATION_TTL_SECONDS:
+                return None
+            return ConfirmationRecord(
+                token=token,
+                user_id=user_id,
+                skill_slug=data["skill_slug"],
+                input_data=data.get("input_data", {}),
+                params_digest=data.get("params_digest", ""),
+                issued_at=issued_at,
+            )
+        except Exception as exc:
+            log.error("skills_confirmation.redis_consume_error", error=str(exc))
+            return None
+
+    def clear(self) -> None:
+        try:
+            keys = self._client.keys("roxy:confirm:*")
+            if keys:
+                self._client.delete(*keys)
+        except Exception as exc:
+            log.warning("skills_confirmation.redis_clear_error", error=str(exc))
+
+
+class FailClosedConfirmationStore:
+    """Sentinel store in production when distributed store is required but unavailable."""
+
+    def save(self, record: ConfirmationRecord) -> bool:
+        log.error(
+            "skills_confirmation.missing_production_store",
+            detail="Production sensitive skill confirmation requires a distributed store (REDIS_URL). Failing closed to prevent uncoordinated confirmations across horizontal instances.",
+        )
+        return False
+
+    def get(self, token: str, user_id: str) -> ConfirmationRecord | None:
+        return None
+
+    def consume(self, token: str, user_id: str) -> ConfirmationRecord | None:
+        return None
+
+    def clear(self) -> None:
+        pass
+
+
+_CUSTOM_CONFIRMATION_STORE: ConfirmationStore | None = None
+_DEFAULT_IN_MEMORY_CONFIRMATION_STORE = InMemoryConfirmationStore()
+
+
+def set_confirmation_store(store: ConfirmationStore | None) -> None:
+    """Override confirmation store (for testing and dependency injection)."""
+    global _CUSTOM_CONFIRMATION_STORE
+    _CUSTOM_CONFIRMATION_STORE = store
+
+
+def get_confirmation_store() -> ConfirmationStore:
+    """Resolve the active confirmation store."""
+    if _CUSTOM_CONFIRMATION_STORE is not None:
+        return _CUSTOM_CONFIRMATION_STORE
+
+    redis_url = os.environ.get("REDIS_URL")
+    if redis_url:
+        try:
+            return RedisConfirmationStore(redis_url)
+        except Exception as exc:
+            log.warning("skills_confirmation.redis_connect_failed", error=str(exc))
+            if _is_production():
+                return FailClosedConfirmationStore()
+
+    if _is_production():
+        return FailClosedConfirmationStore()
+
+    return _DEFAULT_IN_MEMORY_CONFIRMATION_STORE
+
+
+_SKILL_INPUT_MODELS: dict[str, type[BaseModel]] = {
+    "bank_connect": BankConnectRequest,
+    "browser_fill_form": BrowserFillFormRequest,
+    "email_draft": EmailDraftRequest,
+    "email_send": EmailSendRequest,
+    "schedule_job": ScheduleJobRequest,
+}
 
 
 async def _run_skill(
@@ -130,33 +447,55 @@ async def _run_skill(
 ) -> T:
     """Execute a skill and return its response, or raise HTTPException on failure.
 
-    For sensitive skills (email_draft, browser_fill_form, bank_connect, schedule_job),
-    the router returns HTTP 403 with a confirmation token instead of executing.
-    The caller must then POST /skills/confirm with the token to proceed.
+    For sensitive skills, the router requires a server-issued one-time confirmation token.
+    Client-supplied booleans (e.g. `confirm: true`) are strictly ignored and CANNOT
+    bypass the server-side confirmation requirement.
     """
     # Stamp authenticated user id into input_data for per-user data isolation.
     user_id = str(user.id) if (user is not None and hasattr(user, "id") and user.id) else "anonymous"
-    if hasattr(input_data, "model_fields") and "user_id" in input_data.model_fields:
-        try:
-            setattr(input_data, "user_id", user_id)
-        except Exception:
-            pass
-    elif hasattr(input_data, "__dict__") and "user_id" in getattr(input_data, "__dict__", {}):
-        try:
-            setattr(input_data, "user_id", user_id)
-        except Exception:
-            pass
+    if (isinstance(input_data, BaseModel) and "user_id" in input_data.__class__.model_fields) or (
+        hasattr(input_data, "__dict__") and "user_id" in getattr(input_data, "__dict__", {})
+    ):
+        with contextlib.suppress(Exception):
+            object.__setattr__(input_data, "user_id", user_id)
 
     # Read-only operations on schedule_job (like list or timezones) do not require confirmation
     op_str = str(getattr(input_data, "op", "")).lower()
     is_read_only = skill_slug == "schedule_job" and (op_str in ("list", "timezones") or getattr(input_data, "op", None) in ("list", "LIST"))
-    # Security-privacy gate for sensitive skills (unless already explicitly confirmed or read-only)
-    if skill_slug in SENSITIVE_SKILLS and not is_read_only and not getattr(input_data, "confirm", False):
-        import secrets
-        token = secrets.token_urlsafe(16)
-        if user_id not in _pending_confirmations:
-            _pending_confirmations[user_id] = {}
-        _pending_confirmations[user_id][token] = (executor, input_data)
+
+    # Security-privacy gate for sensitive skills
+    if skill_slug in SENSITIVE_SKILLS and not is_read_only:
+        if user is None or not getattr(user, "id", None) or str(user.id) in ("anonymous", ""):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required to perform sensitive action",
+            )
+
+        # Client-supplied confirm flag CANNOT bypass server confirmation
+        with contextlib.suppress(AttributeError, TypeError):
+            object.__setattr__(input_data, "confirm", False)
+
+        token = secrets.token_urlsafe(24)
+        issued_at = time.time()
+        raw_params = str(getattr(input_data, "__dict__", str(input_data)))
+        params_digest = hashlib.sha256(raw_params.encode("utf-8")).hexdigest()[:16]
+
+        store = get_confirmation_store()
+        record = ConfirmationRecord(
+            token=token,
+            user_id=user_id,
+            skill_slug=skill_slug,
+            input_data=input_data,
+            params_digest=params_digest,
+            issued_at=issued_at,
+            executor=executor,
+        )
+        saved = store.save(record)
+        if not saved and _is_production():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Confirmation service unavailable in production mode",
+            )
 
         action_desc = _describe_action(skill_slug, input_data)
         raise HTTPException(
@@ -167,6 +506,7 @@ async def _run_skill(
                 "skill": skill_slug,
                 "action": action_desc,
                 "token": token,
+                "digest": params_digest,
                 "message": (
                     f"This action requires your confirmation before proceeding. "
                     f"POST /api/v1/skills/confirm with the token to proceed, "
@@ -187,18 +527,29 @@ async def _run_skill(
 
 def _describe_action(skill_slug: str, input_data: Any) -> str:
     """Human-readable description of a sensitive action."""
-    if skill_slug == "email_draft":
-        return f"Send email to {getattr(input_data, 'to', '?')}"
+    if isinstance(input_data, dict):
+        to_val = input_data.get("to", "?")
+        url_val = input_data.get("url", "?")
+        op_val = input_data.get("op", "?")
+        inst_val = input_data.get("institution", "")
+        name_val = input_data.get("name", "?")
+        sched_val = input_data.get("schedule", "?")
+    else:
+        to_val = getattr(input_data, "to", "?")
+        url_val = getattr(input_data, "url", "?")
+        op_val = getattr(input_data, "op", "?")
+        inst_val = getattr(input_data, "institution", "")
+        name_val = getattr(input_data, "name", "?")
+        sched_val = getattr(input_data, "schedule", "?")
+
+    if skill_slug in ("email_draft", "email_send"):
+        return f"Send email to {to_val}"
     elif skill_slug == "browser_fill_form":
-        return f"Fill and submit form on {getattr(input_data, 'url', '?')}"
+        return f"Fill and submit form on {url_val}"
     elif skill_slug == "bank_connect":
-        op = getattr(input_data, 'op', '?')
-        inst = getattr(input_data, 'institution', '')
-        return f"Bank operation: {op} on {inst}" if inst else f"Bank operation: {op}"
+        return f"Bank operation: {op_val} on {inst_val}" if inst_val else f"Bank operation: {op_val}"
     elif skill_slug == "schedule_job":
-        name = getattr(input_data, 'name', '?')
-        sched = getattr(input_data, 'schedule', '?')
-        return f"Schedule job '{name}' to run at {sched}"
+        return f"Schedule job '{name_val}' to run at {sched_val}"
     return f"Execute {skill_slug}"
 
 
@@ -219,14 +570,15 @@ async def skill_confirm_preview(
     current_user: User = Depends(get_current_user),
 ) -> ConfirmPreview:
     """Preview the action a confirmation token authorizes."""
-    user_id = current_user.id
-    if user_id not in _pending_confirmations or token not in _pending_confirmations[user_id]:
+    user_id = str(current_user.id)
+    store = get_confirmation_store()
+    record = store.get(token, user_id)
+    if not record:
         raise HTTPException(status_code=404, detail="Token not found or expired")
-    executor, input_data = _pending_confirmations[user_id][token]
-    skill_slug = getattr(executor, "slug", "unknown")
+
     return ConfirmPreview(
-        skill=skill_slug,
-        action=_describe_action(skill_slug, input_data),
+        skill=record.skill_slug,
+        action=_describe_action(record.skill_slug, record.input_data),
         token=token,
         valid=True,
     )
@@ -251,25 +603,35 @@ async def skill_confirm_execute(
     current_user: User = Depends(get_current_user),
 ) -> ConfirmResponse:
     """Execute a skill after user confirmation via token."""
-    user_id = current_user.id
-    if user_id not in _pending_confirmations or req.token not in _pending_confirmations[user_id]:
+    user_id = str(current_user.id)
+    store = get_confirmation_store()
+    record = store.consume(req.token, user_id)
+    if not record:
         raise HTTPException(status_code=404, detail="Token not found or expired")
 
-    executor, input_data = _pending_confirmations[user_id].pop(req.token)
-    if not _pending_confirmations[user_id]:
-        del _pending_confirmations[user_id]
+    executor = record.executor
+    if executor is None:
+        factory = _SKILL_EXECUTORS.get(record.skill_slug)
+        if not factory:
+            raise HTTPException(status_code=500, detail=f"No executor registered for {record.skill_slug}")
+        executor = factory()
+
+    input_data = record.input_data
+    if isinstance(input_data, dict):
+        model_cls = _SKILL_INPUT_MODELS.get(record.skill_slug)
+        if model_cls:
+            input_data = model_cls.model_validate(input_data)
 
     # Stamp confirmation — the skill's confirmation gate checks this flag
-    try:
-        input_data.confirm = True
-    except AttributeError:
-        pass  # Schema doesn't support confirm — skip
+    with contextlib.suppress(AttributeError, TypeError):
+        object.__setattr__(input_data, "confirm", True)
 
     try:
-        result = await executor.execute(input_data)
+        await executor.execute(input_data)
         return ConfirmResponse(success=True, message="Action completed")
     except Exception as exc:
         return ConfirmResponse(success=False, message=f"Action failed: {exc}")
+
 
 
 # ---------------------------------------------------------------------------
@@ -618,8 +980,6 @@ async def skill_document_ingest(
 # ---------------------------------------------------------------------------
 # Custom Skills Endpoints
 # ---------------------------------------------------------------------------
-from app.skills.custom_skills import CustomSkillService
-from app.skills.schemas import CustomSkillCreateRequest, CustomSkillExecuteRequest
 
 _custom_skill_service = CustomSkillService()
 

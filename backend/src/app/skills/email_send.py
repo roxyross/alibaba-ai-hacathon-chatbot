@@ -11,14 +11,18 @@ Supports two modes:
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import concurrent.futures
 import contextlib
+import hashlib
 import json
 import os
 import smtplib
 import uuid
 from datetime import UTC, datetime
 from email.message import EmailMessage
+from typing import Any
 
 import httpx
 import structlog
@@ -96,26 +100,332 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
             and (os.environ.get("GMAIL_CLIENT_SECRET") or os.environ.get("GOOGLE_CLIENT_SECRET"))
         )
 
+    @staticmethod
+    def _is_production() -> bool:
+        """Detect production environment including Vercel indicators."""
+        app_env = os.environ.get("APP_ENV", "").lower()
+        env = os.environ.get("ENV", "").lower()
+        environment = os.environ.get("ENVIRONMENT", "").lower()
+        return (
+            app_env in ("production", "prod")
+            or env in ("production", "prod")
+            or environment in ("production", "prod")
+            or bool(os.environ.get("VERCEL"))
+            or bool(os.environ.get("VERCEL_ENV"))
+            or bool(os.environ.get("VERCEL_URL"))
+            or os.environ.get("APP_BASE_URL", "").startswith("https://")
+        )
+
+    def _get_cipher(self) -> Any:
+        """Resolve Fernet / MultiFernet authenticated encryption cipher for user OAuth token storage.
+
+        Enforces SEC-06:
+        - In production: strictly requires a dedicated GMAIL_TOKEN_ENCRYPTION_KEY (>= 32 chars).
+        - Rejects known or publicly predictable development keys in production.
+        - Fails closed (returns None) if key configuration is missing or insecure in production.
+        - Supports MultiFernet key rotation when GMAIL_TOKEN_ENCRYPTION_KEY_FALLBACK is configured.
+        - In non-production: falls back to dev key for offline unit/local testing with warning.
+        """
+        is_prod = self._is_production()
+        primary_key_str = os.environ.get("GMAIL_TOKEN_ENCRYPTION_KEY", "").strip()
+
+        insecure_keys = {
+            "roxy-dev-secret-do-not-use-in-prod",
+            "dev-key-do-not-use-in-prod",
+            "test_key",
+            "default_key",
+            "development",
+        }
+
+        if is_prod:
+            if not primary_key_str or primary_key_str in insecure_keys or len(primary_key_str) < 32:
+                log.error(
+                    "email_send.missing_or_insecure_production_encryption_key",
+                    detail="Production Gmail OAuth token encryption requires a dedicated, strong GMAIL_TOKEN_ENCRYPTION_KEY (minimum 32 characters). Refusing insecure fallback.",
+                )
+                return None
+        elif not primary_key_str:
+            master_secret = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY")
+            if not master_secret:
+                master_secret = "roxy-dev-secret-do-not-use-in-prod"
+            derived = hashlib.sha256(f"roxy-gmail-token-encryption:{master_secret}".encode()).digest()
+            primary_key_str = base64.urlsafe_b64encode(derived).decode("utf-8")
+
+        try:
+            from cryptography.fernet import Fernet, MultiFernet
+            ciphers: list[Fernet] = []
+
+            # 1. Initialize primary Fernet cipher
+            try:
+                ciphers.append(Fernet(primary_key_str.encode("utf-8")))
+            except Exception:
+                derived = hashlib.sha256(primary_key_str.encode("utf-8")).digest()
+                ciphers.append(Fernet(base64.urlsafe_b64encode(derived)))
+
+            # 2. Support transparent key rotation via GMAIL_TOKEN_ENCRYPTION_KEY_FALLBACK
+            fallback_key_str = os.environ.get("GMAIL_TOKEN_ENCRYPTION_KEY_FALLBACK", "").strip()
+            if fallback_key_str and fallback_key_str not in insecure_keys:
+                try:
+                    ciphers.append(Fernet(fallback_key_str.encode("utf-8")))
+                except Exception:
+                    derived_fb = hashlib.sha256(fallback_key_str.encode("utf-8")).digest()
+                    ciphers.append(Fernet(base64.urlsafe_b64encode(derived_fb)))
+
+            return MultiFernet(ciphers)
+        except Exception as exc:
+            log.warning("email_send.cipher_init_failed", error=str(exc))
+            return None
+
+    def _token_dir(self) -> str:
+        data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
+        os.makedirs(data_dir, exist_ok=True)
+        return data_dir
+
+    def _save_token_to_db(self, user_id: str, container: dict[str, Any]) -> bool:
+        """Persist encrypted token envelope into durable PostgreSQL connector_instances table."""
+        if not os.environ.get("DATABASE_URL"):
+            return False
+        try:
+            from sqlalchemy import select
+
+            from app.db import get_session_factory
+            from app.models.connector import ConnectorInstance
+
+            factory = get_session_factory()
+            if factory is None:
+                log.error("email_send.db_session_factory_unavailable", user_id=user_id)
+                return False
+
+            async def _async_save() -> bool:
+                async with factory() as session:
+                    stmt = select(ConnectorInstance).where(
+                        ConnectorInstance.user_id == user_id,
+                        ConnectorInstance.connector_type == "gmail",
+                    )
+                    res = await session.execute(stmt)
+                    existing = res.scalars().first()
+                    now = datetime.now(UTC)
+                    if existing:
+                        existing.encrypted_credentials_json = json.dumps(container)
+                        existing.status = "active"
+                        existing.updated_at = now
+                    else:
+                        new_obj = ConnectorInstance(
+                            id=str(uuid.uuid4()),
+                            user_id=user_id,
+                            connector_type="gmail",
+                            name="Gmail OAuth",
+                            auth_type="oauth2",
+                            status="active",
+                            config_json="{}",
+                            encrypted_credentials_json=json.dumps(container),
+                            created_at=now,
+                            updated_at=now,
+                        )
+                        session.add(new_obj)
+                    await session.commit()
+                    return True
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return bool(pool.submit(asyncio.run, _async_save()).result(timeout=4.0))
+        except Exception as exc:
+            log.warning("email_send.db_token_save_fallback", user_id=user_id, error=str(exc))
+            return False
+
+    def _load_token_from_db(self, user_id: str) -> dict[str, Any] | None:
+        """Fetch encrypted token envelope from durable PostgreSQL connector_instances table."""
+        if not os.environ.get("DATABASE_URL"):
+            return None
+        try:
+            from sqlalchemy import select
+
+            from app.db import get_session_factory
+            from app.models.connector import ConnectorInstance
+
+            factory = get_session_factory()
+            if factory is None:
+                log.error("email_send.db_session_factory_unavailable", user_id=user_id)
+                return None
+
+            async def _async_load() -> dict[str, Any] | None:
+                async with factory() as session:
+                    stmt = select(ConnectorInstance).where(
+                        ConnectorInstance.user_id == user_id,
+                        ConnectorInstance.connector_type == "gmail",
+                    )
+                    res = await session.execute(stmt)
+                    item = res.scalars().first()
+                    if item and item.encrypted_credentials_json:
+                        try:
+                            data = json.loads(item.encrypted_credentials_json)
+                            if isinstance(data, dict):
+                                return data
+                        except Exception:
+                            return None
+                    return None
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, _async_load()).result(timeout=4.0)
+        except Exception as exc:
+            log.warning("email_send.db_token_load_fallback", user_id=user_id, error=str(exc))
+            return None
+
+    def _save_encrypted_token(self, user_id: str, payload: dict[str, Any]) -> bool:
+        """Save user OAuth2 token payload encrypted at rest into durable storage."""
+        cipher = self._get_cipher()
+        if not cipher:
+            log.error("email_send.save_token_failed_no_cipher", user_id=user_id)
+            return False
+
+        payload_to_encrypt = dict(payload)
+        payload_to_encrypt["user_id"] = user_id
+        payload_bytes = json.dumps(payload_to_encrypt).encode("utf-8")
+        encrypted_bytes = cipher.encrypt(payload_bytes)
+
+        container = {
+            "encrypted": True,
+            "user_id": user_id,
+            "ciphertext": encrypted_bytes.decode("utf-8"),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+
+        has_db = bool(os.environ.get("DATABASE_URL"))
+        is_prod = self._is_production()
+
+        # Enforce SEC-06 durable persistence rules:
+        if is_prod:
+            # When running in production, durable database persistence is strictly required.
+            if not has_db:
+                log.error(
+                    "email_send.production_missing_database_url",
+                    user_id=user_id,
+                    detail="DATABASE_URL not configured in production mode. Refusing to fall back to ephemeral local container storage.",
+                )
+                return False
+
+            db_saved = self._save_token_to_db(user_id, container)
+            if not db_saved:
+                log.error(
+                    "email_send.durable_db_write_failed",
+                    user_id=user_id,
+                    detail="Durable database write failed in production mode. Refusing to report successful persistence.",
+                )
+                return False
+
+            # In production, never write tokens to a local container disk file.
+            return True
+
+        # Non-production (development / test) mode:
+        if has_db:
+            db_saved = self._save_token_to_db(user_id, container)
+            if not db_saved:
+                log.error(
+                    "email_send.durable_db_write_failed",
+                    user_id=user_id,
+                    detail="Durable database write failed when DATABASE_URL was configured. Refusing to report successful persistence.",
+                )
+                return False
+        elif os.environ.get("REQUIRE_DURABLE_TOKEN_STORE", "false").lower() in ("true", "1"):
+            log.error(
+                "email_send.missing_database_url_strict",
+                user_id=user_id,
+                detail="REQUIRE_DURABLE_TOKEN_STORE enforced but DATABASE_URL is missing. Failing closed.",
+            )
+            return False
+
+        # In development/test mode only, persist to local container disk for offline/test execution
+        data_dir = self._token_dir()
+        token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
+        try:
+            with open(token_path, "w", encoding="utf-8") as f:
+                json.dump(container, f, indent=2)
+            with contextlib.suppress(Exception):
+                os.chmod(token_path, 0o600)
+            return True
+        except Exception as exc:
+            log.error("email_send.save_encrypted_token_failed", user_id=user_id, error=str(exc))
+            # If durable DB was already written successfully, local cache failure is non-fatal
+            return has_db
+
+    def _load_user_token_payload(self, user_id: str) -> dict[str, Any] | None:
+        """Load and decrypt stored token payload from durable shared database or local disk."""
+        is_prod = self._is_production()
+        data: Any = None
+
+        # 1. Attempt load from durable shared database (NeonDB PostgreSQL)
+        db_data = self._load_token_from_db(user_id)
+        if db_data and isinstance(db_data, dict):
+            data = db_data
+
+        # 2. Fall back to local file storage only in development/test mode
+        if not data and not is_prod:
+            data_dir = self._token_dir()
+            token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
+            if not os.path.exists(token_path):
+                token_path = os.path.join(data_dir, "gmail_token_default.json")
+                if not os.path.exists(token_path):
+                    return None
+
+            try:
+                with open(token_path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as exc:
+                log.warning("email_send.load_file_exception", user_id=user_id, error=str(exc))
+                return None
+
+        try:
+            if isinstance(data, dict) and data.get("encrypted") and "ciphertext" in data:
+                cipher = self._get_cipher()
+                if not cipher:
+                    log.error("email_send.load_token_failed_no_cipher", user_id=user_id)
+                    return None
+                ciphertext = data["ciphertext"]
+                from cryptography.fernet import InvalidToken
+                try:
+                    decrypted_bytes = cipher.decrypt(ciphertext.encode("utf-8"))
+                except InvalidToken:
+                    log.warning("email_send.invalid_token_or_tampered_ciphertext", user_id=user_id)
+                    return None
+                except Exception as exc:
+                    log.warning("email_send.decrypt_exception", user_id=user_id, error=str(exc))
+                    return None
+
+                decrypted_obj = json.loads(decrypted_bytes.decode("utf-8"))
+                if not isinstance(decrypted_obj, dict):
+                    return None
+                payload: dict[str, Any] = decrypted_obj
+                if payload.get("user_id") and payload["user_id"] != user_id:
+                    log.error("email_send.cross_user_token_access_blocked", requested=user_id, owner=payload.get("user_id"))
+                    return None
+
+                # Transparent key rotation: if fallback key is configured, re-encrypt under primary
+                if os.environ.get("GMAIL_TOKEN_ENCRYPTION_KEY_FALLBACK"):
+                    with contextlib.suppress(Exception):
+                        self._save_encrypted_token(user_id, payload)
+
+                return payload
+            elif isinstance(data, dict) and "access_token" in data:
+                # Auto-migrate legacy unencrypted token in non-production only
+                if not self._is_production():
+                    self._save_encrypted_token(user_id, data)
+                    return data
+                log.warning("email_send.unencrypted_legacy_token_rejected_in_production", user_id=user_id)
+                return None
+            return None
+        except Exception as exc:
+            log.warning("email_send.load_token_exception", user_id=user_id, error=str(exc))
+            return None
+
     def _load_user_token(self, user_id: str) -> str | None:
         """Load the stored OAuth2 access token for a user, if present."""
-        data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
-        token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
-        if not os.path.exists(token_path):
-            token_path = os.path.join(data_dir, "gmail_token_default.json")
-            if not os.path.exists(token_path):
-                return None
-        try:
-            with open(token_path, encoding="utf-8") as f:
-                data = json.load(f)
-            # Check expiry
-            expires_at = data.get("expires_at", 0)
-            if datetime.now(UTC).timestamp() >= expires_at - 60:
-                # Token expired or about to expire — try refresh
-                return self._refresh_token(user_id, data.get("refresh_token"))
-            access_token = data.get("access_token")
-            return str(access_token) if isinstance(access_token, str) else None
-        except Exception:
+        payload = self._load_user_token_payload(user_id)
+        if not payload:
             return None
+        expires_at = payload.get("expires_at", 0)
+        if datetime.now(UTC).timestamp() >= expires_at - 60:
+            return self._refresh_token(user_id, payload.get("refresh_token"))
+        access_token = payload.get("access_token")
+        return str(access_token) if isinstance(access_token, str) else None
 
     def _refresh_token(self, user_id: str, refresh_token: str | None) -> str | None:
         if not refresh_token:
@@ -125,9 +435,6 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
         if not client_id or not client_secret:
             return None
 
-        token_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "..", "data", f"gmail_token_{user_id}.json"
-        )
         try:
             resp = httpx.post(
                 "https://oauth2.googleapis.com/token",
@@ -144,21 +451,63 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                 return None
             data = resp.json()
             access_token = data.get("access_token")
-            # Persist refreshed token
-            with contextlib.suppress(Exception), open(token_path, "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "access_token": access_token,
-                        "refresh_token": refresh_token,
-                        "expires_at": datetime.now(UTC).timestamp()
-                        + data.get("expires_in", 3600),
-                    },
-                    f,
-                )
+            # Persist refreshed token securely encrypted
+            saved = self._save_encrypted_token(
+                user_id,
+                {
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "expires_at": datetime.now(UTC).timestamp() + data.get("expires_in", 3600),
+                },
+            )
+            if not saved:
+                log.error("email_send.token_refresh_persistence_failed", user_id=user_id)
+                return None
             return str(access_token) if isinstance(access_token, str) else None
         except Exception as exc:
             log.warning("email_send.refresh_exception", error=str(exc))
             return None
+
+    def _delete_token_from_db(self, user_id: str) -> bool:
+        """Remove revoked token from durable PostgreSQL connector_instances table."""
+        if not os.environ.get("DATABASE_URL"):
+            return False
+        try:
+            import concurrent.futures
+
+            from sqlalchemy import delete
+
+            from app.db import get_session_factory
+            from app.models.connector import ConnectorInstance
+
+            factory = get_session_factory()
+            if factory is None:
+                return False
+
+            async def _async_delete() -> bool:
+                async with factory() as session:
+                    stmt = delete(ConnectorInstance).where(
+                        ConnectorInstance.user_id == user_id,
+                        ConnectorInstance.connector_type == "gmail",
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+                    return True
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return bool(pool.submit(asyncio.run, _async_delete()).result(timeout=4.0))
+        except Exception as exc:
+            log.warning("email_send.db_token_delete_failed", user_id=user_id, error=str(exc))
+            return False
+
+    def _delete_user_token(self, user_id: str) -> None:
+        """Remove user OAuth token from database and local storage upon revocation."""
+        self._delete_token_from_db(user_id)
+        data_dir = self._token_dir()
+        token_path = os.path.join(data_dir, f"gmail_token_{user_id}.json")
+        with contextlib.suppress(Exception):
+            if os.path.exists(token_path):
+                os.remove(token_path)
 
     async def _send_via_gmail_api(
         self, input_data: EmailSendRequest, raw_bytes: bytes
@@ -193,13 +542,8 @@ class EmailSendSkill(SkillExecutor[EmailSendRequest, EmailSendResponse]):
                 )
 
             if resp.status_code == 401:
-                # Token revoked — clear stored token
-                token_path = os.path.join(
-                    os.path.dirname(__file__), "..", "..", "..", "data",
-                    f"gmail_token_{user_id}.json",
-                )
-                with contextlib.suppress(Exception):
-                    os.remove(token_path)
+                # Token revoked — clear stored token from durable DB and local cache
+                self._delete_user_token(user_id)
                 return EmailSendResponse(
                     success=False,
                     delivery_status="not_sent",

@@ -80,7 +80,7 @@ gcloud run deploy $ServiceName `
   --concurrency 80 `
   --timeout 300 `
   --port 8080 `
-  --set-env-vars "PYTHONPATH=/app" `
+  --set-env-vars "PYTHONPATH=/app/src,APP_ENV=production" `
   --allow-unauthenticated `
   --quiet
 
@@ -90,14 +90,18 @@ Write-Host "${GREEN}════════════════════
 Write-Host "${GREEN}✓ Deployment complete!${NC}"
 Write-Host ""
 Write-Host "  Service URL: ${ServiceUrl}"
-Write-Host "  Health:      ${ServiceUrl}/health"
+Write-Host "  Health:      ${ServiceUrl}/health/live"
 Write-Host ""
-Write-Host "${YELLOW}⚠  Next step: Set your environment variables in Cloud Console:${NC}"
-Write-Host "   Cloud Run → ${ServiceName} → Edit → Environment Variables"
+Write-Host "${YELLOW}⚠  Next step: Set your environment variables and secrets in Cloud Console:${NC}"
+Write-Host "   Cloud Run → ${ServiceName} → Edit & Deploy New Revision → Environment Variables / Secrets"
 Write-Host ""
-Write-Host "   Required variables:"
-Write-Host "     GEMINI_API_KEY=your_gemini_api_key"
-Write-Host "     GROK_API_KEY=your_grok_api_key"
-Write-Host "     JWT_SERVICE_SECRET=your_secret"
-Write-Host "     JWT_SECRET=your_secret"
+Write-Host "   Required production secrets (via Google Secret Manager):"
+Write-Host "     DATABASE_URL=postgresql+asyncpg://... (NeonDB or Cloud SQL)"
+Write-Host "     REDIS_URL=redis://... (Redis Cloud / Upstash)"
+Write-Host "     JWT_SECRET=your_32_byte_secret"
+Write-Host "     JWT_SERVICE_SECRET=your_32_byte_service_secret"
+Write-Host "     GMAIL_TOKEN_ENCRYPTION_KEY=your_fernet_key_minimum_32_bytes"
+Write-Host "     GEMINI_API_KEY=AIzaSy... (Google AI Studio paid tier)"
+Write-Host "     GROK_API_KEY=xai-... (xAI Grok API key)"
 Write-Host ""
+Write-Host "${GREEN}════════════════════════════════════════════════════════════${NC}"

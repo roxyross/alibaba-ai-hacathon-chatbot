@@ -16,6 +16,7 @@ from app.billing.providers.base import (
     NormalizedWebhookEvent,
     PaymentProvider,
     PaymentVerificationResult,
+    is_production_environment,
 )
 
 
@@ -30,18 +31,60 @@ class SafepayProvider(PaymentProvider):
         webhook_secret: str | None = None,
         environment: str | None = None,
     ) -> None:
-        self.api_key = api_key or os.getenv("SAFEPAY_API_KEY", "")
-        self.secret_key = os.getenv("SAFEPAY_SECRET_KEY", "")
-        self.webhook_secret = webhook_secret or os.getenv("SAFEPAY_WEBHOOK_SECRET", "")
-        env_val = environment or os.getenv("SAFEPAY_ENVIRONMENT", "sandbox") or "sandbox"
-        self.environment = env_val.lower()
+        self._explicit_api_key = api_key
+        self._explicit_webhook_secret = webhook_secret
+        self._explicit_environment = environment
 
+    @property
+    def api_key(self) -> str:
+        if self._explicit_api_key is not None:
+            return self._explicit_api_key
+        return os.getenv("SAFEPAY_API_KEY", "")
+
+    @api_key.setter
+    def api_key(self, value: str) -> None:
+        self._explicit_api_key = value
+
+    @property
+    def secret_key(self) -> str:
+        return getattr(self, "_explicit_secret_key", None) or os.getenv("SAFEPAY_SECRET_KEY", "")
+
+    @secret_key.setter
+    def secret_key(self, value: str) -> None:
+        self._explicit_secret_key = value
+
+    @property
+    def webhook_secret(self) -> str:
+        if self._explicit_webhook_secret is not None:
+            return self._explicit_webhook_secret
+        return os.getenv("SAFEPAY_WEBHOOK_SECRET", "")
+
+    @webhook_secret.setter
+    def webhook_secret(self, value: str) -> None:
+        self._explicit_webhook_secret = value
+
+    @property
+    def environment(self) -> str:
+        if self._explicit_environment is not None:
+            return self._explicit_environment.lower()
+        env_val = os.getenv("SAFEPAY_ENVIRONMENT", "sandbox") or "sandbox"
+        return env_val.lower()
+
+    @environment.setter
+    def environment(self, value: str) -> None:
+        self._explicit_environment = value
+
+    @property
+    def api_base_url(self) -> str:
         if self.environment == "production":
-            self.api_base_url = "https://api.getsafepay.com"
-            self.checkout_base_url = "https://getsafepay.com/components"
-        else:
-            self.api_base_url = "https://sandbox.api.getsafepay.com"
-            self.checkout_base_url = "https://sandbox.api.getsafepay.com/components"
+            return "https://api.getsafepay.com"
+        return "https://sandbox.api.getsafepay.com"
+
+    @property
+    def checkout_base_url(self) -> str:
+        if self.environment == "production":
+            return "https://getsafepay.com/components"
+        return "https://sandbox.api.getsafepay.com/components"
 
     def is_configured(self) -> bool:
         """Check if required Safepay API credentials are provided."""
@@ -63,6 +106,17 @@ class SafepayProvider(PaymentProvider):
         metadata: dict[str, Any] | None = None,
     ) -> CheckoutSessionResult:
         """Initialize an Order Tracker with Safepay and build hosted checkout URL."""
+        is_prod = is_production_environment()
+
+        # Validate currency support
+        curr = currency.upper()
+        if curr not in ("PKR", "USD"):
+            raise ValueError(f"Currency '{currency}' is not supported by Safepay provider. Supported: PKR, USD.")
+
+        # In production, check prerequisites strictly and fail closed
+        if is_prod and not self.is_configured():
+            raise RuntimeError("Safepay API key is not configured in production environment.")
+
         meta = metadata.copy() if metadata else {}
         meta.setdefault("user_id", user_id)
         meta.setdefault("plan_id", plan_id)
@@ -74,7 +128,7 @@ class SafepayProvider(PaymentProvider):
                     payload = {
                         "client": self.api_key,
                         "amount": float(amount),
-                        "currency": currency.upper(),
+                        "currency": curr,
                         "environment": self.environment,
                     }
                     resp = await client.post(
@@ -83,28 +137,39 @@ class SafepayProvider(PaymentProvider):
                         headers={"Content-Type": "application/json"},
                     )
                     if resp.status_code == 200:
-                        data = resp.json()
-                        token = data.get("data", {}).get("token")
-                        if token:
-                            checkout_url = (
-                                f"{self.checkout_base_url}?env={self.environment}"
-                                f"&beacon={token}&source=custom"
-                            )
-                            return CheckoutSessionResult(
-                                session_id=token,
-                                checkout_url=checkout_url,
-                                provider=self.name,
-                                amount=amount,
-                                currency=currency.upper(),
-                                status="pending",
-                                client_secret=token,
-                                metadata=meta,
-                            )
-            except Exception as exc:
-                if os.getenv("ENV") == "production":
-                    raise exc
+                        try:
+                            data = resp.json()
+                        except Exception as exc:
+                            raise RuntimeError("Safepay returned a malformed response.") from exc
 
-        # Simulated Tracker for test / development mode
+                        token = data.get("data", {}).get("token") if isinstance(data, dict) and isinstance(data.get("data"), dict) else None
+                        if not token or not isinstance(token, str) or not token.strip():
+                            raise RuntimeError("Safepay returned an invalid or empty tracker token.")
+
+                        checkout_url = (
+                            f"{self.checkout_base_url}?env={self.environment}"
+                            f"&beacon={token}&source=custom"
+                        )
+                        return CheckoutSessionResult(
+                            session_id=token,
+                            checkout_url=checkout_url,
+                            provider=self.name,
+                            amount=amount,
+                            currency=curr,
+                            status="pending",
+                            client_secret=token,
+                            metadata=meta,
+                        )
+                    else:
+                        raise RuntimeError(f"Safepay order init failed with status {resp.status_code}: {resp.text[:200]}")
+            except Exception as exc:
+                if is_prod:
+                    raise RuntimeError(f"Safepay checkout session creation failed: {exc}") from exc
+
+        if is_prod:
+            raise RuntimeError("Safepay checkout failed to initialize in production environment.")
+
+        # Simulated Tracker for test / development mode (non-production only)
         tracker_token = f"track_test_{uuid.uuid4().hex[:16]}"
         checkout_url = (
             f"{self.checkout_base_url}?env={self.environment}&beacon={tracker_token}&source=custom"
@@ -114,7 +179,7 @@ class SafepayProvider(PaymentProvider):
             checkout_url=checkout_url,
             provider=self.name,
             amount=amount,
-            currency=currency.upper(),
+            currency=curr,
             status="pending",
             client_secret=tracker_token,
             metadata=meta,
@@ -157,6 +222,17 @@ class SafepayProvider(PaymentProvider):
                     provider=self.name,
                     error_message=str(exc),
                 )
+
+        # In production, unconfigured provider must never return simulated payment success
+        if is_production_environment():
+            return PaymentVerificationResult(
+                payment_id=session_or_tracker_id,
+                status="failed",
+                amount=0.0,
+                currency="PKR",
+                provider=self.name,
+                error_message="Safepay provider is not configured for payment verification in production.",
+            )
 
         # Mock / Test verification fallback
         return PaymentVerificationResult(
@@ -259,4 +335,4 @@ class SafepayProvider(PaymentProvider):
     ) -> bool:
         """Cancel subscription (Safepay primarily operates on tracked payments/orders)."""
         # Safepay does not have recurring auto-debit cancellations in standard API
-        return True
+        return not (is_production_environment() and not self.is_configured())

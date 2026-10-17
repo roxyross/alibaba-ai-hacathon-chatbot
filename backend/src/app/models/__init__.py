@@ -50,6 +50,7 @@ from app.models.subscription import (
 )
 from app.models.token_usage import TokenUsageLog
 from app.models.trust import (
+    ConfirmationChallengeModel,
     DataExportJob,
     EvaluationRecord,
     PersonalizationProposal,
@@ -74,6 +75,7 @@ __all__ = [
     "ChatSession",
     "CodeExecution",
     "CodeSnippet",
+    "ConfirmationChallengeModel",
     "ConnectorInstance",
     "CoworkArtifact",
     "CoworkArtifactVersion",

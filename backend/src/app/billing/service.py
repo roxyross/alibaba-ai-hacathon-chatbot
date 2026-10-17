@@ -273,8 +273,9 @@ class PaymentService:
         # In test mode without secrets configured, allow if signature is explicitly provided or mocked
         is_valid = provider.verify_webhook_signature(headers, raw_body)
         if not is_valid:
-            # Check if running in a test suite where signature validation might be relaxed if headers indicate test
-            is_test = headers.get("x-roxy-test") == "true"
+            # In production, test headers are strictly prohibited from bypassing cryptographic signature checks
+            is_prod = os.getenv("APP_ENV", "").lower() in ("production", "prod") or os.getenv("ENV", "").lower() in ("production", "prod")
+            is_test = headers.get("x-roxy-test") == "true" and not is_prod
             if not is_test:
                 logger.warning(f"Webhook signature verification failed for {prov_name}")
                 return {"status": "error", "message": "Invalid webhook signature"}
@@ -286,114 +287,138 @@ class PaymentService:
             logger.error(f"Failed to parse webhook event: {exc}")
             return {"status": "error", "message": f"Malformed webhook body: {exc}"}
 
-        # 3. Idempotent deduplication check
-        is_new = await self.repo.record_webhook_event(
-            event_id=event.event_id,
-            provider=prov_name,
-            event_type=event.event_type,
-            raw_payload=event.raw_data,
-        )
-        if not is_new:
-            logger.info(f"Duplicate webhook ignored for event_id: {event.event_id}")
+        return await self.process_webhook_event(prov_name, event)
+
+    async def process_webhook_event(
+        self,
+        provider_name: str,
+        event: NormalizedWebhookEvent,
+    ) -> dict[str, Any]:
+        """Atomically process a parsed normalized webhook event with durable idempotency."""
+        prov_name = provider_name.lower()
+        # 3. Idempotent deduplication check & 4. Handle normalized event actions
+        try:
+            is_new = await self.repo.record_webhook_event(
+                event_id=event.event_id,
+                provider=prov_name,
+                event_type=event.event_type,
+                raw_payload=event.raw_data,
+            )
+            if not is_new:
+                logger.info(f"Duplicate webhook ignored for event_id: {event.event_id}")
+                return {
+                    "status": "already_processed",
+                    "event_id": event.event_id,
+                    "message": "Event already processed (idempotent).",
+                }
+
+            user_id = event.metadata.get("user_id")
+            plan_id = event.metadata.get("plan_id")
+            pack_id = event.metadata.get("pack_id")
+            event_type = event.event_type
+
+            if user_id:
+                now = datetime.now(UTC)
+                # Record payment record
+                if event.amount is not None:
+                    await self.repo.record_payment(
+                        user_id=user_id,
+                        payment_data={
+                            "provider": prov_name,
+                            "provider_payment_id": event.payment_id or event.event_id,
+                            "provider_customer_id": event.customer_id,
+                            "amount": event.amount,
+                            "currency": event.currency or ("PKR" if prov_name == "safepay" else "USD"),
+                            "status": "paid" if event_type == "payment.succeeded" else "failed",
+                            "payment_type": "topup" if pack_id else "subscription",
+                            "plan_id": plan_id or pack_id,
+                        },
+                    )
+
+                # Handle successful payment
+                if event_type == "payment.succeeded":
+                    # A. Subscription checkout
+                    if plan_id and not pack_id:
+                        matched_plan = next((p for p in PLANS if p["id"] == plan_id), None)
+                        name = matched_plan["name"] if matched_plan else plan_id.title()
+                        p_usd = matched_plan["price_usd"] if matched_plan else 0.0
+                        p_pkr = matched_plan["price_pkr"] if matched_plan else 0.0
+
+                        await self.repo.update_or_create_subscription(
+                            user_id=user_id,
+                            plan_id=plan_id,
+                            provider=prov_name,
+                            status="active",
+                            amount_usd=p_usd,
+                            amount_pkr=p_pkr,
+                            provider_customer_id=event.customer_id,
+                            provider_subscription_id=event.subscription_id,
+                        )
+
+                        await self.repo.add_invoice(
+                            user_id=user_id,
+                            invoice_data={
+                                "id": f"inv_{uuid.uuid4().hex[:8]}",
+                                "date": now.strftime("%b %d, %Y"),
+                                "description": f"Roxy-AI {name} Subscription ({prov_name.title()})",
+                                "amount_usd": p_usd,
+                                "amount_pkr": p_pkr,
+                                "status": "Paid",
+                                "invoice_pdf_url": "#",
+                            },
+                        )
+
+                    # B. Credit Top-Up checkout
+                    elif pack_id:
+                        credits = float(event.metadata.get("credits", 500000))
+                        cost_usd = event.amount if (event.currency or "").upper() == "USD" else 0.0
+                        cost_pkr = event.amount if (event.currency or "").upper() == "PKR" else 0.0
+
+                        await self.repo.credit_wallet(
+                            user_id=user_id,
+                            credits=credits,
+                            cost_usd=cost_usd or 0.0,
+                            cost_pkr=cost_pkr or 0.0,
+                            event_id=event.event_id,
+                            provider=prov_name,
+                        )
+
+                        await self.repo.add_invoice(
+                            user_id=user_id,
+                            invoice_data={
+                                "id": f"inv_{uuid.uuid4().hex[:8]}",
+                                "date": now.strftime("%b %d, %Y"),
+                                "description": f"Credit Top-Up ({pack_id}) ({prov_name.title()})",
+                                "amount_usd": cost_usd or 0.0,
+                                "amount_pkr": cost_pkr or 0.0,
+                                "status": "Paid",
+                                "invoice_pdf_url": "#",
+                            },
+                        )
+
+                # Handle subscription cancellation
+                elif event_type == "subscription.deleted":
+                    await self.repo.cancel_subscription(user_id)
+
+            # Atomically mark event processed only after all financial side effects succeed
+            await self.repo.mark_webhook_event_processed(
+                provider=prov_name,
+                event_id=event.event_id,
+            )
+
             return {
-                "status": "already_processed",
+                "status": "success",
                 "event_id": event.event_id,
-                "message": "Event already processed (idempotent).",
+                "event_type": event.event_type,
+                "provider": prov_name,
             }
-
-        # 4. Handle normalized event actions
-        user_id = event.metadata.get("user_id")
-        plan_id = event.metadata.get("plan_id")
-        pack_id = event.metadata.get("pack_id")
-        event_type = event.event_type
-
-        if user_id:
-            now = datetime.now(UTC)
-            # Record payment record
-            if event.amount is not None:
-                await self.repo.record_payment(
-                    user_id=user_id,
-                    payment_data={
-                        "provider": prov_name,
-                        "provider_payment_id": event.payment_id or event.event_id,
-                        "provider_customer_id": event.customer_id,
-                        "amount": event.amount,
-                        "currency": event.currency or ("PKR" if prov_name == "safepay" else "USD"),
-                        "status": "paid" if event_type == "payment.succeeded" else "failed",
-                        "payment_type": "topup" if pack_id else "subscription",
-                        "plan_id": plan_id or pack_id,
-                    },
-                )
-
-            # Handle successful payment
-            if event_type == "payment.succeeded":
-                # A. Subscription checkout
-                if plan_id and not pack_id:
-                    matched_plan = next((p for p in PLANS if p["id"] == plan_id), None)
-                    name = matched_plan["name"] if matched_plan else plan_id.title()
-                    p_usd = matched_plan["price_usd"] if matched_plan else 0.0
-                    p_pkr = matched_plan["price_pkr"] if matched_plan else 0.0
-
-                    await self.repo.update_or_create_subscription(
-                        user_id=user_id,
-                        plan_id=plan_id,
-                        provider=prov_name,
-                        status="active",
-                        amount_usd=p_usd,
-                        amount_pkr=p_pkr,
-                        provider_customer_id=event.customer_id,
-                        provider_subscription_id=event.subscription_id,
-                    )
-
-                    await self.repo.add_invoice(
-                        user_id=user_id,
-                        invoice_data={
-                            "id": f"inv_{uuid.uuid4().hex[:8]}",
-                            "date": now.strftime("%b %d, %Y"),
-                            "description": f"Roxy-AI {name} Subscription ({prov_name.title()})",
-                            "amount_usd": p_usd,
-                            "amount_pkr": p_pkr,
-                            "status": "Paid",
-                            "invoice_pdf_url": "#",
-                        },
-                    )
-
-                # B. Credit Top-Up checkout
-                elif pack_id:
-                    credits = float(event.metadata.get("credits", 500000))
-                    cost_usd = event.amount if (event.currency or "").upper() == "USD" else 0.0
-                    cost_pkr = event.amount if (event.currency or "").upper() == "PKR" else 0.0
-
-                    await self.repo.credit_wallet(
-                        user_id=user_id,
-                        credits=credits,
-                        cost_usd=cost_usd or 0.0,
-                        cost_pkr=cost_pkr or 0.0,
-                    )
-
-                    await self.repo.add_invoice(
-                        user_id=user_id,
-                        invoice_data={
-                            "id": f"inv_{uuid.uuid4().hex[:8]}",
-                            "date": now.strftime("%b %d, %Y"),
-                            "description": f"Credit Top-Up ({pack_id}) ({prov_name.title()})",
-                            "amount_usd": cost_usd or 0.0,
-                            "amount_pkr": cost_pkr or 0.0,
-                            "status": "Paid",
-                            "invoice_pdf_url": "#",
-                        },
-                    )
-
-            # Handle subscription cancellation
-            elif event_type == "subscription.deleted":
-                await self.repo.cancel_subscription(user_id)
-
-        return {
-            "status": "success",
-            "event_id": event.event_id,
-            "event_type": event.event_type,
-            "provider": prov_name,
-        }
+        except Exception as exc:
+            logger.error(f"Failed to process webhook event {event.event_id}: {exc}")
+            return {
+                "status": "error",
+                "message": f"Webhook processing error: {exc}",
+                "event_id": event.event_id,
+            }
 
     def register_billing_tools(self) -> None:
         """Register billing, wallet, and checkout tools into the Central ToolRegistry."""

@@ -22,11 +22,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
     # 1. Create or update devices table with enrollment & identity columns
-    if "devices" not in existing_tables:
+    if inspector is None or "devices" not in existing_tables:
         op.create_table(
             "devices",
             sa.Column("id", sa.String(36), primary_key=True),
@@ -106,27 +110,36 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
-    if "device_commands" in existing_tables:
+    if inspector is None:
         op.drop_table("device_commands")
-
-    if "device_enrollment_tokens" in existing_tables:
         op.drop_table("device_enrollment_tokens")
+        op.drop_table("devices")
+    else:
+        if "device_commands" in existing_tables:
+            op.drop_table("device_commands")
 
-    if "devices" in existing_tables:
-        columns = {c["name"] for c in inspector.get_columns("devices")}
-        indexes = {i["name"] for i in inspector.get_indexes("devices")}
+        if "device_enrollment_tokens" in existing_tables:
+            op.drop_table("device_enrollment_tokens")
 
-        if "device_name" in columns and len(columns) <= 20:
-            op.drop_table("devices")
-        else:
-            if "idx_devices_token_hash" in indexes:
-                op.drop_index("idx_devices_token_hash", table_name="devices")
-            if "idx_devices_hw_fingerprint" in indexes:
-                op.drop_index("idx_devices_hw_fingerprint", table_name="devices")
+        if "devices" in existing_tables:
+            columns = {c["name"] for c in inspector.get_columns("devices")}
+            indexes = {i["name"] for i in inspector.get_indexes("devices")}
 
-            for col in ["daemon_version", "device_token_hash", "hardware_fingerprint"]:
-                if col in columns:
-                    op.drop_column("devices", col)
+            if "device_name" in columns and len(columns) <= 20:
+                op.drop_table("devices")
+            else:
+                if "idx_devices_token_hash" in indexes:
+                    op.drop_index("idx_devices_token_hash", table_name="devices")
+                if "idx_devices_hw_fingerprint" in indexes:
+                    op.drop_index("idx_devices_hw_fingerprint", table_name="devices")
+
+                for col in ["daemon_version", "device_token_hash", "hardware_fingerprint"]:
+                    if col in columns:
+                        op.drop_column("devices", col)

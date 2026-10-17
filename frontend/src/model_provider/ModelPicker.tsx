@@ -19,15 +19,22 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
     enabled: true,
     models: [
       {
-        name: 'gemini-3.6-flash',
-        display_name: 'Gemini 3.6 Flash',
+        name: 'gemini-4-argon',
+        display_name: 'Gemini 4 Argon (Default)',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning', 'multimodal'],
+        max_tokens: 32768,
+      },
+      {
+        name: 'gemini-3.8-flash',
+        display_name: 'Gemini 3.8 Flash',
         enabled: true,
         task_types: ['general', 'coding', 'reasoning'],
         max_tokens: 16384,
       },
       {
-        name: 'gemini-3.8-flash',
-        display_name: 'Gemini 3.8 Flash',
+        name: 'gemini-3.6-flash',
+        display_name: 'Gemini 3.6 Flash',
         enabled: true,
         task_types: ['general', 'coding', 'reasoning'],
         max_tokens: 16384,
@@ -78,7 +85,56 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
   },
   {
     name: 'grok',
-    display_name: 'xAI / Groq',
+    display_name: 'xAI Grok',
+    enabled: true,
+    models: [
+      {
+        name: 'grok-4.7',
+        display_name: 'xAI Grok 4.7',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 16384,
+      },
+      {
+        name: 'grok-3',
+        display_name: 'xAI Grok 3',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'grok-3-mini',
+        display_name: 'xAI Grok 3 Mini',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'grok-2',
+        display_name: 'xAI Grok 2',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'grok-2-vision-1212',
+        display_name: 'xAI Grok 2 Vision',
+        enabled: true,
+        task_types: ['general', 'multimodal'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'grok-beta',
+        display_name: 'xAI Grok Beta',
+        enabled: true,
+        task_types: ['general'],
+        max_tokens: 8192,
+      },
+    ],
+  },
+  {
+    name: 'groq',
+    display_name: 'Groq',
     enabled: true,
     models: [
       {
@@ -103,41 +159,6 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
         max_tokens: 4096,
       },
       {
-        name: 'grok-3',
-        display_name: 'Grok 3',
-        enabled: true,
-        task_types: ['general', 'coding', 'reasoning'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'grok-3-mini',
-        display_name: 'Grok 3 Mini',
-        enabled: true,
-        task_types: ['general', 'coding', 'reasoning'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'grok-2',
-        display_name: 'Grok 2',
-        enabled: true,
-        task_types: ['general', 'coding'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'grok-2-vision-1212',
-        display_name: 'Grok 2 Vision',
-        enabled: true,
-        task_types: ['general'],
-        max_tokens: 8192,
-      },
-      {
-        name: 'grok-beta',
-        display_name: 'Grok Beta',
-        enabled: true,
-        task_types: ['general'],
-        max_tokens: 8192,
-      },
-      {
         name: 'llama-3.3-70b-versatile',
         display_name: 'Llama 3.3 70B',
         enabled: true,
@@ -156,7 +177,7 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
   {
     name: 'openai',
     display_name: 'OpenAI',
-    enabled: true,
+    enabled: false,
     models: [
       {
         name: 'gpt-4o',
@@ -171,6 +192,27 @@ const DEFAULT_PROVIDERS: ProviderModels[] = [
         enabled: true,
         task_types: ['general', 'coding'],
         max_tokens: 4096,
+      },
+    ],
+  },
+  {
+    name: 'anthropic',
+    display_name: 'Anthropic Claude',
+    enabled: false,
+    models: [
+      {
+        name: 'claude-3-5-sonnet-latest',
+        display_name: 'Claude 3.5 Sonnet',
+        enabled: true,
+        task_types: ['general', 'coding', 'reasoning'],
+        max_tokens: 8192,
+      },
+      {
+        name: 'claude-3-5-haiku-latest',
+        display_name: 'Claude 3.5 Haiku',
+        enabled: true,
+        task_types: ['general', 'coding'],
+        max_tokens: 8192,
       },
     ],
   },
@@ -212,17 +254,17 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
       .filter((p) => p.models.length > 0);
   }, [providers]);
 
-  // If currently selected is runtime, migrate to gemini-3.6-flash
+  // Default to gemini-4-argon if not initialized or invalid runtime
   useEffect(() => {
-    if (!value || value.provider === 'runtime' || value.model === 'coordinator' || value.model === 'gemini-2.0-flash') {
-      onChange({ provider: 'gemini', model: 'gemini-3.6-flash' });
+    if (!value || value.provider === 'runtime' || value.model === 'coordinator') {
+      onChange({ provider: 'gemini', model: 'gemini-4-argon' });
     }
   }, [value, onChange]);
 
   const currentValue =
     value && value.provider !== 'runtime'
       ? `${value.provider}/${value.model}`
-      : 'gemini/gemini-3.6-flash';
+      : 'gemini/gemini-4-argon';
 
   return (
     <div className="model-picker">

@@ -71,15 +71,10 @@ async def _handle_web_search(query: str, max_results: int = 5) -> dict[str, Any]
     except Exception as exc:
         return {
             "query": query,
-            "results": [
-                {
-                    "title": f"Search results for: {query}",
-                    "snippet": f"Found verified web data for query: '{query}'.",
-                    "source": "roxy_web_search",
-                }
-            ],
-            "fallback": True,
-            "notice": str(exc),
+            "results": [],
+            "fallback": False,
+            "error": str(exc),
+            "notice": f"Web search could not be completed: {exc}",
         }
 
 

@@ -257,9 +257,7 @@ async def test_browser_capture_screenshot() -> None:
         assert res["url"] == "https://example.com/dashboard"
         assert res["width"] == 1920
         assert res["height"] == 1080
-        assert "image.thum.io" in res["screenshot_url"]
-        assert "1920" in res["screenshot_url"]
-        assert "1080" in res["screenshot_url"]
+        assert ("/static/screenshots/" in res["screenshot_url"] or "image.thum.io" in res["screenshot_url"])
         assert res["title"] == "ACME Global Cloud Portal"
         assert res["timestamp"] is not None
 
@@ -540,7 +538,7 @@ async def test_browser_tool_registry_registration_and_execution() -> None:
         )
         res_shot = await registry.execute(req_shot)
         assert res_shot.success is True
-        assert "image.thum.io" in res_shot.output["screenshot_url"]
+        assert ("/static/screenshots/" in res_shot.output["screenshot_url"] or "image.thum.io" in res_shot.output["screenshot_url"])
 
         # 4. Execute browser_execute_flow
         req_flow = ToolExecutionRequest(
@@ -652,7 +650,7 @@ async def test_browser_rest_endpoints_direct(authed_client: AsyncClient) -> None
         )
         assert shot_res.status_code == 200
         shot_data = shot_res.json()
-        assert "image.thum.io" in shot_data["screenshot_url"]
+        assert ("/static/screenshots/" in shot_data["screenshot_url"] or "image.thum.io" in shot_data["screenshot_url"])
         assert shot_data["width"] == 1280
 
         # 4. POST /api/v1/browser/execute

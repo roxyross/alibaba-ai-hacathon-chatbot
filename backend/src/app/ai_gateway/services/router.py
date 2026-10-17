@@ -26,7 +26,7 @@ from app.ai_gateway.adapters.base import (
     ProviderUnavailableError,
 )
 from app.ai_gateway.adapters.deepseek import DeepSeekAdapter
-from app.ai_gateway.models.provider import get_all_provider_configs
+from app.ai_gateway.models.provider import get_all_provider_configs, get_provider_config
 from app.ai_gateway.models.schemas import AIRequest, AIResponse
 from app.ai_gateway.services.sanitizer import PromptInjectionError, PromptSanitizer
 from app.ai_gateway.services.token_logger import TokenUsageLogger
@@ -49,9 +49,15 @@ def _get_adapter(name: str) -> AIProviderAdapter:
         elif name == "grok":
             from app.ai_gateway.adapters.grok import GrokAdapter
             _adapters[name] = GrokAdapter()
+        elif name == "groq":
+            from app.ai_gateway.adapters.groq import GroqAdapter
+            _adapters[name] = GroqAdapter()
         elif name == "openai":
             from app.ai_gateway.adapters.openai import OpenAIAdapter
             _adapters[name] = OpenAIAdapter()
+        elif name == "anthropic":
+            from app.ai_gateway.adapters.anthropic import AnthropicAdapter
+            _adapters[name] = AnthropicAdapter()
         elif name == "gemini":
             from app.ai_gateway.adapters.gemini import GeminiAdapter
             _adapters[name] = GeminiAdapter()
@@ -74,9 +80,11 @@ class AIRouter:
     def __init__(self) -> None:
         self._sanitizer = PromptSanitizer()
         self._token_logger = TokenUsageLogger()
+        from app.ai_gateway.services.resilience import UniversalResilienceManager
+        self._resilience = UniversalResilienceManager()
 
     async def route(self, request: AIRequest) -> AIResponse:
-        """Route a request to the best available provider with automatic failover.
+        """Route a request to the best available provider with automatic failover and resilience.
 
         Priority: operator flag > user preference > request field > default priority.
 
@@ -109,34 +117,20 @@ class AIRouter:
         # Inject grounded knowledge vault context if user has relevant documents
         await self._inject_rag_context(request)
 
-        # Resolve override
-        provider_override = self._resolve_override(request)
-
-        # Route to provider(s)
-        if provider_override:
-            providers = [provider_override] + [p for p in _sorted_providers() if p != provider_override]
-        else:
-            providers = _sorted_providers()
-
-        last_error: str | None = None
-        for provider_name in providers:
-            try:
-                adapter = _get_adapter(provider_name)
-                response = await adapter.chatCompletion(request)
-                # Log token usage after successful call (fire-and-forget via create_task)
-                asyncio.create_task(self._token_logger.log(request, response))
-                # Persist turn if session_id was set
-                await self._persist_turn(request, response)
-                return response
-            except ProviderUnavailableError as exc:
-                err_msg = exc.reason or str(exc)
-                last_error = f"{provider_name}: {err_msg}"
-                log.warning("router.provider_failed_failover", provider=provider_name, error=err_msg)
-                continue  # failover to next provider
-
-        raise AllProvidersUnavailableError(
-            f"All providers failed. Last error: {last_error}"
+        # Delegate to UniversalResilienceManager for bounded retries, task continuity and safe cross-provider failover
+        t_type = request.task_type.value if hasattr(request.task_type, "value") else str(request.task_type)
+        response = await self._resilience.execute_with_resilience(
+            request,
+            task_id=getattr(request, "session_id", None) or str(request.request_id),
+            task_type=t_type,
+            max_retries_per_provider=1,
         )
+
+        # Log token usage after successful call
+        asyncio.create_task(self._token_logger.log(request, response))
+        # Persist turn if session_id was set
+        await self._persist_turn(request, response)
+        return response
 
     async def route_stream(
         self, request: AIRequest
@@ -177,6 +171,10 @@ class AIRouter:
 
         last_error: str | None = None
         for provider_name in providers:
+            prov_cfg = get_provider_config(provider_name)
+            if prov_cfg and not prov_cfg.is_enabled:
+                log.warning("router.stream_provider_disabled_skipped", provider=provider_name)
+                continue
             try:
                 adapter = _get_adapter(provider_name)
                 accumulated_text: list[str] = []
@@ -259,6 +257,32 @@ class AIRouter:
         # Tier 3: request-level override
         if request.provider:
             return request.provider.lower()
+
+        # Model-inferred provider routing (when provider is not explicitly specified)
+        if request.model:
+            model_lower = request.model.lower()
+            if "/" in model_lower:
+                prefix = model_lower.split("/", 1)[0]
+                if prefix in ("gemini", "grok", "groq", "deepseek", "openai", "anthropic"):
+                    return prefix
+            if "gemini" in model_lower:
+                return "gemini"
+            if "grok" in model_lower:
+                return "grok"
+            if (
+                model_lower.startswith("qwen/")
+                or model_lower.startswith("openai/gpt-oss")
+                or "llama" in model_lower
+                or "mixtral" in model_lower
+                or "groq" in model_lower
+            ):
+                return "groq"
+            if "claude" in model_lower or "anthropic" in model_lower:
+                return "anthropic"
+            if "deepseek" in model_lower:
+                return "deepseek"
+            if "gpt-" in model_lower:
+                return "openai"
 
         # Tier 2: user preference — deferred to post-hackathon (needs DB)
         # Tier 1: operator flag — handled by adapter registry (is_enabled)

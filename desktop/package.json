@@ -2,8 +2,12 @@
   "name": "roxy-ai-desktop",
   "version": "2.0.0",
   "description": "Roxy-AI Desktop Client for Windows, macOS, and Linux",
+  "homepage": "https://roxy-ai.internal",
+  "author": {
+    "name": "Roxy-AI Team",
+    "email": "support@roxy-ai.internal"
+  },
   "main": "dist/main.js",
-  "author": "Roxy-AI Team",
   "license": "Proprietary",
   "scripts": {
     "build:ts": "tsc",

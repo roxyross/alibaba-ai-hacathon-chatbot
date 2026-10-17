@@ -109,10 +109,10 @@ export function ChatScreen() {
   // Dual-mode workflow: 'chat' for general conversation/search, 'task' for coding tasks
   const [mode, setMode] = useState<'chat' | 'task'>('chat');
 
-  // Default to Google Gemini 2.0 Flash
+  // Default to Google Gemini 4 Argon
   const [modelSelection, setModelSelection] = useState<ModelSelection | null>({
     provider: 'gemini',
-    model: 'gemini-2.0-flash',
+    model: 'gemini-4-argon',
   });
   const [activeView, setActiveView] = useState<AppView>(() => {
     if (typeof window !== 'undefined' && window.location.pathname.startsWith('/code-studio')) {
@@ -541,7 +541,7 @@ export function ChatScreen() {
         const title = `[Task] ${taskConfig.title}`;
         const newSession = await createSession({
           provider: modelSelection?.provider || 'gemini',
-          model: modelSelection?.model || 'gemini-2.0-flash',
+          model: modelSelection?.model || 'gemini-4-argon',
           title,
           session_type: 'task',
         });
@@ -827,6 +827,7 @@ export function ChatScreen() {
               className="app__header-quick-action app__header-quick-action--task"
               onClick={() => setIsNewTaskModalOpen(true)}
               title="Launch Autonomous / Guided Task (Ctrl+N)"
+              aria-label="New Task"
             >
               <span className="app__header-quick-icon">⚡</span>
               <span>New Task</span>
@@ -838,6 +839,7 @@ export function ChatScreen() {
               className={`app__header-quick-action app__header-quick-action--cowork ${isCoworkMode ? 'app__header-quick-action--active' : ''}`}
               onClick={() => setIsCoworkMode((prev) => !prev)}
               title={isCoworkMode ? 'Exit Cowork Mode' : 'Enter Cowork Pair Copilot Mode'}
+              aria-label={isCoworkMode ? 'Exit Cowork Mode' : 'Enter Cowork Mode'}
             >
               <span className="app__header-quick-icon">👥</span>
               <span>{isCoworkMode ? 'Exit Cowork' : 'Cowork'}</span>
@@ -925,7 +927,8 @@ export function ChatScreen() {
               title="Choose Your Roxy-AI Plan"
               aria-label="Upgrade Plan"
             >
-              ⚡ Upgrade
+              <span>⚡</span>
+              <span className="app__upgrade-text"> Upgrade</span>
             </button>
 
             {user ? (

@@ -13,6 +13,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
+import structlog
 
 from app.ai_gateway.adapters.base import AIProviderAdapter, ProviderUnavailableError
 from app.ai_gateway.models.schemas import (
@@ -21,33 +22,37 @@ from app.ai_gateway.models.schemas import (
     StreamingChunk,
 )
 
+log = structlog.get_logger()
+
 
 class GeminiAdapter(AIProviderAdapter):
     """Gemini provider adapter using Google's Gemini REST API."""
 
     NAME = "gemini"
     TIMEOUT_SECONDS = 30.0
-    DEFAULT_MODEL = "gemini-3.6-flash"
+    DEFAULT_MODEL = "gemini-4-argon"
 
     def _resolve_model(self, model: str | None) -> str:
+        try:
+            from app.ai_gateway.services.catalog_discovery import ModelCatalogDiscoveryService
+            active_default = ModelCatalogDiscoveryService.get_instance().get_default_model(self.NAME)
+        except Exception:
+            active_default = self.DEFAULT_MODEL
+
         if not model:
-            return self.DEFAULT_MODEL
-        # Strip provider prefix if present (e.g. "gemini/gemini-2.0-flash")
+            return active_default
+        # Strip provider prefix if present (e.g. "gemini/gemini-3.8-flash")
         if "/" in model:
             model = model.split("/", 1)[-1]
-        # Google directs new users on this API key to gemini-3.6-flash
-        if model in (
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.7",
-            "gemini-3.1-flash",
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-3.6-flash",
-        ):
-            return self.DEFAULT_MODEL
+        # Preserve legitimate provider models and map generic legacy aliases to default
+        alias_map = {
+            "gemini-flash": active_default,
+            "gemini": active_default,
+            "default": active_default,
+            "auto": active_default,
+        }
+        if model in alias_map:
+            return alias_map[model]
         return model
 
 
@@ -87,6 +92,12 @@ class GeminiAdapter(AIProviderAdapter):
 
         if not response.is_success:
             if model != self.DEFAULT_MODEL and response.status_code in (404, 503, 429):
+                log.warning(
+                    "gemini.fallback_triggered",
+                    requested_model=model,
+                    fallback_model=self.DEFAULT_MODEL,
+                    status_code=response.status_code,
+                )
                 fallback_url = f"/{self.DEFAULT_MODEL}:generateContent?key={api_key}"
                 try:
                     fb_resp = await client.post(fallback_url, json=payload)
@@ -123,6 +134,12 @@ class GeminiAdapter(AIProviderAdapter):
                 if not response.is_success:
                     err_bytes = await response.aread()
                     if model != self.DEFAULT_MODEL and response.status_code in (404, 503, 429):
+                        log.warning(
+                            "gemini.stream_fallback_triggered",
+                            requested_model=model,
+                            fallback_model=self.DEFAULT_MODEL,
+                            status_code=response.status_code,
+                        )
                         fb_url = f"/{self.DEFAULT_MODEL}:streamGenerateContent?alt=sse&key={api_key}"
                         try:
                             async with client.stream("POST", fb_url, json=payload) as fb_resp:

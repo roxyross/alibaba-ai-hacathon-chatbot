@@ -3,7 +3,7 @@
 Creates cowork_artifacts and cowork_artifact_versions tables for PostgreSQL/Neon
 multi-tenant durability across horizontal cloud workers.
 
-Revision ID: 010_cowork_artifacts_and_open_work
+Revision ID: 010_cowork_artifacts_open_work
 Revises: 009_deep_app_catalog
 Create Date: 2026-10-09
 """
@@ -14,7 +14,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "010_cowork_artifacts_and_open_work"
+revision: str = "010_cowork_artifacts_open_work"
 down_revision: str | None = "009_deep_app_catalog"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -22,8 +22,20 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+
+    # Ensure alembic_version table can hold revisions up to 64 chars on PostgreSQL
+    if getattr(bind, "dialect", None) and bind.dialect.name == "postgresql":
+        try:
+            op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)")
+        except Exception:
+            pass
+
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
     if "cowork_artifacts" not in existing_tables:
         op.create_table(
@@ -66,10 +78,14 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
+    try:
+        inspector = sa.inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        inspector = None
+        existing_tables = set()
 
-    if "cowork_artifact_versions" in existing_tables:
+    if inspector is None or "cowork_artifact_versions" in existing_tables:
         op.drop_table("cowork_artifact_versions")
-    if "cowork_artifacts" in existing_tables:
+    if inspector is None or "cowork_artifacts" in existing_tables:
         op.drop_table("cowork_artifacts")

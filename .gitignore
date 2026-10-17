@@ -53,6 +53,7 @@ test-results/
 playwright-report/
 playwright/.cache/
 tests/disposable_*
+**/screenshots/
 
 # Local secrets — never commit
 .env

@@ -907,7 +907,7 @@ async def test_workspace_tool_multitenant_isolation() -> None:
     )
     assert res_b_task.output["status"] == "error"
 
-    # User B tries to delete User A's project -> deleted is False
+    # User B tries to delete User A's project -> deleted is False or intercepted by ConfirmationGate
     res_b_del = await reg.execute(
         ToolExecutionRequest(
             tool_id="workspace_delete_project",
@@ -915,7 +915,7 @@ async def test_workspace_tool_multitenant_isolation() -> None:
             user_id=user_b,
         )
     )
-    assert res_b_del.output["deleted"] is False
+    assert res_b_del.output.get("deleted", False) is False
 
     # Confirm User A's project still exists untouched
     res_a_verify = await reg.execute(

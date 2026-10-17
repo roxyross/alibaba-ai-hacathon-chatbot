@@ -399,3 +399,77 @@ class EvaluationRecord(Base):
             "details": self.get_details(),
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class ConfirmationChallengeModel(Base):
+    """Durable confirmation challenge record supporting cross-worker single-use atomic consumption."""
+
+    __tablename__ = "confirmation_challenges"
+
+    challenge_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    details_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+    risk_tier: Mapped[str] = mapped_column(String(32), default="HIGH", nullable=False)
+    risk_score: Mapped[int] = mapped_column(Integer, default=75, nullable=False)
+    challenge_token: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+
+    step_up_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    step_up_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    step_up_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_conf_challenges_user_status", "user_id", "status"),
+        Index("idx_conf_challenges_token", "challenge_token"),
+    )
+
+    def get_details(self) -> dict[str, Any]:
+        try:
+            return json.loads(self.details_json) if self.details_json else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def set_details(self, data: dict[str, Any]) -> None:
+        self.details_json = json.dumps(data)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "challenge_id": self.challenge_id,
+            "user_id": self.user_id,
+            "action_type": self.action_type,
+            "title": self.title,
+            "summary": self.summary,
+            "details": self.get_details(),
+            "risk_tier": self.risk_tier,
+            "risk_score": self.risk_score,
+            "challenge_token": self.challenge_token,
+            "step_up_required": self.step_up_required,
+            "step_up_code": self.step_up_code,
+            "step_up_hint": self.step_up_hint,
+            "status": self.status,
+            "attempts": self.attempts,
+            "decision": self.decision,
+            "comment": self.comment,
+            "created_at": self.created_at,
+            "expires_at": self.expires_at,
+            "resolved_at": self.resolved_at,
+            "consumed_at": self.consumed_at,
+        }
+

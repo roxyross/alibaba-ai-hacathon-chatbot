@@ -66,6 +66,8 @@ def normalize_database_url(raw: str) -> tuple[str, dict[str, object]]:
         connect_args = {"ssl": False}
     else:
         connect_args = {}
+    if "pooler" in raw or "-pooler" in raw or "pgbouncer" in raw:
+        connect_args["statement_cache_size"] = 0
     return url, connect_args
 
 

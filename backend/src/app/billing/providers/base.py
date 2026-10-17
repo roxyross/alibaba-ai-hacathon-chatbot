@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
+
+
+def is_production_environment() -> bool:
+    """Detect production environment including Vercel indicators."""
+    app_env = os.environ.get("APP_ENV", "").lower()
+    env = os.environ.get("ENV", "").lower()
+    environment = os.environ.get("ENVIRONMENT", "").lower()
+    return (
+        app_env in ("production", "prod")
+        or env in ("production", "prod")
+        or environment in ("production", "prod")
+        or bool(os.environ.get("VERCEL"))
+        or bool(os.environ.get("VERCEL_ENV"))
+        or bool(os.environ.get("VERCEL_URL"))
+        or os.environ.get("APP_BASE_URL", "").startswith("https://")
+    )
 
 
 @dataclass

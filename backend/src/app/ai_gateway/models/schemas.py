@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -91,6 +92,7 @@ class AIResponse(BaseModel):
     cost_usd: float = 0.0
     latency_ms: int = 0
     request_id: UUID
+    recovery_metadata: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def populate_response(self) -> AIResponse:

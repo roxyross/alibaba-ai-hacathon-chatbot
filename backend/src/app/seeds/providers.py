@@ -13,17 +13,18 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Any
 
 # Ensure src is on path when run directly
 sys.path.insert(0, "src")
 
-from app.db import get_engine, Base
 from app.ai_gateway.models.provider import DEFAULT_ROUTING_PRIORITY
-from app.models.provider import Provider
+from app.db import Base, get_engine
 from app.models.model import Model
+from app.models.provider import Provider
 
 
-def _seed_data() -> list[dict]:
+def _seed_data() -> list[dict[str, Any]]:
     """Return provider seed records matching routing priority order.
 
     Priority values come from app.ai_gateway.models.provider.DEFAULT_ROUTING_PRIORITY
@@ -67,6 +68,14 @@ def _seed_data() -> list[dict]:
             "supports_streaming": True,
             "models": [
                 {
+                    "name": "grok-4.7",
+                    "display_name": "Grok 4.7",
+                    "task_types": ["general", "coding", "reasoning"],
+                    "cost_per_1k_input_tokens": 0.005,
+                    "cost_per_1k_output_tokens": 0.015,
+                    "max_tokens": 131072,
+                },
+                {
                     "name": "grok-3",
                     "display_name": "Grok 3",
                     "task_types": ["general", "coding", "reasoning"],
@@ -106,9 +115,36 @@ def _seed_data() -> list[dict]:
                     "cost_per_1k_output_tokens": 0.015,
                     "max_tokens": 131072,
                 },
+            ],
+        },
+        {
+            "name": "groq",
+            "enabled": os.environ.get("PROVIDER_GROQ_ENABLED", "true").lower() in ("true", "1"),
+            "api_key_env_var": "GROQ_API_KEY",
+            "base_url": "https://api.groq.com/openai/v1",
+            "timeout_seconds": 10.0,
+            "routing_priority": DEFAULT_ROUTING_PRIORITY.get("groq", 2),
+            "supports_streaming": True,
+            "models": [
                 {
                     "name": "qwen/qwen3.8-27b",
-                    "display_name": "Grok / Qwen 27B",
+                    "display_name": "Groq / Qwen 27B",
+                    "task_types": ["general", "coding", "reasoning"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 32768,
+                },
+                {
+                    "name": "openai/gpt-oss-120b",
+                    "display_name": "Groq / GPT-OSS 120B",
+                    "task_types": ["general", "coding", "reasoning"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 32768,
+                },
+                {
+                    "name": "qwen/qwen3.6-27b",
+                    "display_name": "Groq / Qwen 3.6 27B",
                     "task_types": ["general", "coding", "reasoning"],
                     "cost_per_1k_input_tokens": 0.0,
                     "cost_per_1k_output_tokens": 0.0,
@@ -122,15 +158,23 @@ def _seed_data() -> list[dict]:
                     "cost_per_1k_output_tokens": 0.0,
                     "max_tokens": 32768,
                 },
+                {
+                    "name": "mixtral-8x7b-32768",
+                    "display_name": "Groq / Mixtral 8x7B",
+                    "task_types": ["general", "coding"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 32768,
+                },
             ],
         },
         {
             "name": "openai",
-            "enabled": os.environ.get("PROVIDER_OPENAI_ENABLED", "true").lower() in ("true", "1"),
+            "enabled": os.environ.get("PROVIDER_OPENAI_ENABLED", "false").lower() in ("true", "1"),
             "api_key_env_var": "OPENAI_API_KEY",
             "base_url": "https://api.openai.com/v1",
             "timeout_seconds": 10.0,
-            "routing_priority": DEFAULT_ROUTING_PRIORITY.get("openai", 4),
+            "routing_priority": DEFAULT_ROUTING_PRIORITY.get("openai", 5),
             "supports_streaming": True,
             "models": [
                 {
@@ -152,6 +196,33 @@ def _seed_data() -> list[dict]:
             ],
         },
         {
+            "name": "anthropic",
+            "enabled": os.environ.get("PROVIDER_ANTHROPIC_ENABLED", "false").lower() in ("true", "1"),
+            "api_key_env_var": "ANTHROPIC_API_KEY",
+            "base_url": "https://api.anthropic.com/v1",
+            "timeout_seconds": 10.0,
+            "routing_priority": DEFAULT_ROUTING_PRIORITY.get("anthropic", 6),
+            "supports_streaming": True,
+            "models": [
+                {
+                    "name": "claude-3-5-sonnet-latest",
+                    "display_name": "Claude 3.5 Sonnet",
+                    "task_types": ["general", "coding", "reasoning"],
+                    "cost_per_1k_input_tokens": 0.003,
+                    "cost_per_1k_output_tokens": 0.015,
+                    "max_tokens": 8192,
+                },
+                {
+                    "name": "claude-3-5-haiku-latest",
+                    "display_name": "Claude 3.5 Haiku",
+                    "task_types": ["general", "coding"],
+                    "cost_per_1k_input_tokens": 0.0008,
+                    "cost_per_1k_output_tokens": 0.004,
+                    "max_tokens": 8192,
+                },
+            ],
+        },
+        {
             "name": "gemini",
             "enabled": os.environ.get("PROVIDER_GEMINI_ENABLED", "true").lower() in ("true", "1"),
             "api_key_env_var": "GEMINI_API_KEY",
@@ -161,9 +232,25 @@ def _seed_data() -> list[dict]:
             "supports_streaming": True,
             "models": [
                 {
+                    "name": "gemini-4-argon",
+                    "display_name": "Gemini 4 Argon (Default)",
+                    "task_types": ["general", "coding", "reasoning", "multimodal"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 2000000,
+                },
+                {
                     "name": "gemini-3.8-flash",
                     "display_name": "Gemini 3.8 Flash",
                     "task_types": ["general", "coding", "reasoning", "multimodal", "audio"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 1000000,
+                },
+                {
+                    "name": "gemini-3.6-flash",
+                    "display_name": "Gemini 3.6 Flash",
+                    "task_types": ["general", "coding", "reasoning", "multimodal"],
                     "cost_per_1k_input_tokens": 0.0,
                     "cost_per_1k_output_tokens": 0.0,
                     "max_tokens": 1000000,
@@ -208,6 +295,14 @@ def _seed_data() -> list[dict]:
                     "cost_per_1k_output_tokens": 0.005,
                     "max_tokens": 2000000,
                 },
+                {
+                    "name": "gemini-1.5-flash",
+                    "display_name": "Gemini 1.5 Flash",
+                    "task_types": ["general", "coding"],
+                    "cost_per_1k_input_tokens": 0.0,
+                    "cost_per_1k_output_tokens": 0.0,
+                    "max_tokens": 1000000,
+                },
             ],
         },
     ]
@@ -222,12 +317,10 @@ async def _run_migration() -> None:
     print("  ✓ Database tables created/verified")
 
 
-async def _seed_with_sqlalchemy(records: list[dict]) -> None:
+async def _seed_with_sqlalchemy(records: list[dict[str, Any]]) -> None:
     """Upsert records via SQLAlchemy async session."""
     from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-    from app.db import get_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     engine = get_engine()
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -271,7 +364,7 @@ async def _seed_with_sqlalchemy(records: list[dict]) -> None:
     await engine.dispose()
 
 
-def _seed_dry_run(records: list[dict]) -> None:
+def _seed_dry_run(records: list[dict[str, Any]]) -> None:
     """Print what would be seeded — used when DATABASE_URL is not configured."""
     print("  ⚠ DATABASE_URL not configured — dry-run (no DB changes)")
     for provider in records:
@@ -285,9 +378,6 @@ def _seed_dry_run(records: list[dict]) -> None:
 
 
 def main() -> None:
-    import os
-    from app.db import get_engine
-
     print("Seeding AI provider configuration...")
     records = _seed_data()
 
