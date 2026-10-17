@@ -1,4 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Zap,
+  Users,
+  Pin,
+  Settings,
+  Sun,
+  Moon,
+} from 'lucide-react';
 import { I18nProvider } from './i18n';
 import { AuthProvider, AuthGate, useAuth } from './auth';
 import { ChatWindow } from './components/ChatWindow';
@@ -829,7 +837,7 @@ export function ChatScreen() {
               title="Launch Autonomous / Guided Task (Ctrl+N)"
               aria-label="New Task"
             >
-              <span className="app__header-quick-icon">⚡</span>
+              <Zap size={14} className="app__header-quick-icon" strokeWidth={2.2} />
               <span>New Task</span>
             </button>
 
@@ -841,7 +849,7 @@ export function ChatScreen() {
               title={isCoworkMode ? 'Exit Cowork Mode' : 'Enter Cowork Pair Copilot Mode'}
               aria-label={isCoworkMode ? 'Exit Cowork Mode' : 'Enter Cowork Mode'}
             >
-              <span className="app__header-quick-icon">👥</span>
+              <Users size={14} className="app__header-quick-icon" strokeWidth={2.2} />
               <span>{isCoworkMode ? 'Exit Cowork' : 'Cowork'}</span>
             </button>
           </div>
@@ -855,7 +863,7 @@ export function ChatScreen() {
                 title="Pinned Chats & Statements"
                 aria-label="Pinned Items"
               >
-                📌
+                <Pin size={15} strokeWidth={2} />
                 {pinnedItems.length > 0 && (
                   <span className="app__pin-count">{pinnedItems.length}</span>
                 )}
@@ -905,7 +913,7 @@ export function ChatScreen() {
               title="Settings & Preferences (Ctrl+,)"
               aria-label="Settings"
             >
-              ⚙️
+              <Settings size={16} strokeWidth={2} />
             </button>
 
             {/* Light / Dark Mode Toggle */}
@@ -916,7 +924,11 @@ export function ChatScreen() {
               title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
               aria-label="Toggle theme"
             >
-              {theme === 'dark' ? '☀️' : '🌙'}
+              {theme === 'dark' ? (
+                <Sun size={16} strokeWidth={2} className="theme-toggle-icon" />
+              ) : (
+                <Moon size={16} strokeWidth={2} className="theme-toggle-icon" />
+              )}
             </button>
 
             {/* Clear Upgrade Button placed immediately before Sign In / User */}
@@ -927,7 +939,7 @@ export function ChatScreen() {
               title="Choose Your Roxy-AI Plan"
               aria-label="Upgrade Plan"
             >
-              <span>⚡</span>
+              <Zap size={14} strokeWidth={2.4} />
               <span className="app__upgrade-text"> Upgrade</span>
             </button>
 

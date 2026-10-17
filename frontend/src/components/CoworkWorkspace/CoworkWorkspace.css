@@ -7,7 +7,8 @@
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background: #090d16;
+  background: var(--color-bg, #090d16);
+  color: var(--color-text, #e2e8e7);
   overflow: hidden;
 }
 
@@ -17,8 +18,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.6rem 1.25rem;
-  background: rgba(15, 23, 42, 0.85);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-surface, #172121);
+  border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
   backdrop-filter: blur(16px);
   gap: 1rem;
   flex-wrap: wrap;
@@ -36,10 +37,10 @@
   align-items: center;
   gap: 0.45rem;
   padding: 0.3rem 0.75rem;
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(13, 148, 136, 0.12);
+  border: 1px solid rgba(13, 148, 136, 0.3);
   border-radius: 9999px;
-  color: #34d399;
+  color: var(--color-accent, #14b8a6);
   font-size: 0.775rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -49,19 +50,19 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 10px #10b981;
+  background: var(--color-accent, #0d9488);
+  box-shadow: 0 0 10px var(--color-accent, #0d9488);
   animation: pulseGlow 1.8s infinite ease-in-out;
 }
 
 .cowork-workspace__divider {
-  color: #64748b;
+  color: var(--color-muted, #64748b);
   font-size: 0.8rem;
 }
 
 .cowork-workspace__hint {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--color-muted, #94a3b8);
   max-width: 480px;
   white-space: nowrap;
   overflow: hidden;
@@ -73,10 +74,10 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--color-input-bg, rgba(0, 0, 0, 0.35));
   padding: 0.25rem;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
 }
 
 .cowork-workspace__surface-tab {
@@ -87,7 +88,7 @@
   border-radius: 7px;
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--color-muted, #94a3b8);
   font-size: 0.775rem;
   font-weight: 500;
   cursor: pointer;
@@ -95,15 +96,19 @@
 }
 
 .cowork-workspace__surface-tab:hover {
-  color: #cbd5e1;
-  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text, #cbd5e1);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .cowork-workspace__surface-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .cowork-workspace__surface-tab--active {
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
+  background: rgba(13, 148, 136, 0.15);
+  color: var(--color-accent, #0d9488);
   font-weight: 600;
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid rgba(13, 148, 136, 0.3);
 }
 
 /* Layout & Controls */
@@ -118,10 +123,10 @@
   display: flex;
   align-items: center;
   gap: 0.2rem;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--color-input-bg, rgba(0, 0, 0, 0.3));
   padding: 0.2rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
 }
 
 .cowork-workspace__layout-btn {
@@ -133,19 +138,23 @@
   border-radius: 6px;
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--color-muted, #94a3b8);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .cowork-workspace__layout-btn:hover {
-  color: #ffffff;
+  color: var(--color-text, #ffffff);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .cowork-workspace__layout-btn:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 
 .cowork-workspace__layout-btn--active {
-  background: rgba(255, 255, 255, 0.12);
-  color: #38bdf8;
+  background: rgba(13, 148, 136, 0.15);
+  color: var(--color-accent, #0d9488);
 }
 
 .cowork-workspace__exit-btn {
@@ -156,7 +165,7 @@
   background: rgba(239, 68, 68, 0.12);
   border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: 8px;
-  color: #f87171;
+  color: #ef4444;
   font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
@@ -181,11 +190,11 @@
   min-width: 380px;
   max-width: 50%;
   height: 100%;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: rgba(9, 13, 22, 0.95);
+  background: var(--color-surface, rgba(9, 13, 22, 0.95));
 }
 
 .cowork-workspace__surface-pane {
@@ -193,7 +202,7 @@
   height: 100%;
   overflow-y: auto;
   position: relative;
-  background: #090d16;
+  background: var(--color-bg, #090d16);
 }
 
 .cowork-workspace--maximize_surface .cowork-workspace__surface-pane {
@@ -218,7 +227,7 @@
     max-width: 100%;
     height: 50%;
     border-right: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
   }
   .cowork-workspace__surface-pane {
     height: 50%;

@@ -73,22 +73,18 @@ export type AppView =
   | 'trust_center';
 
 export const SECONDARY_VIEWS: AppView[] = [
+  'study',
+  'documents',
+  'memory',
+  'voice',
+  'email',
+  'jobs',
+  'workspace_hub',
+  'connectors',
   'control_center',
   'trust_center',
-  'device_hub',
-  'connectors',
-  'finance',
-  'jobs',
-  'voice',
-  'research',
-  'browser',
-  'study',
-  'coding',
-  'memory',
   'audit',
-  'documents',
-  'email',
-  'workspace_hub',
+  'finance',
   'payment_methods',
 ];
 
@@ -755,12 +751,42 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
 
             <button
               type="button"
-              className={`session-sidebar__rail-btn ${activeView === 'chat' && mode === 'task' ? 'session-sidebar__rail-btn--active session-sidebar__rail-btn--accent-active' : ''}`}
-              onClick={handleNewTaskAction}
-              aria-label="New Task"
-              data-tooltip="New Task"
+              className={`session-sidebar__rail-btn ${activeView === 'coding' ? 'session-sidebar__rail-btn--active' : ''}`}
+              onClick={() => onViewChange('coding')}
+              aria-label="IDE / Code Studio"
+              data-tooltip="IDE / Code Studio (Ctrl+Alt+I)"
             >
-              <Zap size={17} strokeWidth={1.8} />
+              <Code2 size={17} strokeWidth={1.8} />
+            </button>
+
+            <button
+              type="button"
+              className={`session-sidebar__rail-btn ${activeView === 'browser' ? 'session-sidebar__rail-btn--active' : ''}`}
+              onClick={() => onViewChange('browser')}
+              aria-label="Browser Studio"
+              data-tooltip="Browser Studio"
+            >
+              <Compass size={17} strokeWidth={1.8} />
+            </button>
+
+            <button
+              type="button"
+              className={`session-sidebar__rail-btn ${activeView === 'research' ? 'session-sidebar__rail-btn--active' : ''}`}
+              onClick={() => onViewChange('research')}
+              aria-label="Deep Research"
+              data-tooltip="Deep Research"
+            >
+              <Globe size={17} strokeWidth={1.8} />
+            </button>
+
+            <button
+              type="button"
+              className={`session-sidebar__rail-btn ${activeView === 'device_hub' ? 'session-sidebar__rail-btn--active' : ''}`}
+              onClick={() => onViewChange('device_hub')}
+              aria-label="Device & App Control"
+              data-tooltip="Device & App Control"
+            >
+              <Monitor size={17} strokeWidth={1.8} />
             </button>
 
             <button
@@ -813,16 +839,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               <Calculator size={17} strokeWidth={1.8} />
             </button>
 
-            <button
-              type="button"
-              className={`session-sidebar__rail-btn ${activeView === 'coding' ? 'session-sidebar__rail-btn--active' : ''}`}
-              onClick={() => onViewChange('coding')}
-              aria-label="IDE / Code Studio"
-              data-tooltip="IDE / Code Studio (Ctrl+Alt+I)"
-            >
-              <Code2 size={17} strokeWidth={1.8} />
-            </button>
-
             <div className="session-sidebar__rail-divider" />
 
             {/* Secondary Tools Popover */}
@@ -844,6 +860,94 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                     <span>Tools</span>
                   </div>
                   <div className="session-sidebar__rail-popover-list">
+                    <button
+                      type="button"
+                      className={`session-sidebar__rail-popover-item ${activeView === 'study' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      onClick={() => {
+                        onViewChange('study');
+                        setRailToolsMenuOpen(false);
+                      }}
+                    >
+                      <BookOpen size={15} strokeWidth={1.8} />
+                      <span>Study Studio</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`session-sidebar__rail-popover-item ${activeView === 'documents' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      onClick={() => {
+                        onViewChange('documents');
+                        setRailToolsMenuOpen(false);
+                      }}
+                    >
+                      <FileText size={15} strokeWidth={1.8} />
+                      <span>Documents</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`session-sidebar__rail-popover-item ${activeView === 'memory' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      onClick={() => {
+                        onViewChange('memory');
+                        setRailToolsMenuOpen(false);
+                      }}
+                    >
+                      <Brain size={15} strokeWidth={1.8} />
+                      <span>Memory Studio</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`session-sidebar__rail-popover-item ${activeView === 'voice' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      onClick={() => {
+                        onViewChange('voice');
+                        setRailToolsMenuOpen(false);
+                      }}
+                    >
+                      <Mic size={15} strokeWidth={1.8} />
+                      <span>Voice</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`session-sidebar__rail-popover-item ${activeView === 'email' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      onClick={() => {
+                        onViewChange('email');
+                        setRailToolsMenuOpen(false);
+                      }}
+                    >
+                      <Mail size={15} strokeWidth={1.8} />
+                      <span>Email</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`session-sidebar__rail-popover-item ${activeView === 'jobs' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      onClick={() => {
+                        onViewChange('jobs');
+                        setRailToolsMenuOpen(false);
+                      }}
+                    >
+                      <Clock size={15} strokeWidth={1.8} />
+                      <span>Scheduled Jobs</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`session-sidebar__rail-popover-item ${activeView === 'workspace_hub' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      onClick={() => {
+                        onViewChange('workspace_hub');
+                        setRailToolsMenuOpen(false);
+                      }}
+                    >
+                      <LayoutGrid size={15} strokeWidth={1.8} />
+                      <span>Workspace Hub</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`session-sidebar__rail-popover-item ${activeView === 'connectors' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      onClick={() => {
+                        onViewChange('connectors');
+                        setRailToolsMenuOpen(false);
+                      }}
+                    >
+                      <Layers size={15} strokeWidth={1.8} />
+                      <span>Connectors & MCP</span>
+                    </button>
                     <button
                       type="button"
                       className={`session-sidebar__rail-popover-item ${activeView === 'control_center' ? 'session-sidebar__rail-popover-item--active' : ''}`}
@@ -868,94 +972,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                     </button>
                     <button
                       type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'finance' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('finance');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Wallet size={15} strokeWidth={1.8} />
-                      <span>Finances</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'jobs' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('jobs');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Clock size={15} strokeWidth={1.8} />
-                      <span>Scheduled Jobs</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'voice' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('voice');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Mic size={15} strokeWidth={1.8} />
-                      <span>Voice</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'research' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('research');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Globe size={15} strokeWidth={1.8} />
-                      <span>Deep Research</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'browser' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('browser');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Compass size={15} strokeWidth={1.8} />
-                      <span>Browser Studio</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'study' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('study');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <BookOpen size={15} strokeWidth={1.8} />
-                      <span>Study Studio</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'coding' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('coding');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Code2 size={15} strokeWidth={1.8} />
-                      <span>Coding Studio</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'memory' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('memory');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Brain size={15} strokeWidth={1.8} />
-                      <span>Memory Studio</span>
-                    </button>
-                    <button
-                      type="button"
                       className={`session-sidebar__rail-popover-item ${activeView === 'audit' ? 'session-sidebar__rail-popover-item--active' : ''}`}
                       onClick={() => {
                         onViewChange('audit');
@@ -967,36 +983,14 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                     </button>
                     <button
                       type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'documents' ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                      className={`session-sidebar__rail-popover-item ${activeView === 'finance' ? 'session-sidebar__rail-popover-item--active' : ''}`}
                       onClick={() => {
-                        onViewChange('documents');
+                        onViewChange('finance');
                         setRailToolsMenuOpen(false);
                       }}
                     >
-                      <FileText size={15} strokeWidth={1.8} />
-                      <span>Documents</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'email' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('email');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Mail size={15} strokeWidth={1.8} />
-                      <span>Email</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'workspace_hub' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('workspace_hub');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <LayoutGrid size={15} strokeWidth={1.8} />
-                      <span>Workspace Hub</span>
+                      <Wallet size={15} strokeWidth={1.8} />
+                      <span>Finances</span>
                     </button>
                     <button
                       type="button"
@@ -1112,39 +1106,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
           </button>
         </div>
 
-        {/* 3. Refined Segmented Control: Chat / Task Switcher */}
-        <div className="session-sidebar__mode-switcher" role="tablist" aria-label="Conversation mode">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'chat'}
-            className={`session-sidebar__mode-tab ${mode === 'chat' ? 'session-sidebar__mode-tab--active' : ''}`}
-            onClick={() => {
-              onModeChange?.('chat');
-              if (mode !== 'chat') handleNewChatAction();
-            }}
-            title={t('nav.chat')}
-          >
-            <MessageSquare size={13} strokeWidth={2} />
-            <span>{t('nav.chat')}</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'task'}
-            className={`session-sidebar__mode-tab ${mode === 'task' ? 'session-sidebar__mode-tab--active' : ''}`}
-            onClick={() => {
-              onModeChange?.('task');
-              if (mode !== 'task') handleNewTaskAction();
-            }}
-            title={t('common.new_task')}
-          >
-            <Zap size={13} strokeWidth={2.2} />
-            <span>{t('common.new_task')}</span>
-          </button>
-        </div>
-
-        {/* 4. Search Control */}
+        {/* 3. Search Control */}
         <div className="session-sidebar__search-box">
           <Search size={14} strokeWidth={2} className="session-sidebar__search-icon" />
           <input
@@ -1181,7 +1143,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         </div>
       </div>
 
-      {/* 2. Primary Navigation & Collapsible Tools Accordion */}
+      {/* 2. Primary Navigation & Workspaces */}
       {onViewChange && (
         <div className="session-sidebar__primary-nav">
           <div className="session-sidebar__nav-list" aria-label="Primary Navigation">
@@ -1198,11 +1160,35 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             </button>
             <button
               type="button"
-              className={`session-sidebar__nav-link ${activeView === 'chat' && mode === 'task' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={handleNewTaskAction}
+              className={`session-sidebar__nav-link ${activeView === 'coding' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('coding')}
             >
-              <Zap size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">{t('common.new_task')}</span>
+              <Code2 size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">Code Studio (IDE)</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'browser' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('browser')}
+            >
+              <Compass size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">{t('nav.browser')}</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'research' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('research')}
+            >
+              <Globe size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">{t('nav.research')}</span>
+            </button>
+            <button
+              type="button"
+              className={`session-sidebar__nav-link ${activeView === 'device_hub' ? 'session-sidebar__nav-link--active' : ''}`}
+              onClick={() => onViewChange('device_hub')}
+            >
+              <Monitor size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+              <span className="session-sidebar__nav-text">{t('nav.device_hub')}</span>
             </button>
             <button
               type="button"
@@ -1244,19 +1230,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               <Calculator size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
               <span className="session-sidebar__nav-text">{t('nav.calculator')}</span>
             </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'coding' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('coding')}
-            >
-              <Code2 size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">Code Studio (IDE)</span>
-            </button>
           </div>
         </div>
       )}
 
-      {/* 3. Collapsible Tools Section (Coexists independently with conversations) */}
+      {/* 3. Collapsible Tools & Studios Section */}
       {onViewChange && (
         <div className="session-sidebar__tools-section">
           <button
@@ -1269,7 +1247,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             <div className="session-sidebar__tools-toggle-left">
               <Layers size={14} strokeWidth={1.8} className="session-sidebar__tools-icon" />
               <span className="session-sidebar__tools-title">{t('sidebar.all_studios')}</span>
-              <span className="session-sidebar__tools-count">17</span>
+              <span className="session-sidebar__tools-count">{SECONDARY_VIEWS.length}</span>
             </div>
             <ChevronDown
               size={14}
@@ -1283,11 +1261,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               <nav className="session-sidebar__nav-list session-sidebar__nav-list--tools" aria-label="Secondary tools">
                 <button
                   type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'voice' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('voice')}
+                  className={`session-sidebar__nav-link ${activeView === 'study' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('study')}
                 >
-                  <Mic size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.voice')}</span>
+                  <BookOpen size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">{t('nav.study')}</span>
                 </button>
                 <button
                   type="button"
@@ -1299,19 +1277,19 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                 </button>
                 <button
                   type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'finance' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('finance')}
+                  className={`session-sidebar__nav-link ${activeView === 'memory' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('memory')}
                 >
-                  <Wallet size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.finance')}</span>
+                  <Brain size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">{t('nav.memory')}</span>
                 </button>
                 <button
                   type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'jobs' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('jobs')}
+                  className={`session-sidebar__nav-link ${activeView === 'voice' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('voice')}
                 >
-                  <Clock size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.jobs')}</span>
+                  <Mic size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">{t('nav.voice')}</span>
                 </button>
                 <button
                   type="button"
@@ -1323,6 +1301,14 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                 </button>
                 <button
                   type="button"
+                  className={`session-sidebar__nav-link ${activeView === 'jobs' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('jobs')}
+                >
+                  <Clock size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">{t('nav.jobs')}</span>
+                </button>
+                <button
+                  type="button"
                   className={`session-sidebar__nav-link ${activeView === 'workspace_hub' ? 'session-sidebar__nav-link--active' : ''}`}
                   onClick={() => onViewChange('workspace_hub')}
                 >
@@ -1331,75 +1317,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                 </button>
                 <button
                   type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'research' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('research')}
-                >
-                  <Globe size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.research')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'browser' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('browser')}
-                >
-                  <Compass size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.browser')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'study' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('study')}
-                >
-                  <BookOpen size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.study')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'coding' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('coding')}
-                >
-                  <Code2 size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.coding')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'memory' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('memory')}
-                >
-                  <Brain size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.memory')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'audit' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('audit')}
-                >
-                  <ShieldCheck size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.audit')}</span>
-                </button>
-                <button
-                  type="button"
                   className={`session-sidebar__nav-link ${activeView === 'connectors' ? 'session-sidebar__nav-link--active' : ''}`}
                   onClick={() => onViewChange('connectors')}
                 >
                   <Layers size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
                   <span className="session-sidebar__nav-text">{t('nav.connectors')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'device_hub' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('device_hub')}
-                >
-                  <Monitor size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.device_hub')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'payment_methods' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('payment_methods')}
-                >
-                  <CreditCard size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.payment_methods')}</span>
                 </button>
                 <button
                   type="button"
@@ -1416,6 +1338,30 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                 >
                   <ShieldCheck size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
                   <span className="session-sidebar__nav-text">{t('nav.trust_center')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`session-sidebar__nav-link ${activeView === 'audit' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('audit')}
+                >
+                  <ShieldCheck size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">{t('nav.audit')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`session-sidebar__nav-link ${activeView === 'finance' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('finance')}
+                >
+                  <Wallet size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">{t('nav.finance')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`session-sidebar__nav-link ${activeView === 'payment_methods' ? 'session-sidebar__nav-link--active' : ''}`}
+                  onClick={() => onViewChange('payment_methods')}
+                >
+                  <CreditCard size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                  <span className="session-sidebar__nav-text">{t('nav.payment_methods')}</span>
                 </button>
               </nav>
             </div>
