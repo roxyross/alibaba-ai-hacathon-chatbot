@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 // Required 11-viewport matrix per Section 4 specifications
 const REQUIRED_VIEWPORTS = [
-  { name: 'mobile-compact-320', width: 320, height: 700, isTouch: true },
+  { name: 'mobile-compact-320', width: 320, height: 568, isTouch: true },
   { name: 'mobile-android-360', width: 360, height: 800, isTouch: true },
   { name: 'mobile-iphone-375', width: 375, height: 812, isTouch: true },
   { name: 'mobile-iphone-pro-390', width: 390, height: 844, isTouch: true },

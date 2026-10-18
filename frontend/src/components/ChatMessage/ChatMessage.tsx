@@ -506,13 +506,81 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [isPinnedState, setIsPinnedState] = useState(Boolean(isPinned));
+  const [feedbackVote, setFeedbackVote] = useState<'up' | 'down' | null>(null);
+  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
+  const [feedbackReason, setFeedbackReason] = useState<'inaccurate' | 'irrelevant' | 'incomplete' | 'unsafe'>('inaccurate');
+  const [feedbackNote, setFeedbackNote] = useState('');
+  const [feedbackSubmittedToast, setFeedbackSubmittedToast] = useState(false);
   const referencesRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const feedbackDialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIsPinnedState(Boolean(isPinned));
   }, [isPinned]);
+
+  useEffect(() => {
+    if (!showFeedbackDialog) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (feedbackDialogRef.current && !feedbackDialogRef.current.contains(e.target as Node)) {
+        setShowFeedbackDialog(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowFeedbackDialog(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showFeedbackDialog]);
+
+  const handleThumbsUp = () => {
+    if (feedbackVote === 'up') {
+      setFeedbackVote(null);
+      return;
+    }
+    setFeedbackVote('up');
+    setFeedbackSubmittedToast(true);
+    setTimeout(() => setFeedbackSubmittedToast(false), 2000);
+    try {
+      window.dispatchEvent(
+        new CustomEvent('roxy-response-feedback', {
+          detail: { messageId: id, rating: 'positive' },
+        })
+      );
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleThumbsDown = () => {
+    if (feedbackVote === 'down') {
+      setFeedbackVote(null);
+      return;
+    }
+    setShowFeedbackDialog(true);
+  };
+
+  const handleFeedbackSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setFeedbackVote('down');
+    setShowFeedbackDialog(false);
+    setFeedbackSubmittedToast(true);
+    setTimeout(() => setFeedbackSubmittedToast(false), 2500);
+    try {
+      window.dispatchEvent(
+        new CustomEvent('roxy-response-feedback', {
+          detail: { messageId: id, rating: 'negative', reason: feedbackReason, note: feedbackNote },
+        })
+      );
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     if (!userMenuOpen) return;
@@ -979,6 +1047,107 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                 </>
               )}
             </button>
+
+            {/* Positive Feedback (Thumbs Up) */}
+            <button
+              type="button"
+              className={`chat-message__tool-btn ${feedbackVote === 'up' ? 'chat-message__tool-btn--feedback-active' : ''}`}
+              onClick={handleThumbsUp}
+              title="Good response"
+              aria-label="Good response"
+              aria-pressed={feedbackVote === 'up'}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill={feedbackVote === 'up' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+              </svg>
+              <span>{feedbackVote === 'up' ? 'Helpful' : ''}</span>
+            </button>
+
+            {/* Negative Feedback (Thumbs Down) with reason picker */}
+            <div className="chat-message__feedback-wrap" ref={feedbackDialogRef}>
+              <button
+                type="button"
+                className={`chat-message__tool-btn ${feedbackVote === 'down' ? 'chat-message__tool-btn--feedback-negative' : ''}`}
+                onClick={handleThumbsDown}
+                title="Bad response"
+                aria-label="Bad response"
+                aria-pressed={feedbackVote === 'down'}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill={feedbackVote === 'down' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3" />
+                </svg>
+              </button>
+
+              {/* Feedback reason dialog popover */}
+              {showFeedbackDialog && (
+                <form
+                  className="chat-message__feedback-dialog"
+                  role="dialog"
+                  aria-label="Response Feedback"
+                  onSubmit={handleFeedbackSubmit}
+                >
+                  <div className="chat-message__feedback-header">
+                    <span className="chat-message__feedback-title">Response Feedback</span>
+                    <button
+                      type="button"
+                      className="chat-message__feedback-close"
+                      onClick={() => setShowFeedbackDialog(false)}
+                      aria-label="Close feedback dialog"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="chat-message__feedback-reasons" role="radiogroup" aria-label="Feedback reason">
+                    {(['inaccurate', 'irrelevant', 'incomplete', 'unsafe'] as const).map((r) => (
+                      <label key={r} className="chat-message__feedback-reason-chip">
+                        <input
+                          type="radio"
+                          name="feedbackReason"
+                          value={r}
+                          checked={feedbackReason === r}
+                          onChange={() => setFeedbackReason(r)}
+                        />
+                        <span>
+                          {r === 'inaccurate' ? 'Inaccurate' : r === 'irrelevant' ? 'Irrelevant' : r === 'incomplete' ? 'Incomplete' : 'Unsafe or Harmful'}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <textarea
+                    className="chat-message__feedback-textarea"
+                    placeholder="Provide optional details..."
+                    value={feedbackNote}
+                    onChange={(e) => setFeedbackNote(e.target.value)}
+                    rows={2}
+                    aria-label="Optional feedback details"
+                  />
+                  <div className="chat-message__feedback-actions">
+                    <button
+                      type="button"
+                      className="chat-message__feedback-btn chat-message__feedback-btn--cancel"
+                      onClick={() => setShowFeedbackDialog(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="chat-message__feedback-btn chat-message__feedback-btn--submit"
+                    >
+                      Submit
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {feedbackSubmittedToast && (
+              <span className="chat-message__feedback-toast" role="status">
+                Feedback submitted!
+              </span>
+            )}
 
             <button
               type="button"

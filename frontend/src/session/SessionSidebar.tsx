@@ -39,6 +39,10 @@ import {
   Film,
   Monitor,
   Sliders,
+  FolderPlus,
+  FolderCheck,
+  Check,
+  Copy,
 } from 'lucide-react';
 import { useSessions, ChatSession } from './useSessions';
 import { useTranslation, LOCALES, Locale } from '../i18n';
@@ -86,6 +90,121 @@ export const SECONDARY_VIEWS: AppView[] = [
   'audit',
   'finance',
   'payment_methods',
+];
+
+export interface NavItemConfig {
+  id: AppView;
+  titleKey: string;
+  defaultTitle: string;
+  icon: React.ElementType;
+  shortcut?: string;
+}
+
+export interface NavGroupConfig {
+  id: string;
+  titleKey: string;
+  defaultTitle: string;
+  icon: React.ElementType;
+  items: NavItemConfig[];
+}
+
+export const NAVIGATION_GROUPS: NavGroupConfig[] = [
+  {
+    id: 'core',
+    titleKey: 'nav_groups.core',
+    defaultTitle: 'Core',
+    icon: MessageSquare,
+    items: [
+      { id: 'chat', titleKey: 'nav.chat', defaultTitle: 'Chat & Assistant', icon: MessageSquare },
+      { id: 'coding', titleKey: 'nav.coding', defaultTitle: 'Code Studio (IDE)', icon: Code2, shortcut: 'Ctrl+Alt+I' },
+    ],
+  },
+  {
+    id: 'autonomous',
+    titleKey: 'nav_groups.autonomous',
+    defaultTitle: 'Autonomous Workspaces',
+    icon: Compass,
+    items: [
+      { id: 'browser', titleKey: 'nav.browser', defaultTitle: 'Browser Studio', icon: Compass },
+      { id: 'device_hub', titleKey: 'nav.device_hub', defaultTitle: 'Universal App Control', icon: Monitor },
+      { id: 'research', titleKey: 'nav.research', defaultTitle: 'Deep Research', icon: Globe },
+    ],
+  },
+  {
+    id: 'knowledge',
+    titleKey: 'nav_groups.knowledge',
+    defaultTitle: 'Knowledge',
+    icon: Database,
+    items: [
+      { id: 'knowledge_vault', titleKey: 'nav.knowledge_vault', defaultTitle: 'Knowledge Vault', icon: Database },
+      { id: 'memory', titleKey: 'nav.memory', defaultTitle: 'Memory & Curator', icon: Brain },
+      { id: 'documents', titleKey: 'nav.documents', defaultTitle: 'Documents & Vault', icon: FileText },
+      { id: 'study', titleKey: 'nav.study', defaultTitle: 'Study Studio', icon: BookOpen },
+    ],
+  },
+  {
+    id: 'productivity',
+    titleKey: 'nav_groups.productivity',
+    defaultTitle: 'Productivity',
+    icon: Calendar,
+    items: [
+      { id: 'calendar', titleKey: 'nav.calendar', defaultTitle: 'Calendar & Agendas', icon: Calendar },
+      { id: 'email', titleKey: 'nav.email', defaultTitle: 'Email Hub', icon: Mail },
+      { id: 'voice', titleKey: 'nav.voice', defaultTitle: 'Voice Session', icon: Mic },
+      { id: 'jobs', titleKey: 'nav.jobs', defaultTitle: 'Scheduled Jobs', icon: Clock },
+      { id: 'calculator', titleKey: 'nav.calculator', defaultTitle: 'Calculator', icon: Calculator },
+    ],
+  },
+  {
+    id: 'business',
+    titleKey: 'nav_groups.business',
+    defaultTitle: 'Business & Account',
+    icon: Wallet,
+    items: [
+      { id: 'finance', titleKey: 'nav.finance', defaultTitle: 'Finance & Banking', icon: Wallet },
+      { id: 'billing', titleKey: 'nav.billing', defaultTitle: 'Billing & Plans', icon: Receipt },
+      { id: 'payment_methods', titleKey: 'nav.payment_methods', defaultTitle: 'Payment Methods', icon: CreditCard },
+      { id: 'pricing', titleKey: 'nav.pricing', defaultTitle: 'Pricing & Plans', icon: Zap },
+      { id: 'usage', titleKey: 'nav.usage', defaultTitle: 'Usage & Telemetry', icon: BarChart2 },
+    ],
+  },
+  {
+    id: 'system',
+    titleKey: 'nav_groups.system',
+    defaultTitle: 'System & Trust',
+    icon: ShieldCheck,
+    items: [
+      { id: 'connectors', titleKey: 'nav.connectors', defaultTitle: 'Connectors Hub', icon: Layers },
+      { id: 'control_center', titleKey: 'nav.control_center', defaultTitle: 'Control Center', icon: Sliders },
+      { id: 'trust_center', titleKey: 'nav.trust_center', defaultTitle: 'Trust & Safety', icon: ShieldCheck },
+      { id: 'audit', titleKey: 'nav.audit', defaultTitle: 'Audit & Security', icon: ShieldCheck },
+    ],
+  },
+  {
+    id: 'media',
+    titleKey: 'nav_groups.media',
+    defaultTitle: 'Media & Workspaces',
+    icon: Sparkles,
+    items: [
+      { id: 'image_studio', titleKey: 'nav.image_studio', defaultTitle: 'Image Studio', icon: Sparkles },
+      { id: 'video_studio', titleKey: 'nav.video_studio', defaultTitle: 'Video Studio', icon: Film },
+      { id: 'workspace_hub', titleKey: 'nav.workspace_hub', defaultTitle: 'Workspace Hub', icon: LayoutGrid },
+    ],
+  },
+];
+
+export interface ProjectOption {
+  id: string;
+  name: string;
+  desc: string;
+}
+
+export const PROJECT_OPTIONS: ProjectOption[] = [
+  { id: 'default', name: 'Default Workspace', desc: 'General conversations and active tasks' },
+  { id: 'design', name: 'Product Redesign', desc: 'UI/UX overhaul and design system items' },
+  { id: 'ai-eng', name: 'AI Engineering', desc: 'Models, prompts, agents, and pipeline tasks' },
+  { id: 'research', name: 'Deep Research', desc: 'Synthesized papers, web extracts, and vaults' },
+  { id: 'personal', name: 'Personal & Notes', desc: 'Personal agendas, thoughts, and documents' },
 ];
 
 interface SessionSidebarProps {
@@ -206,33 +325,61 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
 
   const isSecondaryActive = SECONDARY_VIEWS.includes(activeView);
 
-  const [toolsOpen, setToolsOpen] = useState<boolean>(() => {
+  const [movingSession, setMovingSession] = useState<ChatSession | null>(null);
+  const [projectToast, setProjectToast] = useState<string | null>(null);
+  const [copyConvToast, setCopyConvToast] = useState<string | null>(null);
+
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
     try {
-      const stored = localStorage.getItem('roxy_sidebar_tools_open');
-      if (stored !== null) return stored === 'true';
+      const stored = localStorage.getItem('roxy_sidebar_expanded_groups');
+      if (stored) return JSON.parse(stored);
     } catch {
       // ignore
     }
-    return false;
+    return { core: true, autonomous: false, knowledge: false, productivity: false, business: false, system: false, media: false };
   });
 
-  // Auto-expand if a secondary tool is the currently active view
-  useEffect(() => {
-    if (isSecondaryActive && !toolsOpen) {
-      setToolsOpen(true);
-    }
-  }, [activeView, isSecondaryActive]);
-
-  const toggleToolsOpen = () => {
-    setToolsOpen((prev) => {
-      const next = !prev;
+  const toggleGroupExpanded = (groupId: string) => {
+    setExpandedGroups((prev) => {
+      const next = { ...prev, [groupId]: !prev[groupId] };
       try {
-        localStorage.setItem('roxy_sidebar_tools_open', String(next));
+        localStorage.setItem('roxy_sidebar_expanded_groups', JSON.stringify(next));
       } catch {
         // ignore
       }
       return next;
     });
+  };
+
+  // Auto-expand group containing the activeView
+  useEffect(() => {
+    const activeGroup = NAVIGATION_GROUPS.find((g) => g.items.some((item) => item.id === activeView));
+    if (activeGroup && !expandedGroups[activeGroup.id]) {
+      setExpandedGroups((prev) => {
+        const next = { ...prev, [activeGroup.id]: true };
+        try {
+          localStorage.setItem('roxy_sidebar_expanded_groups', JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    }
+  }, [activeView]);
+
+  const handleAssignProject = (sessionId: string, projectName: string) => {
+    try {
+      const saved = localStorage.getItem('roxy_session_projects');
+      const map: Record<string, string> = saved ? JSON.parse(saved) : {};
+      map[sessionId] = projectName;
+      localStorage.setItem('roxy_session_projects', JSON.stringify(map));
+      window.dispatchEvent(new CustomEvent('roxy-session-moved', { detail: { sessionId, projectName } }));
+    } catch (e) {
+      console.warn('Failed to save session project assignment:', e);
+    }
+    setMovingSession(null);
+    setProjectToast(`Moved to ${projectName}`);
+    setTimeout(() => setProjectToast(null), 2500);
   };
 
   const [railToolsMenuOpen, setRailToolsMenuOpen] = useState(false);
@@ -595,6 +742,41 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
 
                 <button
                   type="button"
+                  className="session-sidebar__dropdown-item"
+                  role="menuitem"
+                  aria-label="Move conversation to project"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveMenuId(null);
+                    setMovingSession(s);
+                  }}
+                >
+                  <FolderPlus size={13} strokeWidth={2} />
+                  <span>Move to Project</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="session-sidebar__dropdown-item"
+                  role="menuitem"
+                  aria-label="Copy conversation content"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActiveMenuId(null);
+                    const text = `Conversation: ${s.title || 'Untitled'}\nID: ${s.id}\nUpdated: ${s.updated_at || s.created_at || 'Recently'}`;
+                    if (navigator.clipboard) {
+                      await navigator.clipboard.writeText(text);
+                      setCopyConvToast(s.id);
+                      setTimeout(() => setCopyConvToast(null), 2000);
+                    }
+                  }}
+                >
+                  <Copy size={13} strokeWidth={2} />
+                  <span>{copyConvToast === s.id ? 'Copied content!' : 'Copy Content'}</span>
+                </button>
+
+                <button
+                  type="button"
                   className="session-sidebar__dropdown-item session-sidebar__dropdown-item--archive"
                   role="menuitem"
                   aria-label="Archive conversation"
@@ -857,152 +1039,34 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
               {railToolsMenuOpen && (
                 <div className="session-sidebar__rail-popover" role="menu">
                   <div className="session-sidebar__rail-popover-header">
-                    <span>Tools</span>
+                    <span>Workspaces</span>
                   </div>
                   <div className="session-sidebar__rail-popover-list">
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'study' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('study');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <BookOpen size={15} strokeWidth={1.8} />
-                      <span>Study Studio</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'documents' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('documents');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <FileText size={15} strokeWidth={1.8} />
-                      <span>Documents</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'memory' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('memory');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Brain size={15} strokeWidth={1.8} />
-                      <span>Memory Studio</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'voice' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('voice');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Mic size={15} strokeWidth={1.8} />
-                      <span>Voice</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'email' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('email');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Mail size={15} strokeWidth={1.8} />
-                      <span>Email</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'jobs' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('jobs');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Clock size={15} strokeWidth={1.8} />
-                      <span>Scheduled Jobs</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'workspace_hub' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('workspace_hub');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <LayoutGrid size={15} strokeWidth={1.8} />
-                      <span>Workspace Hub</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'connectors' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('connectors');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Layers size={15} strokeWidth={1.8} />
-                      <span>Connectors & MCP</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'control_center' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('control_center');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Sliders size={15} strokeWidth={1.8} />
-                      <span>Control Center</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'trust_center' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('trust_center');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <ShieldCheck size={15} strokeWidth={1.8} />
-                      <span>Trust & Safety</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'audit' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('audit');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <ShieldCheck size={15} strokeWidth={1.8} />
-                      <span>Audit & Security</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'finance' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('finance');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <Wallet size={15} strokeWidth={1.8} />
-                      <span>Finances</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`session-sidebar__rail-popover-item ${activeView === 'payment_methods' ? 'session-sidebar__rail-popover-item--active' : ''}`}
-                      onClick={() => {
-                        onViewChange('payment_methods');
-                        setRailToolsMenuOpen(false);
-                      }}
-                    >
-                      <CreditCard size={15} strokeWidth={1.8} />
-                      <span>Payment Methods</span>
-                    </button>
+                    {NAVIGATION_GROUPS.map((g) => (
+                      <div key={g.id} className="session-sidebar__rail-popover-group">
+                        <div className="session-sidebar__rail-popover-group-title">
+                          {t(g.titleKey) || g.defaultTitle}
+                        </div>
+                        {g.items.map((item) => {
+                          const IconComp = item.icon;
+                          const isActive = activeView === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className={`session-sidebar__rail-popover-item ${isActive ? 'session-sidebar__rail-popover-item--active' : ''}`}
+                              onClick={() => {
+                                onViewChange(item.id);
+                                setRailToolsMenuOpen(false);
+                              }}
+                            >
+                              <IconComp size={14} strokeWidth={1.8} />
+                              <span>{t(item.titleKey) || item.defaultTitle}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -1143,229 +1207,77 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         </div>
       </div>
 
-      {/* 2. Primary Navigation & Workspaces */}
+      {/* 2. Cohesive Global Navigation: 7 Workspaces & Studio Groups */}
       {onViewChange && (
-        <div className="session-sidebar__primary-nav">
-          <div className="session-sidebar__nav-list" aria-label="Primary Navigation">
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'chat' && mode === 'chat' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => {
-                onModeChange?.('chat');
-                onViewChange('chat');
-              }}
-            >
-              <MessageSquare size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">{t('nav.chat')}</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'coding' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('coding')}
-            >
-              <Code2 size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">Code Studio (IDE)</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'browser' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('browser')}
-            >
-              <Compass size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">{t('nav.browser')}</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'research' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('research')}
-            >
-              <Globe size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">{t('nav.research')}</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'device_hub' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('device_hub')}
-            >
-              <Monitor size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">{t('nav.device_hub')}</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'image_studio' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('image_studio')}
-            >
-              <Sparkles size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">{t('nav.image_studio')}</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'video_studio' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('video_studio')}
-            >
-              <Film size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">{t('nav.video_studio')}</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'knowledge_vault' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('knowledge_vault')}
-            >
-              <Database size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">{t('nav.knowledge_vault')}</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'calendar' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('calendar')}
-            >
-              <Calendar size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">{t('nav.calendar')}</span>
-            </button>
-            <button
-              type="button"
-              className={`session-sidebar__nav-link ${activeView === 'calculator' ? 'session-sidebar__nav-link--active' : ''}`}
-              onClick={() => onViewChange('calculator')}
-            >
-              <Calculator size={16} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-              <span className="session-sidebar__nav-text">{t('nav.calculator')}</span>
-            </button>
-          </div>
-        </div>
-      )}
+        <div className="session-sidebar__nav-accordion" role="navigation" aria-label="Workspaces & Navigation">
+          {NAVIGATION_GROUPS.map((group) => {
+            const isGroupOpen = Boolean(expandedGroups[group.id]);
+            const hasActiveItem = group.items.some((item) => item.id === activeView);
+            const GroupIcon = group.icon;
 
-      {/* 3. Collapsible Tools & Studios Section */}
-      {onViewChange && (
-        <div className="session-sidebar__tools-section">
-          <button
-            type="button"
-            className={`session-sidebar__tools-toggle ${toolsOpen ? 'session-sidebar__tools-toggle--open' : ''} ${isSecondaryActive ? 'session-sidebar__tools-toggle--active-child' : ''}`}
-            onClick={toggleToolsOpen}
-            aria-expanded={toolsOpen}
-            aria-controls="sidebar-tools-drawer"
-          >
-            <div className="session-sidebar__tools-toggle-left">
-              <Layers size={14} strokeWidth={1.8} className="session-sidebar__tools-icon" />
-              <span className="session-sidebar__tools-title">{t('sidebar.all_studios')}</span>
-              <span className="session-sidebar__tools-count">{SECONDARY_VIEWS.length}</span>
-            </div>
-            <ChevronDown
-              size={14}
-              strokeWidth={2}
-              className={`session-sidebar__tools-chevron ${toolsOpen ? 'session-sidebar__tools-chevron--open' : ''}`}
-            />
-          </button>
+            return (
+              <div
+                key={group.id}
+                className={`session-sidebar__group ${hasActiveItem ? 'session-sidebar__group--has-active' : ''}`}
+              >
+                <button
+                  type="button"
+                  className={`session-sidebar__group-header ${isGroupOpen ? 'session-sidebar__group-header--open' : ''} ${hasActiveItem ? 'session-sidebar__group-header--active' : ''}`}
+                  onClick={() => toggleGroupExpanded(group.id)}
+                  aria-expanded={isGroupOpen}
+                  aria-controls={`sidebar-group-${group.id}`}
+                  aria-label={`${t(group.titleKey) || group.defaultTitle} (${group.items.length} items)`}
+                >
+                  <div className="session-sidebar__group-header-left">
+                    <GroupIcon size={14} strokeWidth={1.8} className="session-sidebar__group-icon" />
+                    <span className="session-sidebar__group-title">
+                      {t(group.titleKey) || group.defaultTitle}
+                    </span>
+                    <span className="session-sidebar__group-count">{group.items.length}</span>
+                  </div>
+                  <ChevronDown
+                    size={13}
+                    strokeWidth={2}
+                    className={`session-sidebar__group-chevron ${isGroupOpen ? 'session-sidebar__group-chevron--open' : ''}`}
+                  />
+                </button>
 
-          {toolsOpen && (
-            <div id="sidebar-tools-drawer" className="session-sidebar__tools-drawer sidebar-tools-dropdown">
-              <nav className="session-sidebar__nav-list session-sidebar__nav-list--tools" aria-label="Secondary tools">
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'study' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('study')}
-                >
-                  <BookOpen size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.study')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'documents' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('documents')}
-                >
-                  <FileText size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.documents')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'memory' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('memory')}
-                >
-                  <Brain size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.memory')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'voice' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('voice')}
-                >
-                  <Mic size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.voice')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'email' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('email')}
-                >
-                  <Mail size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.email')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'jobs' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('jobs')}
-                >
-                  <Clock size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.jobs')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'workspace_hub' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('workspace_hub')}
-                >
-                  <LayoutGrid size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.workspace_hub')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'connectors' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('connectors')}
-                >
-                  <Layers size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.connectors')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'control_center' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('control_center')}
-                >
-                  <Sliders size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.control_center')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'trust_center' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('trust_center')}
-                >
-                  <ShieldCheck size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.trust_center')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'audit' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('audit')}
-                >
-                  <ShieldCheck size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.audit')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'finance' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('finance')}
-                >
-                  <Wallet size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.finance')}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`session-sidebar__nav-link ${activeView === 'payment_methods' ? 'session-sidebar__nav-link--active' : ''}`}
-                  onClick={() => onViewChange('payment_methods')}
-                >
-                  <CreditCard size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
-                  <span className="session-sidebar__nav-text">{t('nav.payment_methods')}</span>
-                </button>
-              </nav>
-            </div>
-          )}
+                {isGroupOpen && (
+                  <div id={`sidebar-group-${group.id}`} className="session-sidebar__group-drawer">
+                    <div className="session-sidebar__nav-list">
+                      {group.items.map((item) => {
+                        const ItemIcon = item.icon;
+                        const isActive = activeView === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={`session-sidebar__nav-link ${isActive ? 'session-sidebar__nav-link--active' : ''}`}
+                            onClick={() => {
+                              if (item.id === 'chat') {
+                                onModeChange?.('chat');
+                              }
+                              onViewChange(item.id);
+                            }}
+                            title={t(item.titleKey) || item.defaultTitle}
+                            aria-current={isActive ? 'page' : undefined}
+                          >
+                            <ItemIcon size={15} strokeWidth={1.8} className="session-sidebar__nav-icon" />
+                            <span className="session-sidebar__nav-text">
+                              {t(item.titleKey) || item.defaultTitle}
+                            </span>
+                            {item.shortcut && (
+                              <kbd className="session-sidebar__nav-shortcut">{item.shortcut}</kbd>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1603,6 +1515,75 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             <Zap size={13} strokeWidth={2.4} />
             <span>{t('common.upgrade')}</span>
           </button>
+        </div>
+      )}
+
+      {/* Move to Project Modal Dialog */}
+      {movingSession && (
+        <div
+          className="session-sidebar__modal-backdrop"
+          onClick={() => setMovingSession(null)}
+          role="presentation"
+        >
+          <div
+            className="session-sidebar__modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="move-project-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="session-sidebar__modal-header">
+              <h3 id="move-project-dialog-title" className="session-sidebar__modal-title">
+                Move to Project
+              </h3>
+              <button
+                type="button"
+                className="session-sidebar__modal-close"
+                onClick={() => setMovingSession(null)}
+                aria-label="Close dialog"
+              >
+                <X size={15} />
+              </button>
+            </div>
+            <p className="session-sidebar__modal-desc">
+              Select destination project for <strong>&ldquo;{movingSession.title || 'Untitled conversation'}&rdquo;</strong>:
+            </p>
+            <div className="session-sidebar__project-list" role="listbox">
+              {PROJECT_OPTIONS.map((proj) => (
+                <button
+                  key={proj.id}
+                  type="button"
+                  className="session-sidebar__project-option"
+                  role="option"
+                  aria-selected="false"
+                  onClick={() => handleAssignProject(movingSession.id, proj.name)}
+                >
+                  <FolderCheck size={16} className="session-sidebar__project-icon" />
+                  <div className="session-sidebar__project-info">
+                    <span className="session-sidebar__project-name">{proj.name}</span>
+                    <span className="session-sidebar__project-sub">{proj.desc}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="session-sidebar__modal-actions">
+              <button
+                type="button"
+                className="session-sidebar__modal-cancel"
+                onClick={() => setMovingSession(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating feedback toast */}
+      {projectToast && (
+        <div className="session-sidebar__floating-toast" role="status" aria-live="polite">
+          <Check size={14} className="session-sidebar__toast-check" />
+          <span>{projectToast}</span>
         </div>
       )}
     </aside>

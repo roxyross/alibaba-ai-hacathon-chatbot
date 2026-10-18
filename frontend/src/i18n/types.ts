@@ -1,4 +1,4 @@
-export type Locale = 'en' | 'ur' | 'ar';
+export type Locale = 'en' | 'ur' | 'ar' | 'zh' | 'es' | 'de';
 export type Direction = 'ltr' | 'rtl';
 
 export interface LocaleConfig {
@@ -30,6 +30,27 @@ export const LOCALES: Record<Locale, LocaleConfig> = {
     nativeName: 'العربية',
     dir: 'rtl',
     flag: '🇸🇦',
+  },
+  zh: {
+    code: 'zh',
+    name: 'Chinese (Simplified)',
+    nativeName: '简体中文',
+    dir: 'ltr',
+    flag: '🇨🇳',
+  },
+  es: {
+    code: 'es',
+    name: 'Spanish',
+    nativeName: 'Español',
+    dir: 'ltr',
+    flag: '🇪🇸',
+  },
+  de: {
+    code: 'de',
+    name: 'German',
+    nativeName: 'Deutsch',
+    dir: 'ltr',
+    flag: '🇩🇪',
   },
 };
 

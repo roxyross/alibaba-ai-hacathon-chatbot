@@ -1,19 +1,118 @@
-"""GET /models — list providers and their models for the UI picker."""
+"""GET /models and POST /models/refresh — list providers, discovery status, and dynamic models."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_optional_current_user
 from app.auth.models import User
 from app.model_provider.schemas import (
     ModelInfo,
     ModelListResponse,
+    ModelRefreshResponse,
     ProviderModels,
+    ProviderSyncStatus,
 )
 
 
 router = APIRouter(prefix="/models", tags=["models"])
+
+
+@router.post("/refresh", response_model=ModelRefreshResponse)
+async def refresh_models(
+    current_user: User | None = Depends(get_optional_current_user),
+) -> ModelRefreshResponse:
+    """Trigger dynamic model catalog discovery across all configured providers.
+
+    Returns the refreshed catalog with freshness timestamps, configured/unconfigured
+    statuses, promoted defaults, and voice/live preservation.
+    """
+    from app.ai_gateway.models.provider import get_provider_config
+    from app.ai_gateway.services.catalog_discovery import ModelCatalogDiscoveryService
+
+    service = ModelCatalogDiscoveryService.get_instance()
+    sync_results = await service.refresh_all()
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    provider_models_list: list[ProviderModels] = []
+    statuses: list[ProviderSyncStatus] = []
+    total_discovered = 0
+
+    display_names = {
+        "gemini": "Google Gemini",
+        "dashscope": "Alibaba DashScope / Qwen",
+        "grok": "xAI Grok",
+        "groq": "Groq",
+        "deepseek": "DeepSeek",
+        "openai": "OpenAI",
+        "anthropic": "Anthropic Claude",
+    }
+
+    for prov_name, result in sync_results.items():
+        prov_cfg = get_provider_config(prov_name)
+        is_enabled = prov_cfg.is_enabled if prov_cfg else True
+        has_key = prov_cfg.has_api_key if prov_cfg else False
+        configured = is_enabled and has_key
+
+        if result.success:
+            total_discovered += result.discovered_count
+
+        status_str = "synced" if (result.success and configured) else (
+            "unconfigured" if not has_key else ("disabled" if not is_enabled else "degraded")
+        )
+
+        statuses.append(
+            ProviderSyncStatus(
+                provider=prov_name,
+                configured=configured,
+                is_enabled=is_enabled,
+                status=status_str,
+                discovered_count=result.discovered_count,
+                default_model=result.promoted_default or service.get_default_model(prov_name),
+                voice_live_model=service.get_voice_live_model() if prov_name == "gemini" else None,
+                last_synced_at=now_iso,
+                provenance=result.provenance,
+                error=result.error_reason,
+            )
+        )
+
+        model_infos = [
+            ModelInfo(
+                name=m.model_id,
+                display_name=m.display_name,
+                enabled=m.is_stable and not m.is_deprecated,
+                task_types=m.task_types,
+                max_tokens=m.max_tokens,
+                cost_per_1k_input=m.cost_per_1k_input,
+                cost_per_1k_output=m.cost_per_1k_output,
+                is_stable=m.is_stable,
+                requires_api_key=m.requires_api_key,
+                provenance=m.provenance,
+            )
+            for m in result.models
+        ]
+
+        provider_models_list.append(
+            ProviderModels(
+                name=prov_name,
+                display_name=display_names.get(prov_name, prov_name.capitalize()),
+                enabled=is_enabled,
+                models=model_infos,
+                default_model=result.promoted_default or service.get_default_model(prov_name),
+                voice_live_model=service.get_voice_live_model() if prov_name == "gemini" else None,
+            )
+        )
+
+    return ModelRefreshResponse(
+        success=True,
+        last_synced_at=now_iso,
+        providers_discovered=total_discovered,
+        is_cached=False,
+        providers=provider_models_list,
+        provider_statuses=statuses,
+    )
 
 
 @router.get("", response_model=ModelListResponse)
@@ -58,8 +157,10 @@ async def list_models() -> ModelListResponse:
                         )
     except Exception:
         pass
-        if providers:
-            return ModelListResponse(providers=providers)
+
+    if providers:
+        return ModelListResponse(providers=providers)
+
 
     # Catalog of all supported providers and models for ROXY JARVIS
     fallback: list[ProviderModels] = [

@@ -28,7 +28,19 @@
     "sign_out": "Sign Out",
     "upgrade": "Upgrade",
     "language": "Language",
-    "settings": "Settings"
+    "settings": "Settings",
+    "move_to_project": "Move to Project",
+    "copy_conversation": "Copy Conversation",
+    "conversation_copied": "Conversation copied to clipboard!"
+  },
+  "nav_groups": {
+    "core": "Core",
+    "autonomous": "Autonomous Workspaces",
+    "knowledge": "Knowledge",
+    "productivity": "Productivity",
+    "business": "Business & Account",
+    "system": "System & Trust",
+    "media": "Media & Workspaces"
   },
   "nav": {
     "chat": "Chat & Assistant",
@@ -53,7 +65,7 @@
     "billing": "Billing & Plans",
     "payment_methods": "Payment Methods",
     "connectors": "Connectors Hub",
-    "device_hub": "Device Hub",
+    "device_hub": "Universal App Control",
     "control_center": "Control Center",
     "trust_center": "Trust & Safety",
     "pricing": "Pricing & Plans",
@@ -84,7 +96,17 @@
     "pinned": "Pinned",
     "thinking": "Reasoning & Thoughts",
     "reasoning": "Reasoning Process",
-    "references": "Sources & References"
+    "references": "Sources & References",
+    "thumbs_up": "Good response",
+    "thumbs_down": "Bad response",
+    "feedback_title": "Response Feedback",
+    "feedback_reason_inaccurate": "Inaccurate",
+    "feedback_reason_irrelevant": "Irrelevant",
+    "feedback_reason_incomplete": "Incomplete",
+    "feedback_reason_unsafe": "Unsafe or Harmful",
+    "feedback_details_placeholder": "Provide optional details...",
+    "feedback_submit": "Submit Feedback",
+    "feedback_submitted": "Thank you for your feedback!"
   },
   "settings": {
     "title": "Settings & Preferences",

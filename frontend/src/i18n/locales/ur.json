@@ -28,7 +28,19 @@
     "sign_out": "سائن آؤٹ",
     "upgrade": "اپ گریڈ",
     "language": "زبان",
-    "settings": "ترتیبات"
+    "settings": "ترتیبات",
+    "move_to_project": "پروجیکٹ میں منتقل کریں",
+    "copy_conversation": "گفتگو کاپی کریں",
+    "conversation_copied": "گفتگو کلپ بورڈ پر کاپی ہو گئی!"
+  },
+  "nav_groups": {
+    "core": "بنیادی",
+    "autonomous": "خود مختار ورک اسپیسز",
+    "knowledge": "علمی ذخائر",
+    "productivity": "پروڈکٹیوٹی",
+    "business": "کاروبار اور کھاتہ",
+    "system": "سسٹم اور سیکیورٹی",
+    "media": "میڈیا اور ورک اسپیسز"
   },
   "nav": {
     "chat": "چیٹ اور معاون",
@@ -53,50 +65,60 @@
     "billing": "بلنگ اور منصوبے",
     "payment_methods": "ادائیگی کے طریقے",
     "connectors": "کنیکٹرز مرکز",
-    "device_hub": "ڈیوائس مرکز",
+    "device_hub": "یونیورسل ایپ کنٹرول",
     "control_center": "کنٹرول سینٹر",
     "trust_center": "اعتماد اور سیکیورٹی",
     "pricing": "قیمتیں اور منصوبے",
     "settings": "ترتیبات"
   },
   "sidebar": {
-    "recent_chats": "حالیہ گفتگو",
+    "recent_chats": "حالیہ چیٹس",
     "no_conversations": "ابھی تک کوئی گفتگو نہیں",
     "no_conversations_sub": "شروع کرنے کے لیے ایک نئی گفتگو شروع کریں یا کام چلائیں۔",
     "no_results": "کوئی گفتگو نہیں ملی",
-    "no_results_sub": "آپ کی تلاش سے مماثل کوئی نتیجہ نہیں ملا۔",
-    "sign_in_to_save": "گفتگو محفوظ کرنے کے لیے سائن ان کریں",
-    "sign_in_sub": "آپ کی گفتگو اور کام آپ کے آلات میں ہم آہنگ ہوں گے۔",
+    "no_results_sub": "آپ کی تلاش سے کوئی نتیجہ مطابقت نہیں رکھتا۔",
+    "sign_in_to_save": "چیٹس محفوظ کرنے کے لیے سائن ان کریں",
+    "sign_in_sub": "آپ کی گفتگو اور کام آپ کے آلات پر مطابقت پذیر ہو جائیں گے۔",
     "clear_search": "تلاش صاف کریں",
     "search_placeholder": "گفتگو تلاش کریں...",
     "pin_conversations": "پن کردہ",
-    "archive": "آرکائیو",
-    "all_studios": "پیداواری اسٹوڈیوز"
+    "archive": "آرکائیو کردہ",
+    "all_studios": "پروڈکٹیوٹی اسٹوڈیوز"
   },
   "chat": {
-    "input_placeholder": "روکسی سے کچھ بھی پوچھیں، یا کمانڈ لکھیں...",
+    "input_placeholder": "روکسی سے کچھ بھی پوچھیں، یا کمانڈ ٹائپ کریں...",
     "send": "پیغام بھیجیں",
-    "stop": "روکیں",
-    "regenerate": "دوبارہ پیدا کریں",
+    "stop": "پیداوار روکیں",
+    "regenerate": "دوبارہ جواب تیار کریں",
     "read_aloud": "بلند آواز میں پڑھیں",
     "edit_prompt": "پرامپٹ میں ترمیم کریں",
     "copy_code": "کوڈ کاپی کریں",
     "pinned": "پن کردہ",
     "thinking": "سوچ اور استدلال",
     "reasoning": "استدلال کا عمل",
-    "references": "ذرائع اور حوالہ جات"
+    "references": "ذرائع اور حوالہ جات",
+    "thumbs_up": "اچھا جواب",
+    "thumbs_down": "برا جواب",
+    "feedback_title": "جواب پر فیڈ بیک",
+    "feedback_reason_inaccurate": "غیر درست",
+    "feedback_reason_irrelevant": "غیر متعلقہ",
+    "feedback_reason_incomplete": "نامکمل",
+    "feedback_reason_unsafe": "غیر محفوظ یا نقصان دہ",
+    "feedback_details_placeholder": "اختیاری تفصیلات درج کریں...",
+    "feedback_submit": "فیڈ بیک بھیجیں",
+    "feedback_submitted": "آپ کے فیڈ بیک کا شکریہ!"
   },
   "settings": {
     "title": "ترتیبات اور ترجیحات",
     "profile": "پروفائل",
     "appearance": "ظاہری شکل",
     "language": "زبان اور علاقہ",
-    "model": "AI ماڈل ترتیب",
-    "voice": "آواز اور گفتگو",
+    "model": "ماڈل کنفیگریشن",
+    "voice": "آواز اور تقریر",
     "notifications": "اطلاعات",
     "security": "سیکیورٹی اور رازداری",
-    "theme_light": "روشنی کا موڈ",
-    "theme_dark": "تاریک موڈ",
-    "theme_system": "سسٹم ڈیفالٹ"
+    "theme_light": "لائٹ موڈ",
+    "theme_dark": "ڈارک موڈ",
+    "theme_system": "سسٹم کا طے شدہ"
   }
 }

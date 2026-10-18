@@ -3,11 +3,17 @@ import { Locale, I18nContextValue, LOCALES } from './types';
 import enTranslations from './locales/en.json';
 import urTranslations from './locales/ur.json';
 import arTranslations from './locales/ar.json';
+import zhTranslations from './locales/zh.json';
+import esTranslations from './locales/es.json';
+import deTranslations from './locales/de.json';
 
 const TRANSLATIONS: Record<Locale, Record<string, any>> = {
   en: enTranslations,
   ur: urTranslations,
   ar: arTranslations,
+  zh: zhTranslations,
+  es: esTranslations,
+  de: deTranslations,
 };
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -23,6 +29,9 @@ function getInitialLocale(): Locale {
     const navLang = (navigator.language || '').toLowerCase();
     if (navLang.startsWith('ur')) return 'ur';
     if (navLang.startsWith('ar')) return 'ar';
+    if (navLang.startsWith('zh')) return 'zh';
+    if (navLang.startsWith('es')) return 'es';
+    if (navLang.startsWith('de')) return 'de';
   } catch {
     // Ignore storage errors in restricted contexts
   }

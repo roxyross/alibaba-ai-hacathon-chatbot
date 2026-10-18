@@ -125,15 +125,30 @@ All 11 target viewports were audited and verified using automated Playwright tes
 
 ## 5. Theme Cohesion & Accessibility (a11y) Review
 
-### Color Contrast & Tokens
+### Color Contrast & Tokens (Mathematically Audited)
 - **Light Mode**:
   - Background: `--bg-primary: #ffffff`, `--bg-secondary: #f8fafc`.
   - Text: Primary `#0f172a` (contrast ratio 15.8:1 against white), secondary `#475569` (contrast ratio 5.6:1 against white).
-  - Primary Accent: `#0d9488` (contrast ratio 4.7:1 against white, compliant with WCAG AA for normal text and AAA for large text).
+  - Primary Accent Button Fill: `#0d9488` (contrast ratio 3.73:1 against white background; acceptable for large interactive button container fills, but fails 4.5:1 for normal body text).
+  - **Remediated Accent Text Token**: `--color-accent-text: #0f766e` (Teal 700; contrast ratio **5.53:1 against white**, fully compliant with WCAG AA normal text threshold of 4.5:1).
 - **Dark Mode**:
   - Background: `--bg-primary: #0a0d14`, `--bg-secondary: #111827`.
   - Text: Primary `#f8fafc` (contrast ratio 16.2:1 against `#0a0d14`), muted `#94a3b8` (contrast ratio 6.8:1).
-  - Primary Accent: `#14b8a6` (contrast ratio 8.1:1 against dark background).
+  - Primary Accent: `#14b8a6` (contrast ratio 8.1:1 against dark background, passing WCAG AAA).
+  - Accent Text Token: `--color-accent-text: #2dd4bf` (contrast ratio > 8.5:1 against dark background, passing WCAG AAA).
+
+### Post-Audit Visual & Interaction Overhauls
+1. **7-Group Collapsible Navigation**:
+   - Organized all 26 views into Core, Autonomous Workspaces, Knowledge, Productivity, Business & Account, System & Trust, and Media & Workspaces.
+   - Accordions remember state and automatically expand when an active sub-view is selected.
+   - Rail mode presents categorical tool groups with category labels and tool counts.
+2. **Move to Project Dialog**:
+   - Clean modal backdrop with list of projects, description subtitle, and cancel/confirm actions.
+3. **Response Feedback & Reason Picker**:
+   - Thumbs Up toggle with active emerald state.
+   - Thumbs Down popover with radio group (`Inaccurate`, `Irrelevant`, `Incomplete`, `Unsafe or Harmful`) and details note textarea.
+4. **Copy Toast Notification**:
+   - Floating animated pill notification with checkmark verifying clipboard copy.
 
 ### Keyboard & Screen Reader Accessibility
 1. **Focus Rings**: All interactive buttons, inputs, and dropdown triggers utilize `focus-visible: outline 2px solid var(--roxy-primary-teal)`.
@@ -141,7 +156,8 @@ All 11 target viewports were audited and verified using automated Playwright tes
    - Navigation lists labeled with `aria-label="Primary Navigation"` and `aria-label="Conversations and workspace navigation"`.
    - Modals use `role="dialog"`, `aria-modal="true"`, and clear close buttons with `aria-label="Close"`.
    - Menus use `role="menu"` with `role="menuitem"` children and keyboard `Escape` dismiss listeners.
-3. **Esc Dismiss**: Settings Modal, New Task Modal, Command Omnibar, and Conversation Dropdowns all dismiss immediately upon pressing `Escape`.
+   - Radio buttons for feedback reason grouped under `role="radiogroup"`.
+3. **Esc Dismiss**: Settings Modal, New Task Modal, Move to Project Modal, Response Feedback Popover, Command Omnibar, and Conversation Dropdowns all dismiss immediately upon pressing `Escape`.
 
 ---
 
