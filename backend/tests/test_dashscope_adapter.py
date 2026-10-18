@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.ai_gateway.adapters.base import ProviderUnavailableError
 from app.ai_gateway.adapters.dashscope import DashScopeAdapter
@@ -12,13 +12,13 @@ from app.ai_gateway.models.schemas import AIRequest, Message, MessageRole
 from app.ai_gateway.services.router import _get_adapter
 
 
-@pytest.fixture
-def mock_dashscope_env(monkeypatch):
+@pytest.fixture(autouse=True)
+def mock_dashscope_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-mock-dashscope-key-12345")
     monkeypatch.setenv("PROVIDER_DASHSCOPE_ENABLED", "true")
 
 
-def test_router_get_adapter_dashscope():
+def test_router_get_adapter_dashscope() -> None:
     """Verify router lazily instantiates DashScopeAdapter for aliases."""
     adapter1 = _get_adapter("dashscope")
     assert isinstance(adapter1, DashScopeAdapter)
@@ -31,7 +31,7 @@ def test_router_get_adapter_dashscope():
     assert isinstance(adapter3, DashScopeAdapter)
 
 
-def test_dashscope_payload_building(mock_dashscope_env):
+def test_dashscope_payload_building() -> None:
     """Test standard OpenAI-compatible payload format for DashScope."""
     adapter = DashScopeAdapter()
     req = AIRequest(
@@ -53,7 +53,7 @@ def test_dashscope_payload_building(mock_dashscope_env):
     assert payload["stream"] is False
 
 
-def test_dashscope_parse_response(mock_dashscope_env):
+def test_dashscope_parse_response() -> None:
     """Test parsing of DashScope completion JSON."""
     adapter = DashScopeAdapter()
     req = AIRequest(
@@ -83,7 +83,7 @@ def test_dashscope_parse_response(mock_dashscope_env):
 
 
 @pytest.mark.asyncio
-async def test_dashscope_completion_success(mock_dashscope_env):
+async def test_dashscope_completion_success() -> None:
     """Mock HTTP call and verify complete flow."""
     adapter = DashScopeAdapter()
     req = AIRequest(
@@ -109,7 +109,7 @@ async def test_dashscope_completion_success(mock_dashscope_env):
 
 
 @pytest.mark.asyncio
-async def test_dashscope_error_handling(mock_dashscope_env):
+async def test_dashscope_error_handling() -> None:
     """Verify ProviderUnavailableError raised on HTTP error status."""
     adapter = DashScopeAdapter()
     req = AIRequest(messages=[Message(role=MessageRole.USER, content="Hi")])
