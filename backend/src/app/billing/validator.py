@@ -70,6 +70,18 @@ class BillingConfigValidator:
         safepay_key = source.get("SAFEPAY_API_KEY", "").strip()
         safepay_env = source.get("SAFEPAY_ENVIRONMENT", "").lower().strip()
         safepay_webhook_secret = source.get("SAFEPAY_WEBHOOK_SECRET", "").strip()
+
+        nayapay_enabled = source.get("NAYAPAY_ENABLED", "").lower().strip() in ("1", "true", "yes")
+        nayapay_env = source.get("NAYAPAY_ENVIRONMENT", "").lower().strip()
+        nayapay_client_id = source.get("NAYAPAY_CLIENT_ID", "").strip()
+        nayapay_secret_key = source.get("NAYAPAY_SECRET_KEY", "").strip()
+        nayapay_webhook_secret = source.get("NAYAPAY_WEBHOOK_SECRET", "").strip()
+
+        sadapay_enabled = source.get("SADAPAY_ENABLED", "").lower().strip() in ("1", "true", "yes")
+        sadapay_env = source.get("SADAPAY_ENVIRONMENT", "").lower().strip()
+        sadapay_api_key = source.get("SADAPAY_API_KEY", "").strip()
+        sadapay_webhook_secret = source.get("SADAPAY_WEBHOOK_SECRET", "").strip()
+
         db_url = source.get("DATABASE_URL", "").strip()
         sim_checkout = source.get("BILLING_SIMULATE_CHECKOUT", "").lower().strip() in ("1", "true", "yes")
 
@@ -78,6 +90,10 @@ class BillingConfigValidator:
             active_providers.append("stripe")
         if safepay_key:
             active_providers.append("safepay")
+        if nayapay_enabled and nayapay_secret_key:
+            active_providers.append("nayapay")
+        if sadapay_enabled and sadapay_api_key:
+            active_providers.append("sadapay")
 
         # 1. Production + Test credentials validation
         if is_prod:
@@ -92,6 +108,44 @@ class BillingConfigValidator:
                     "CRITICAL_CONFIGURATION_ERROR: Safepay sandbox API key detected in production environment. "
                     "Production must use live merchant credentials."
                 )
+
+            if nayapay_enabled:
+                if nayapay_env == "sandbox":
+                    errors.append(
+                        "CRITICAL_CONFIGURATION_ERROR: NAYAPAY_ENVIRONMENT is set to 'sandbox' in production. "
+                        "Must be set to 'production' or unset for live payments."
+                    )
+                if (
+                    nayapay_client_id.startswith("np_client_test")
+                    or nayapay_secret_key.startswith("np_secret_test")
+                    or "test" in nayapay_secret_key.lower()
+                ):
+                    errors.append(
+                        "CRITICAL_CONFIGURATION_ERROR: NayaPay sandbox credentials detected in production environment. "
+                        "Production must use live merchant credentials."
+                    )
+                if not nayapay_webhook_secret:
+                    errors.append(
+                        "CRITICAL_CONFIGURATION_ERROR: NayaPay is enabled in production, but NAYAPAY_WEBHOOK_SECRET "
+                        "is missing. Webhook HMAC signatures cannot be verified."
+                    )
+
+            if sadapay_enabled:
+                if sadapay_env == "sandbox":
+                    errors.append(
+                        "CRITICAL_CONFIGURATION_ERROR: SADAPAY_ENVIRONMENT is set to 'sandbox' in production. "
+                        "Must be set to 'production' or unset for live payments."
+                    )
+                if sadapay_api_key.startswith("sp_api_test") or "test" in sadapay_api_key.lower():
+                    errors.append(
+                        "CRITICAL_CONFIGURATION_ERROR: SadaPay sandbox API key detected in production environment. "
+                        "Production must use live merchant credentials."
+                    )
+                if not sadapay_webhook_secret:
+                    errors.append(
+                        "CRITICAL_CONFIGURATION_ERROR: SadaPay is enabled in production, but SADAPAY_WEBHOOK_SECRET "
+                        "is missing. Webhook HMAC signatures cannot be verified."
+                    )
 
             # 2. Production + Safepay sandbox mode
             if safepay_env == "sandbox":
@@ -130,7 +184,7 @@ class BillingConfigValidator:
             # Development / Testing warnings
             if not db_url:
                 warnings.append("DATABASE_URL is not set; billing operations will use in-memory simulation.")
-            if not stripe_key and not safepay_key:
+            if not stripe_key and not safepay_key and not (nayapay_enabled and nayapay_secret_key) and not (sadapay_enabled and sadapay_api_key):
                 warnings.append("No payment gateway credentials configured; simulated checkouts permitted.")
 
         is_valid = len(errors) == 0

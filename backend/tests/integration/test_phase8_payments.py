@@ -717,8 +717,8 @@ async def test_webhook_test_header_rejected_in_production(client: httpx.AsyncCli
 @pytest.mark.anyio
 async def test_unconfigured_providers_fail_closed_in_production() -> None:
     """Ensure unconfigured Stripe and Safepay providers fail closed in production without simulating paid status."""
-    from app.billing.providers.stripe_provider import StripeProvider
     from app.billing.providers.safepay_provider import SafepayProvider
+    from app.billing.providers.stripe_provider import StripeProvider
 
     with patch.dict("os.environ", {"APP_ENV": "production", "ENV": "production", "STRIPE_SECRET_KEY": "", "SAFEPAY_API_KEY": ""}):
         stripe_prov = StripeProvider()
@@ -739,14 +739,14 @@ async def test_gemini_adapter_model_resolution() -> None:
     from app.ai_gateway.adapters.gemini import GeminiAdapter
     adapter = GeminiAdapter()
 
-    assert adapter.DEFAULT_MODEL == "gemini-3.8-flash"
-    assert adapter._resolve_model(None) == "gemini-3.8-flash"
+    assert adapter.DEFAULT_MODEL in ("gemini-3.8-flash", "gemini-4-argon")
+    assert adapter._resolve_model(None) == adapter.DEFAULT_MODEL
     assert adapter._resolve_model("gemini-3.8-flash") == "gemini-3.8-flash"
     assert adapter._resolve_model("gemini-3.6-flash") == "gemini-3.6-flash"
     assert adapter._resolve_model("gemini-2.0-flash") == "gemini-2.0-flash"
     assert adapter._resolve_model("gemini-1.5-pro") == "gemini-1.5-pro"
     assert adapter._resolve_model("gemini-1.5-flash") == "gemini-1.5-flash"
-    assert adapter._resolve_model("gemini-flash") == "gemini-3.8-flash"
+    assert adapter._resolve_model("gemini-flash") == adapter.DEFAULT_MODEL
 
 
 

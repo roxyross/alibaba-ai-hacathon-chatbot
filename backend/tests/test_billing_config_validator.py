@@ -154,3 +154,64 @@ def test_valid_production_configuration_passes() -> None:
     assert len(report.errors) == 0
     assert "stripe" in report.active_providers
     assert "safepay" in report.active_providers
+
+
+def test_production_rejects_nayapay_sandbox_credentials() -> None:
+    """Production mode must reject NayaPay test credentials and sandbox environment."""
+    env = {
+        "ENVIRONMENT": "production",
+        "DATABASE_URL": "postgresql+asyncpg://user:pwd@db.prod.internal:5432/roxy_prod",
+        "NAYAPAY_ENABLED": "true",
+        "NAYAPAY_ENVIRONMENT": "sandbox",
+        "NAYAPAY_SECRET_KEY": "np_secret_test_key_123",
+        "NAYAPAY_WEBHOOK_SECRET": "sec_123",
+    }
+    with pytest.raises(BillingConfigurationError) as exc_info:
+        BillingConfigValidator.validate(env)
+    err = str(exc_info.value)
+    assert "NAYAPAY_ENVIRONMENT is set to 'sandbox'" in err
+    assert "np_secret_test" not in err  # No secrets leaked
+
+
+def test_production_rejects_sadapay_sandbox_credentials() -> None:
+    """Production mode must reject SadaPay test credentials and sandbox environment."""
+    env = {
+        "ENVIRONMENT": "production",
+        "DATABASE_URL": "postgresql+asyncpg://user:pwd@db.prod.internal:5432/roxy_prod",
+        "SADAPAY_ENABLED": "true",
+        "SADAPAY_ENVIRONMENT": "sandbox",
+        "SADAPAY_API_KEY": "sp_api_test_key_456",
+        "SADAPAY_WEBHOOK_SECRET": "sec_456",
+    }
+    with pytest.raises(BillingConfigurationError) as exc_info:
+        BillingConfigValidator.validate(env)
+    err = str(exc_info.value)
+    assert "SADAPAY_ENVIRONMENT is set to 'sandbox'" in err
+    assert "sp_api_test" not in err  # No secrets leaked
+
+
+def test_production_requires_webhook_secret_for_enabled_nayapay_sadapay() -> None:
+    """Enabled NayaPay and SadaPay in production require webhook secrets."""
+    env_np = {
+        "ENVIRONMENT": "production",
+        "DATABASE_URL": "postgresql+asyncpg://user:pwd@db.prod.internal:5432/roxy_prod",
+        "NAYAPAY_ENABLED": "true",
+        "NAYAPAY_ENVIRONMENT": "production",
+        "NAYAPAY_SECRET_KEY": "live_np_sec_key_xyz",
+        "NAYAPAY_WEBHOOK_SECRET": "",
+    }
+    with pytest.raises(BillingConfigurationError) as exc_np:
+        BillingConfigValidator.validate(env_np)
+    assert "NAYAPAY_WEBHOOK_SECRET is missing" in str(exc_np.value)
+
+    env_sp = {
+        "ENVIRONMENT": "production",
+        "DATABASE_URL": "postgresql+asyncpg://user:pwd@db.prod.internal:5432/roxy_prod",
+        "SADAPAY_ENABLED": "true",
+        "SADAPAY_ENVIRONMENT": "production",
+        "SADAPAY_API_KEY": "live_sp_api_key_xyz",
+        "SADAPAY_WEBHOOK_SECRET": "",
+    }
+    with pytest.raises(BillingConfigurationError) as exc_sp:
+        BillingConfigValidator.validate(env_sp)
+    assert "SADAPAY_WEBHOOK_SECRET is missing" in str(exc_sp.value)

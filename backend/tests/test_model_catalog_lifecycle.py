@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import os
 import tempfile
-from datetime import datetime, timezone
+from collections.abc import Generator
+from datetime import UTC, datetime
+
 import httpx
 import pytest
 import respx
@@ -30,7 +32,7 @@ from app.ai_gateway.services.catalog_discovery import (
 
 
 @pytest.fixture
-def temp_cache_file() -> str:
+def temp_cache_file() -> Generator[str, None, None]:
     fd, path = tempfile.mkstemp(suffix="_catalog_cache.json")
     os.close(fd)
     yield path
@@ -134,7 +136,7 @@ async def test_official_retirement_handling(
 ) -> None:
     """Only mark a model retired when reliable official evidence supports that conclusion."""
     # Pre-populate a model
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     model = DiscoveredModel(
         provider="gemini",
         model_id="gemini-1.5-flash-legacy",

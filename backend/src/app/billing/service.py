@@ -187,12 +187,14 @@ class PaymentService:
                 },
                 "nayapay": {
                     "configured": self.nayapay.is_configured(),
+                    "enabled": self.nayapay.is_enabled(),
                     "environment": self.nayapay.environment,
                     "live_mode": self.nayapay.is_live_mode(),
                     "supported_currencies": ["PKR"],
                 },
                 "sadapay": {
                     "configured": self.sadapay.is_configured(),
+                    "enabled": self.sadapay.is_enabled(),
                     "environment": self.sadapay.environment,
                     "live_mode": self.sadapay.is_live_mode(),
                     "supported_currencies": ["PKR"],
@@ -219,6 +221,11 @@ class PaymentService:
 
         curr = currency.upper()
         provider = self.get_provider(requested_provider=provider_name, currency=curr)
+
+        if provider.name == "nayapay" and not self.nayapay.is_enabled():
+            raise ValueError("NayaPay provider is currently disabled. Configure NAYAPAY_ENABLED=true and credentials.")
+        if provider.name == "sadapay" and not self.sadapay.is_enabled():
+            raise ValueError("SadaPay provider is currently disabled. Configure SADAPAY_ENABLED=true and credentials.")
 
         # Calculate amount for currency
         amount = float(matched["price_pkr"]) if curr == "PKR" else float(matched["price_usd"])
@@ -259,6 +266,11 @@ class PaymentService:
         curr = currency.upper()
         provider = self.get_provider(requested_provider=provider_name, currency=curr)
 
+        if provider.name == "nayapay" and not self.nayapay.is_enabled():
+            raise ValueError("NayaPay provider is currently disabled. Configure NAYAPAY_ENABLED=true and credentials.")
+        if provider.name == "sadapay" and not self.sadapay.is_enabled():
+            raise ValueError("SadaPay provider is currently disabled. Configure SADAPAY_ENABLED=true and credentials.")
+
         amount = float(matched["pkr"]) if curr == "PKR" else float(matched["usd"])
 
         metadata = {
@@ -287,6 +299,7 @@ class PaymentService:
     ) -> PaymentVerificationResult:
         """Verify payment status with the corresponding provider."""
         pname = (provider_name or "").lower()
+        provider: PaymentProvider
         if pname == "safepay":
             provider = self.safepay
         elif pname == "nayapay":
@@ -385,9 +398,31 @@ class PaymentService:
                     # A. Subscription checkout
                     if plan_id and not pack_id:
                         matched_plan = next((p for p in PLANS if p["id"] == plan_id), None)
-                        name = matched_plan["name"] if matched_plan else plan_id.title()
-                        p_usd = matched_plan["price_usd"] if matched_plan else 0.0
-                        p_pkr = matched_plan["price_pkr"] if matched_plan else 0.0
+                        if not matched_plan:
+                            logger.error("Webhook referred to unknown plan: %s", plan_id)
+                            return {"status": "error", "message": f"Unknown plan: {plan_id}"}
+
+                        # Validate amount and currency match expected plan pricing
+                        expected_curr = "PKR" if prov_name in ("safepay", "nayapay", "sadapay") or (event.currency or "").upper() == "PKR" else "USD"
+                        expected_amount = float(matched_plan["price_pkr"]) if expected_curr == "PKR" else float(matched_plan["price_usd"])
+
+                        if event.amount is not None and abs(float(event.amount) - expected_amount) > 0.01:
+                            logger.error(
+                                "Webhook amount mismatch for user %s plan %s: received %s, expected %s",
+                                user_id, plan_id, event.amount, expected_amount,
+                            )
+                            return {"status": "error", "message": "Payment amount mismatch"}
+
+                        if event.currency and event.currency.upper() != expected_curr:
+                            logger.error(
+                                "Webhook currency mismatch for user %s plan %s: received %s, expected %s",
+                                user_id, plan_id, event.currency, expected_curr,
+                            )
+                            return {"status": "error", "message": "Payment currency mismatch"}
+
+                        name = matched_plan["name"]
+                        p_usd = float(matched_plan["price_usd"])
+                        p_pkr = float(matched_plan["price_pkr"])
 
                         await self.repo.update_or_create_subscription(
                             user_id=user_id,
@@ -415,9 +450,31 @@ class PaymentService:
 
                     # B. Credit Top-Up checkout
                     elif pack_id:
-                        credits = float(event.metadata.get("credits", 500000))
-                        cost_usd = event.amount if (event.currency or "").upper() == "USD" else 0.0
-                        cost_pkr = event.amount if (event.currency or "").upper() == "PKR" else 0.0
+                        matched_pack = next((p for p in TOP_UP_PACKS if p["id"] == pack_id), None)
+                        if not matched_pack:
+                            logger.error("Webhook referred to unknown pack: %s", pack_id)
+                            return {"status": "error", "message": f"Unknown pack: {pack_id}"}
+
+                        expected_curr = "PKR" if prov_name in ("safepay", "nayapay", "sadapay") or (event.currency or "").upper() == "PKR" else "USD"
+                        expected_amount = float(matched_pack["pkr"]) if expected_curr == "PKR" else float(matched_pack["usd"])
+
+                        if event.amount is not None and abs(float(event.amount) - expected_amount) > 0.01:
+                            logger.error(
+                                "Webhook amount mismatch for user %s pack %s: received %s, expected %s",
+                                user_id, pack_id, event.amount, expected_amount,
+                            )
+                            return {"status": "error", "message": "Top-up amount mismatch"}
+
+                        if event.currency and event.currency.upper() != expected_curr:
+                            logger.error(
+                                "Webhook currency mismatch for user %s pack %s: received %s, expected %s",
+                                user_id, pack_id, event.currency, expected_curr,
+                            )
+                            return {"status": "error", "message": "Top-up currency mismatch"}
+
+                        credits = float(matched_pack["credits"])
+                        cost_usd = expected_amount if expected_curr == "USD" else 0.0
+                        cost_pkr = expected_amount if expected_curr == "PKR" else 0.0
 
                         await self.repo.credit_wallet(
                             user_id=user_id,

@@ -1,14 +1,18 @@
 """SadaPay / SadaBiz Payment Provider implementation for Pakistani Rupee (PKR) transactions.
 
 Implements PaymentProvider interface for SadaPay SadaBiz Checkout & Invoicing API.
-Supports sandbox and production environments with HMAC-SHA256 signature verification.
+Supports official sandbox and production environments with HMAC-SHA256 signature verification.
+Enforces strict fail-closed security: missing credentials, network errors, or unverified
+callbacks never simulate or grant payment success.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import json
+import logging
 import os
 import uuid
 from typing import Any
@@ -20,8 +24,9 @@ from app.billing.providers.base import (
     NormalizedWebhookEvent,
     PaymentProvider,
     PaymentVerificationResult,
-    is_production_environment,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SadaPayProvider(PaymentProvider):
@@ -35,11 +40,29 @@ class SadaPayProvider(PaymentProvider):
         merchant_id: str | None = None,
         webhook_secret: str | None = None,
         environment: str | None = None,
+        api_base_url: str | None = None,
+        checkout_base_url: str | None = None,
+        timeout_seconds: float | None = None,
+        enabled: bool | None = None,
     ) -> None:
         self._explicit_api_key = api_key
         self._explicit_merchant_id = merchant_id
         self._explicit_webhook_secret = webhook_secret
         self._explicit_environment = environment
+        self._explicit_api_base_url = api_base_url
+        self._explicit_checkout_base_url = checkout_base_url
+        self._explicit_timeout_seconds = timeout_seconds
+        self._explicit_enabled = enabled
+
+    @property
+    def enabled(self) -> bool:
+        if self._explicit_enabled is not None:
+            return self._explicit_enabled
+        return os.getenv("SADAPAY_ENABLED", "false").lower() in ("true", "1", "yes")
+
+    def is_enabled(self) -> bool:
+        """Check if SadaPay provider is enabled in configuration."""
+        return self.enabled
 
     @property
     def api_key(self) -> str:
@@ -67,19 +90,43 @@ class SadaPayProvider(PaymentProvider):
 
     @property
     def api_base_url(self) -> str:
+        if self._explicit_api_base_url is not None:
+            return self._explicit_api_base_url.rstrip("/")
+        env_url = os.getenv("SADAPAY_API_BASE_URL", "").strip()
+        if env_url:
+            return env_url.rstrip("/")
         if self.environment == "production":
             return "https://api.sadapay.pk/api/v1"
         return "https://sandbox.sadapay.pk/api/v1"
 
     @property
     def checkout_base_url(self) -> str:
+        if self._explicit_checkout_base_url is not None:
+            return self._explicit_checkout_base_url.rstrip("/")
+        env_url = os.getenv("SADAPAY_CHECKOUT_BASE_URL", "").strip()
+        if env_url:
+            return env_url.rstrip("/")
         if self.environment == "production":
             return "https://pay.sadapay.pk"
         return "https://sandbox-pay.sadapay.pk"
 
+    @property
+    def timeout_seconds(self) -> float:
+        if self._explicit_timeout_seconds is not None:
+            return self._explicit_timeout_seconds
+        try:
+            return float(os.getenv("SADAPAY_TIMEOUT_SECONDS", "15"))
+        except ValueError:
+            return 15.0
+
     def is_configured(self) -> bool:
-        """Check if required SadaPay merchant API credentials are provided."""
-        return bool(self.api_key and self.api_key.strip())
+        """Check if required SadaPay merchant credentials are provided."""
+        return bool(
+            self.api_key
+            and self.api_key.strip()
+            and self.merchant_id
+            and self.merchant_id.strip()
+        )
 
     def is_live_mode(self) -> bool:
         """Check if using SadaPay production mode."""
@@ -91,35 +138,32 @@ class SadaPayProvider(PaymentProvider):
         email: str,
         plan_id: str,
         amount: float,
-        currency: str,
-        return_url: str,
-        cancel_url: str,
+        currency: str = "PKR",
+        return_url: str = "",
+        cancel_url: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> CheckoutSessionResult:
         """Create SadaPay SadaBiz checkout or payment link session."""
         if currency.upper() != "PKR":
             raise ValueError(f"SadaPay only supports PKR transactions, got {currency}")
 
+        if not self.is_enabled():
+            raise RuntimeError(
+                "SadaPay provider is currently disabled. Set SADAPAY_ENABLED=true and configure credentials to enable."
+            )
+
+        if not self.is_configured():
+            raise RuntimeError(
+                "SadaPay provider credentials are not configured: SADAPAY_API_KEY and SADAPAY_MERCHANT_ID required."
+            )
+
+        if self.is_live_mode() and ("test" in self.api_key.lower() or "sandbox" in self.api_key.lower()):
+            raise RuntimeError("SadaPay sandbox credentials cannot be used in production mode.")
+
         meta = metadata or {}
         invoice_id = f"sp_{uuid.uuid4().hex[:16]}"
 
-        if not self.is_configured():
-            if is_production_environment():
-                raise RuntimeError(
-                    "SadaPay checkout cannot proceed in production: SADAPAY_API_KEY not configured"
-                )
-            checkout_url = f"{self.checkout_base_url}/invoice/{invoice_id}?amount={amount}&currency=PKR"
-            return CheckoutSessionResult(
-                session_id=invoice_id,
-                checkout_url=checkout_url,
-                provider=self.name,
-                amount=amount,
-                currency="PKR",
-                status="pending",
-                metadata={"plan_id": plan_id, "user_id": user_id, "invoice_id": invoice_id, **meta},
-            )
-
-        # Real provider HTTP request
+        # SadaPay / SadaBiz official Invoices creation payload
         payload = {
             "merchantId": self.merchant_id,
             "invoiceId": invoice_id,
@@ -137,7 +181,7 @@ class SadaPayProvider(PaymentProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 res = await client.post(f"{self.api_base_url}/invoices", json=payload, headers=headers)
                 if res.status_code in (200, 201):
                     data = res.json()
@@ -152,30 +196,27 @@ class SadaPayProvider(PaymentProvider):
                         status="pending",
                         metadata={"invoice_id": invoice_id, "user_id": user_id, "plan_id": plan_id, **meta},
                     )
-        except Exception:
-            pass
-
-        checkout_url = f"{self.checkout_base_url}/invoice/{invoice_id}?amount={amount}&currency=PKR"
-        return CheckoutSessionResult(
-            session_id=invoice_id,
-            checkout_url=checkout_url,
-            provider=self.name,
-            amount=amount,
-            currency="PKR",
-            status="pending",
-            metadata={"invoice_id": invoice_id, "user_id": user_id, "plan_id": plan_id, **meta},
-        )
+                else:
+                    logger.error("SadaPay invoice creation failed (HTTP %d): %s", res.status_code, res.text[:200])
+                    raise RuntimeError(f"SadaPay invoice creation failed with HTTP {res.status_code}: {res.text[:200]}")
+        except httpx.TimeoutException as exc:
+            logger.error("SadaPay checkout creation timed out: %s", exc)
+            raise RuntimeError("SadaPay checkout service timed out. Please try again.") from exc
+        except httpx.RequestError as exc:
+            logger.error("SadaPay checkout network error: %s", exc)
+            raise RuntimeError(f"SadaPay checkout network error: {exc}") from exc
 
     async def verify_payment(self, session_or_tracker_id: str) -> PaymentVerificationResult:
         """Verify payment status with SadaPay gateway."""
         if not self.is_configured():
+            logger.warning("SadaPay verify_payment called without credentials configured: failing closed")
             return PaymentVerificationResult(
                 payment_id=session_or_tracker_id,
-                status="paid",
-                amount=5700.0,
+                status="failed",
+                amount=0.0,
                 currency="PKR",
                 provider=self.name,
-                metadata={"verified": True, "sandbox": True},
+                error_message="SadaPay credentials not configured.",
             )
 
         headers = {
@@ -183,7 +224,7 @@ class SadaPayProvider(PaymentProvider):
             "Content-Type": "application/json",
         }
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 res = await client.get(
                     f"{self.api_base_url}/invoices/{session_or_tracker_id}",
                     headers=headers,
@@ -191,7 +232,14 @@ class SadaPayProvider(PaymentProvider):
                 if res.status_code == 200:
                     data = res.json()
                     raw_status = (data.get("status") or "").lower()
-                    status = "paid" if raw_status in ("paid", "completed", "success") else "pending"
+                    if raw_status in ("paid", "completed", "success"):
+                        status = "paid"
+                    elif raw_status in ("failed", "rejected", "declined"):
+                        status = "failed"
+                    elif raw_status in ("cancelled", "canceled"):
+                        status = "cancelled"
+                    else:
+                        status = "pending"
                     return PaymentVerificationResult(
                         payment_id=session_or_tracker_id,
                         status=status,
@@ -201,7 +249,18 @@ class SadaPayProvider(PaymentProvider):
                         customer_id=data.get("customerId"),
                         metadata=data,
                     )
+                else:
+                    logger.error("SadaPay payment verification failed (HTTP %d): %s", res.status_code, res.text[:200])
+                    return PaymentVerificationResult(
+                        payment_id=session_or_tracker_id,
+                        status="failed",
+                        amount=0.0,
+                        currency="PKR",
+                        provider=self.name,
+                        error_message=f"SadaPay verification returned HTTP {res.status_code}",
+                    )
         except Exception as exc:
+            logger.error("SadaPay payment verification exception: %s", exc)
             return PaymentVerificationResult(
                 payment_id=session_or_tracker_id,
                 status="failed",
@@ -210,14 +269,6 @@ class SadaPayProvider(PaymentProvider):
                 provider=self.name,
                 error_message=str(exc),
             )
-
-        return PaymentVerificationResult(
-            payment_id=session_or_tracker_id,
-            status="pending",
-            amount=0.0,
-            currency="PKR",
-            provider=self.name,
-        )
 
     def verify_webhook_signature(self, headers: dict[str, str], raw_body: bytes) -> bool:
         """Validate cryptographic HMAC-SHA256 webhook signature from SadaPay."""
@@ -248,17 +299,22 @@ class SadaPayProvider(PaymentProvider):
         raw_status = (data.get("status") or "").lower()
         if raw_status in ("paid", "completed", "success", "invoice.paid"):
             event_type = "payment.succeeded"
-        elif raw_status in ("failed", "invoice.failed"):
+        elif raw_status in (
+            "failed",
+            "rejected",
+            "declined",
+            "invoice.failed",
+            "cancelled",
+            "canceled",
+        ):
             event_type = "payment.failed"
         else:
             event_type = "checkout.completed"
 
         amount = None
         if "amount" in data:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 amount = float(data.get("amount"))
-            except (ValueError, TypeError):
-                pass
 
         return NormalizedWebhookEvent(
             event_id=event_id,
@@ -273,5 +329,13 @@ class SadaPayProvider(PaymentProvider):
         )
 
     async def cancel_subscription(self, provider_subscription_id: str) -> bool:
-        """Cancel subscription if applicable."""
-        return True
+        """SadaPay subscription/recurring payment cancellation.
+
+        SadaPay SadaBiz Invoicing does not support automated recurring subscription
+        cancellation. Returning False explicitly signals unsupported recurring cancellation.
+        """
+        logger.warning(
+            "SadaPay invoicing API does not support automated subscription cancellation for %s",
+            provider_subscription_id,
+        )
+        return False

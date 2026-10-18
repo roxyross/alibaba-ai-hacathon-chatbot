@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
+from app.billing.providers.base import is_production_environment
 from app.billing.service import PLANS, TOP_UP_PACKS, PaymentService
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -171,6 +172,12 @@ async def subscribe_plan(
     if not matched:
         raise HTTPException(status_code=400, detail="Invalid plan selected.")
 
+    if is_production_environment() and (matched["price_usd"] > 0 or matched["price_pkr"] > 0):
+        raise HTTPException(
+            status_code=400,
+            detail="Direct subscription for paid plans is disabled in production. Use /billing/checkout with server-side payment verification.",
+        )
+
     now = datetime.now(UTC)
     prov = req.provider or ("safepay" if req.currency.lower() == "pkr" else "stripe")
 
@@ -267,6 +274,12 @@ async def topup_credits(
     matched = next((p for p in TOP_UP_PACKS if p["id"] == req.pack_id), None)
     if not matched:
         raise HTTPException(status_code=400, detail="Invalid top-up pack.")
+
+    if is_production_environment():
+        raise HTTPException(
+            status_code=400,
+            detail="Direct credit top-up without payment verification is disabled in production. Use /billing/topup-checkout.",
+        )
 
     now = datetime.now(UTC)
     await _repo.credit_wallet(
