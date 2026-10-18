@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { useSessions, ChatSession } from './useSessions';
 import { useTranslation, LOCALES, Locale } from '../i18n';
+import { useAuth } from '../auth';
 import './SessionSidebar.css';
 
 export type AppView =
@@ -301,6 +302,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const remove = propRemove || localHook.remove;
   const togglePinBackend = propTogglePin || localHook.togglePin;
   const toggleArchiveBackend = propToggleArchive || localHook.toggleArchive;
+  const { authedFetch } = useAuth();
 
   const { t, locale, setLocale, locales } = useTranslation();
   const [langMenuOpen, setLangMenuOpen] = useState(false);
@@ -367,19 +369,33 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
     }
   }, [activeView]);
 
-  const handleAssignProject = (sessionId: string, projectName: string) => {
+  const handleAssignProject = async (sessionId: string, projectName: string) => {
     try {
-      const saved = localStorage.getItem('roxy_session_projects');
-      const map: Record<string, string> = saved ? JSON.parse(saved) : {};
-      map[sessionId] = projectName;
-      localStorage.setItem('roxy_session_projects', JSON.stringify(map));
+      if (localHook.moveToProject) {
+        await localHook.moveToProject(sessionId, projectName);
+      } else {
+        await authedFetch(`/sessions/${sessionId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ project_id: projectName }),
+        });
+      }
+      try {
+        const saved = localStorage.getItem('roxy_session_projects');
+        const map: Record<string, string> = saved ? JSON.parse(saved) : {};
+        map[sessionId] = projectName;
+        localStorage.setItem('roxy_session_projects', JSON.stringify(map));
+      } catch {
+        // local mirror
+      }
       window.dispatchEvent(new CustomEvent('roxy-session-moved', { detail: { sessionId, projectName } }));
+      setMovingSession(null);
+      setProjectToast(`Moved to ${projectName}`);
+      setTimeout(() => setProjectToast(null), 2500);
     } catch (e) {
-      console.warn('Failed to save session project assignment:', e);
+      console.error('Failed to save session project assignment to server:', e);
+      setProjectToast('Failed to move session');
+      setTimeout(() => setProjectToast(null), 3000);
     }
-    setMovingSession(null);
-    setProjectToast(`Moved to ${projectName}`);
-    setTimeout(() => setProjectToast(null), 2500);
   };
 
   const [railToolsMenuOpen, setRailToolsMenuOpen] = useState(false);
@@ -567,14 +583,21 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
       return;
     }
     try {
-      const shareUrl = `${window.location.origin}?session=${session.id}`;
+      const res = await authedFetch<{ url?: string; share_url?: string; share_token?: string }>(
+        `/sessions/${session.id}/share`,
+        { method: 'POST' }
+      );
+      const path = res?.url || res?.share_url || `/share/${res?.share_token || session.id}`;
+      const shareUrl = `${window.location.origin}${path}`;
       if (navigator.clipboard) {
         await navigator.clipboard.writeText(shareUrl);
         setCopyShareToast(session.id);
         setTimeout(() => setCopyShareToast(null), 2000);
       }
     } catch (err) {
-      console.error('Share failed:', err);
+      console.error('Secure share failed:', err);
+      setProjectToast('Failed to generate share link');
+      setTimeout(() => setProjectToast(null), 3000);
     }
   };
 

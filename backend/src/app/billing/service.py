@@ -14,6 +14,8 @@ from app.billing.providers.base import (
     PaymentProvider,
     PaymentVerificationResult,
 )
+from app.billing.providers.nayapay_provider import NayaPayProvider
+from app.billing.providers.sadapay_provider import SadaPayProvider
 from app.billing.providers.safepay_provider import SafepayProvider
 from app.billing.providers.stripe_provider import StripeProvider
 from app.billing.repository import BillingRepository
@@ -92,10 +94,14 @@ class PaymentService:
         repository: BillingRepository | None = None,
         stripe_provider: StripeProvider | None = None,
         safepay_provider: SafepayProvider | None = None,
+        nayapay_provider: NayaPayProvider | None = None,
+        sadapay_provider: SadaPayProvider | None = None,
     ) -> None:
         self.repo = repository or BillingRepository()
         self.stripe = stripe_provider or StripeProvider()
         self.safepay = safepay_provider or SafepayProvider()
+        self.nayapay = nayapay_provider or NayaPayProvider()
+        self.sadapay = sadapay_provider or SadaPayProvider()
 
     @classmethod
     def get_instance(
@@ -103,6 +109,8 @@ class PaymentService:
         repository: BillingRepository | None = None,
         stripe_provider: StripeProvider | None = None,
         safepay_provider: SafepayProvider | None = None,
+        nayapay_provider: NayaPayProvider | None = None,
+        sadapay_provider: SadaPayProvider | None = None,
     ) -> PaymentService:
         """Get or initialize singleton instance of PaymentService."""
         if cls._instance is None:
@@ -110,6 +118,8 @@ class PaymentService:
                 repository=repository,
                 stripe_provider=stripe_provider,
                 safepay_provider=safepay_provider,
+                nayapay_provider=nayapay_provider,
+                sadapay_provider=sadapay_provider,
             )
         return cls._instance
 
@@ -129,6 +139,10 @@ class PaymentService:
             return self.stripe
         if self.mode == "safepay":
             return self.safepay
+        if self.mode == "nayapay":
+            return self.nayapay
+        if self.mode == "sadapay":
+            return self.sadapay
 
         # 2. If caller requested a specific provider
         req = (requested_provider or "").lower().strip()
@@ -136,6 +150,10 @@ class PaymentService:
             return self.safepay
         if req == "stripe":
             return self.stripe
+        if req == "nayapay":
+            return self.nayapay
+        if req == "sadapay":
+            return self.sadapay
 
         # 3. Automatic routing based on currency
         curr = currency.upper().strip()
@@ -165,6 +183,18 @@ class PaymentService:
                     "configured": self.safepay.is_configured(),
                     "environment": self.safepay.environment,
                     "live_mode": self.safepay.is_live_mode(),
+                    "supported_currencies": ["PKR"],
+                },
+                "nayapay": {
+                    "configured": self.nayapay.is_configured(),
+                    "environment": self.nayapay.environment,
+                    "live_mode": self.nayapay.is_live_mode(),
+                    "supported_currencies": ["PKR"],
+                },
+                "sadapay": {
+                    "configured": self.sadapay.is_configured(),
+                    "environment": self.sadapay.environment,
+                    "live_mode": self.sadapay.is_live_mode(),
                     "supported_currencies": ["PKR"],
                 },
             },
@@ -256,7 +286,15 @@ class PaymentService:
         provider_name: str | None = None,
     ) -> PaymentVerificationResult:
         """Verify payment status with the corresponding provider."""
-        provider = self.safepay if provider_name == "safepay" else self.stripe
+        pname = (provider_name or "").lower()
+        if pname == "safepay":
+            provider = self.safepay
+        elif pname == "nayapay":
+            provider = self.nayapay
+        elif pname == "sadapay":
+            provider = self.sadapay
+        else:
+            provider = self.stripe
         return await provider.verify_payment(session_id)
 
     async def process_webhook(
@@ -267,7 +305,14 @@ class PaymentService:
     ) -> dict[str, Any]:
         """Verify, deduplicate, and process a payment webhook."""
         prov_name = provider_name.lower()
-        provider: PaymentProvider = self.safepay if prov_name == "safepay" else self.stripe
+        if prov_name == "safepay":
+            provider: PaymentProvider = self.safepay
+        elif prov_name == "nayapay":
+            provider = self.nayapay
+        elif prov_name == "sadapay":
+            provider = self.sadapay
+        else:
+            provider = self.stripe
 
         # 1. Cryptographic signature check
         # In test mode without secrets configured, allow if signature is explicitly provided or mocked

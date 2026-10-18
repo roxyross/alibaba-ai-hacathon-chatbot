@@ -27,6 +27,7 @@ def _to_response(row: Any) -> SessionResponse:
         session_type=getattr(row, "session_type", "chat") or "chat",
         pinned=bool(getattr(row, "pinned", False)),
         archived_at=getattr(row, "archived_at", None),
+        project_id=getattr(row, "project_id", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
         message_count=getattr(row, "message_count", 0),
@@ -72,6 +73,7 @@ async def create_session(
         title=payload.title,
         session_type=payload.session_type,
         pinned=payload.pinned,
+        project_id=payload.project_id,
     )
     return _to_response(row)
 
@@ -95,7 +97,12 @@ async def update_session(
     payload: SessionUpdateRequest,
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> SessionResponse:
-    if payload.title is None and payload.pinned is None and payload.archived is None:
+    if (
+        payload.title is None
+        and payload.pinned is None
+        and payload.archived is None
+        and payload.project_id is None
+    ):
         raise HTTPException(status_code=400, detail="No fields to update")
     row = await _repo.update(
         session_id,
@@ -103,6 +110,7 @@ async def update_session(
         title=payload.title,
         pinned=payload.pinned,
         archived=payload.archived,
+        project_id=payload.project_id,
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Session not found")

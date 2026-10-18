@@ -17,6 +17,7 @@ class SessionCreateRequest(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     session_type: str = Field(default="chat", max_length=20)
     pinned: bool = False
+    project_id: str | None = Field(default=None, max_length=36)
 
 
 class SessionUpdateRequest(BaseModel):
@@ -27,6 +28,7 @@ class SessionUpdateRequest(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     pinned: bool | None = None
     archived: bool | None = None
+    project_id: str | None = Field(default=None, max_length=36)
 
 
 class SessionResponse(BaseModel):
@@ -41,6 +43,7 @@ class SessionResponse(BaseModel):
     session_type: str = "chat"
     pinned: bool = False
     archived_at: datetime | None = None
+    project_id: str | None = None
     created_at: datetime
     updated_at: datetime
     message_count: int = 0

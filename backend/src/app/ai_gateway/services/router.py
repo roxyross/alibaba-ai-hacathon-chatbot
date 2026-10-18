@@ -61,6 +61,9 @@ def _get_adapter(name: str) -> AIProviderAdapter:
         elif name == "gemini":
             from app.ai_gateway.adapters.gemini import GeminiAdapter
             _adapters[name] = GeminiAdapter()
+        elif name in ("dashscope", "qwen", "alibaba"):
+            from app.ai_gateway.adapters.dashscope import DashScopeAdapter
+            _adapters[name] = DashScopeAdapter()
         else:
             raise ValueError(f"No adapter registered for provider {name!r}")
     return _adapters[name]

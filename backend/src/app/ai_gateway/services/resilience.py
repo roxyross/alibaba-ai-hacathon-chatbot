@@ -222,11 +222,7 @@ class UniversalResilienceManager:
         # 3. Candidate provider resolution
         from app.ai_gateway.services.router import _get_adapter, _sorted_providers
 
-        configs = get_all_provider_configs()
-        # Strictly enabled and authorized providers only
-        enabled_configs = [c for c in configs if c.is_enabled and c.has_api_key]
-        enabled_configs.sort(key=lambda c: c.routing_priority)
-        available_providers = [c.name for c in enabled_configs]
+        available_providers = _sorted_providers()
 
         if is_audio_task:
             # Audio/Voice tasks are restricted to Gemini

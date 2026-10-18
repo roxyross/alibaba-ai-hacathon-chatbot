@@ -6,14 +6,24 @@ import arTranslations from './locales/ar.json';
 import zhTranslations from './locales/zh.json';
 import esTranslations from './locales/es.json';
 import deTranslations from './locales/de.json';
+import urLatnTranslations from './locales/ur-Latn.json';
+import jaTranslations from './locales/ja.json';
+import zhHantTranslations from './locales/zh-Hant.json';
+import frTranslations from './locales/fr.json';
+import faTranslations from './locales/fa.json';
 
-const TRANSLATIONS: Record<Locale, Record<string, any>> = {
+const TRANSLATIONS: Record<string, Record<string, any>> = {
   en: enTranslations,
   ur: urTranslations,
   ar: arTranslations,
   zh: zhTranslations,
   es: esTranslations,
   de: deTranslations,
+  'ur-Latn': urLatnTranslations,
+  ja: jaTranslations,
+  'zh-Hant': zhHantTranslations,
+  fr: frTranslations,
+  fa: faTranslations,
 };
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -27,9 +37,14 @@ function getInitialLocale(): Locale {
       return saved;
     }
     const navLang = (navigator.language || '').toLowerCase();
+    if (navLang.startsWith('ur-latn')) return 'ur-Latn';
     if (navLang.startsWith('ur')) return 'ur';
     if (navLang.startsWith('ar')) return 'ar';
+    if (navLang.startsWith('zh-hant') || navLang.startsWith('zh-tw') || navLang.startsWith('zh-hk')) return 'zh-Hant';
     if (navLang.startsWith('zh')) return 'zh';
+    if (navLang.startsWith('ja')) return 'ja';
+    if (navLang.startsWith('fr')) return 'fr';
+    if (navLang.startsWith('fa')) return 'fa';
     if (navLang.startsWith('es')) return 'es';
     if (navLang.startsWith('de')) return 'de';
   } catch {
@@ -41,7 +56,7 @@ function getInitialLocale(): Locale {
 export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [locale, setLocaleState] = useState<Locale>(getInitialLocale);
 
-  const dir = LOCALES[locale].dir;
+  const dir = (LOCALES[locale] ? LOCALES[locale].dir : 'ltr') as 'ltr' | 'rtl';
   const isRtl = dir === 'rtl';
 
   useEffect(() => {

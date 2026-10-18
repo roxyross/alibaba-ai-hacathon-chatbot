@@ -341,3 +341,31 @@ async def safepay_webhook(request: Request) -> dict[str, Any]:
         status_code = 500 if "Webhook processing error" in msg else 400
         raise HTTPException(status_code=status_code, detail=msg)
     return {"received": True, **result}
+
+
+@router.post("/webhook/nayapay")
+async def nayapay_webhook(request: Request) -> dict[str, Any]:
+    """Process incoming NayaPay webhook with HMAC-SHA256 verification and idempotency."""
+    raw_body = await request.body()
+    headers = dict(request.headers)
+
+    result = await _service.process_webhook("nayapay", headers, raw_body)
+    if result.get("status") == "error":
+        msg = result.get("message", "Webhook verification failed")
+        status_code = 500 if "Webhook processing error" in msg else 400
+        raise HTTPException(status_code=status_code, detail=msg)
+    return {"received": True, **result}
+
+
+@router.post("/webhook/sadapay")
+async def sadapay_webhook(request: Request) -> dict[str, Any]:
+    """Process incoming SadaPay webhook with HMAC-SHA256 verification and idempotency."""
+    raw_body = await request.body()
+    headers = dict(request.headers)
+
+    result = await _service.process_webhook("sadapay", headers, raw_body)
+    if result.get("status") == "error":
+        msg = result.get("message", "Webhook verification failed")
+        status_code = 500 if "Webhook processing error" in msg else 400
+        raise HTTPException(status_code=status_code, detail=msg)
+    return {"received": True, **result}

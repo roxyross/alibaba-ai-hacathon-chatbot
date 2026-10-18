@@ -9,6 +9,7 @@ export interface ChatSession {
   session_type?: 'chat' | 'task' | 'cowork';
   pinned?: boolean;
   archived_at?: string | null;
+  project_id?: string | null;
   created_at: string;
   updated_at: string;
   message_count: number;
@@ -20,6 +21,7 @@ export interface CreateSessionInput {
   title?: string;
   session_type?: 'chat' | 'task' | 'cowork';
   pinned?: boolean;
+  project_id?: string | null;
 }
 
 export const SESSIONS_CHANGED_EVENT = 'roxy:sessions_changed';
@@ -167,5 +169,31 @@ export function useSessions() {
     [authedFetch, refresh],
   );
 
-  return { sessions, loading, error, refresh, create, rename, togglePin, toggleArchive, remove };
+  const moveToProject = useCallback(
+    async (id: string, projectId: string | null): Promise<ChatSession> => {
+      // Optimistic state update
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, project_id: projectId } : s)),
+      );
+      try {
+        const updated = await authedFetch<ChatSession>(`/sessions/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ project_id: projectId || '' }),
+        });
+        setSessions((prev) =>
+          prev.map((s) => (s.id === id ? { ...s, ...updated } : s)),
+        );
+        notifySessionsChanged();
+        return updated;
+      } catch (err) {
+        // Reconcile on failure
+        await refresh();
+        notifySessionsChanged();
+        throw err;
+      }
+    },
+    [authedFetch, refresh],
+  );
+
+  return { sessions, loading, error, refresh, create, rename, togglePin, toggleArchive, remove, moveToProject };
 }

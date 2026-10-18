@@ -24,6 +24,7 @@ class _MemSession:
     session_type: str = "chat"
     pinned: bool = False
     archived_at: datetime | None = None
+    project_id: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     message_count: int = 0
@@ -49,6 +50,7 @@ class ChatSessionRepository:
         title: str | None = None,
         session_type: str = "chat",
         pinned: bool = False,
+        project_id: str | None = None,
     ) -> _MemSession | ChatSession:
         factory = get_session_factory()
         now = datetime.now(UTC)
@@ -61,6 +63,7 @@ class ChatSessionRepository:
                 model=model,
                 session_type=session_type,
                 pinned=pinned,
+                project_id=project_id,
                 created_at=now,
                 updated_at=now,
             )
@@ -76,6 +79,7 @@ class ChatSessionRepository:
                 model=model,
                 session_type=session_type,
                 pinned=pinned,
+                project_id=project_id,
                 created_at=now,
                 updated_at=now,
             )
@@ -155,6 +159,7 @@ class ChatSessionRepository:
         title: str | None = None,
         pinned: bool | None = None,
         archived: bool | None = None,
+        project_id: str | None = None,
     ) -> ChatSession | _MemSession | None:
         factory = get_session_factory()
         now = datetime.now(UTC)
@@ -168,6 +173,8 @@ class ChatSessionRepository:
                 mem_row.pinned = pinned
             if archived is not None:
                 mem_row.archived_at = now if archived else None
+            if project_id is not None:
+                mem_row.project_id = project_id if project_id != "" else None
             mem_row.updated_at = now
             return mem_row
 
@@ -185,6 +192,8 @@ class ChatSessionRepository:
                 db_row.pinned = pinned
             if archived is not None:
                 db_row.archived_at = now if archived else None
+            if project_id is not None:
+                db_row.project_id = project_id if project_id != "" else None
             db_row.updated_at = now
             await session.commit()
             await session.refresh(db_row)
