@@ -98,49 +98,69 @@ export function useSessions() {
 
   const togglePin = useCallback(
     async (id: string, pinned: boolean): Promise<ChatSession> => {
-      // Optimistic update
+      // Optimistically update this view, but only notify other views after persistence succeeds.
       setSessions((prev) =>
         prev
           .map((s) => (s.id === id ? { ...s, pinned } : s))
           .sort((a, b) => (Number(b.pinned || false) - Number(a.pinned || false))),
       );
-      notifySessionsChanged();
-      const updated = await authedFetch<ChatSession>(`/sessions/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ pinned }),
-      });
-      return updated;
+      try {
+        const updated = await authedFetch<ChatSession>(`/sessions/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ pinned }),
+        });
+        setSessions((prev) =>
+          prev.map((s) => (s.id === id ? { ...s, ...updated } : s)),
+        );
+        notifySessionsChanged();
+        return updated;
+      } catch (err) {
+        // Reconcile optimistic state with the server after a failed write.
+        await refresh();
+        notifySessionsChanged();
+        throw err;
+      }
     },
-    [authedFetch],
+    [authedFetch, refresh],
   );
 
   const toggleArchive = useCallback(
     async (id: string, archived: boolean): Promise<ChatSession> => {
-      // Optimistic update: if archiving, remove from active list
+      // Optimistically remove archived sessions from the active list.
       if (archived) {
         setSessions((prev) => prev.filter((s) => s.id !== id));
       }
-      notifySessionsChanged();
-      const updated = await authedFetch<ChatSession>(`/sessions/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ archived }),
-      });
-      return updated;
+      try {
+        const updated = await authedFetch<ChatSession>(`/sessions/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ archived }),
+        });
+        // Refresh the active list so both archive and restore use server truth.
+        await refresh();
+        notifySessionsChanged();
+        return updated;
+      } catch (err) {
+        // Restore the server-backed list if the archive operation failed.
+        await refresh();
+        notifySessionsChanged();
+        throw err;
+      }
     },
-    [authedFetch],
+    [authedFetch, refresh],
   );
 
   const remove = useCallback(
     async (id: string): Promise<void> => {
-      // Optimistic update: remove immediately so UI updates in 0ms
+      // Optimistic update: remove immediately so UI updates in 0ms.
       setSessions((prev) => prev.filter((s) => s.id !== id));
-      notifySessionsChanged();
       try {
         await authedFetch<void>(`/sessions/${id}`, { method: 'DELETE' });
+        notifySessionsChanged();
       } catch (err) {
         console.error('Failed to delete session on server:', err);
-        // Rollback/refresh on error
-        void refresh();
+        // Reconcile the optimistic removal and notify other views after refresh.
+        await refresh();
+        notifySessionsChanged();
         throw err;
       }
     },
