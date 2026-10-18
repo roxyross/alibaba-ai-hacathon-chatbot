@@ -50,10 +50,12 @@ coverage/
 .nyc_output/
 junit.xml
 test-results/
-playwright-report/
+**/playwright-report/
 playwright/.cache/
 tests/disposable_*
 **/screenshots/
+!docs/screenshots/
+!docs/screenshots/**
 
 # Local secrets — never commit
 .env

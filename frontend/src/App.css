@@ -28,6 +28,20 @@
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
   --transition-fast: 0.15s ease;
   --transition-normal: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Studio & Workspace compatibility aliases */
+  --roxy-bg: var(--color-bg);
+  --roxy-surface: var(--color-surface);
+  --roxy-surface-card: var(--color-surface);
+  --roxy-surface-elevated: var(--color-surface-elevated);
+  --roxy-surface-alt: var(--color-input-bg);
+  --roxy-border: var(--color-border);
+  --roxy-border-subtle: var(--color-border-subtle);
+  --roxy-text: var(--color-text);
+  --roxy-muted: var(--color-muted);
+  --roxy-accent: var(--color-accent);
+  --roxy-accent-hover: var(--color-accent-hover);
+  --roxy-accent-subtle: var(--color-accent-subtle);
 }
 
 [data-theme="light"] {

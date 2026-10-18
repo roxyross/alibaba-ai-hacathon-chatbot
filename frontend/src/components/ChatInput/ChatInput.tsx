@@ -21,6 +21,10 @@ interface ChatInputProps {
   onNavigateView?: (view: 'finance' | 'jobs' | 'email' | 'calculator' | 'calendar') => void;
   /** Callback to stop generating response */
   onStop?: () => void;
+  /** Initial text to pre-fill the composer (e.g., when editing an earlier message) */
+  draftText?: string;
+  /** Callback fired after draftText has been placed into the composer */
+  onDraftConsumed?: () => void;
 }
 
 // File extension to icon resolver
@@ -90,6 +94,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   placeholder: customPlaceholder,
   onNavigateView,
   onStop,
+  draftText,
+  onDraftConsumed,
 }) => {
   const [value, setValue] = useState('');
   const [dictationState, setDictationState] = useState<DictationState>('idle');
@@ -156,6 +162,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     window.addEventListener('roxy:edit-prompt', handleEditPrompt);
     return () => window.removeEventListener('roxy:edit-prompt', handleEditPrompt);
   }, []);
+
+  useEffect(() => {
+    if (draftText !== undefined && draftText !== '') {
+      setValue(draftText);
+      onDraftConsumed?.();
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(draftText.length, draftText.length);
+        }
+      }, 50);
+    }
+  }, [draftText, onDraftConsumed]);
 
 
 

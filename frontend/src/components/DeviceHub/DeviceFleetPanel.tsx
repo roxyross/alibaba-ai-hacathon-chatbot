@@ -127,8 +127,8 @@ export const DeviceFleetPanel: React.FC<DeviceFleetPanelProps> = ({
 
   const totalCount = devices.length;
   const onlineCount = devices.filter((d) => d.status === 'online').length;
-  const mobileCount = devices.filter((d) => d.device_type === 'mobile' || ['android', 'ios'].includes(d.os_platform.toLowerCase())).length;
-  const desktopCount = devices.filter((d) => d.device_type === 'desktop' || ['windows', 'macos', 'linux'].includes(d.os_platform.toLowerCase())).length;
+  const mobileCount = devices.filter((d) => d.device_type === 'mobile' || ['android', 'ios'].includes((d.os_platform || '').toLowerCase())).length;
+  const desktopCount = devices.filter((d) => d.device_type === 'desktop' || ['windows', 'macos', 'linux'].includes((d.os_platform || '').toLowerCase())).length;
 
   return (
     <div className="device-fleet">
@@ -239,7 +239,7 @@ export const DeviceFleetPanel: React.FC<DeviceFleetPanelProps> = ({
                   </div>
                   <div className="device-fleet__tags-row">
                     <span className="device-fleet__badge device-fleet__badge--os">
-                      {dev.os_platform.toUpperCase()} ({dev.architecture || 'x86_64'})
+                      {(dev.os_platform || 'generic').toUpperCase()} ({dev.architecture || 'x86_64'})
                     </span>
                     <span className="device-fleet__device-ip">
                       {dev.ip_address || '127.0.0.1'}

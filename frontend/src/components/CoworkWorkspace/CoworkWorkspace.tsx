@@ -72,7 +72,7 @@ export const CoworkWorkspace: React.FC<CoworkWorkspaceProps> = ({
             onClick={() => setActiveSurface('browser')}
           >
             <Globe size={14} />
-            <span>Web Workspace (Phase 16)</span>
+            <span>Web Workspace</span>
           </button>
 
           <button
@@ -83,7 +83,7 @@ export const CoworkWorkspace: React.FC<CoworkWorkspaceProps> = ({
             onClick={() => setActiveSurface('device')}
           >
             <Monitor size={14} />
-            <span>Device & Screen (Phase 19)</span>
+            <span>Device & Screen</span>
           </button>
 
           <button

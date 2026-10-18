@@ -127,7 +127,7 @@ export const RoxyCommandBar: React.FC<RoxyCommandBarProps> = ({
         subtitle: 'Manage connected desktop, Android, iOS devices & permissions',
         category: 'device',
         icon: <Smartphone size={18} className="command-icon--purple" />,
-        badge: 'Phase 19',
+        badge: 'Fleet',
         action: () => {
           onClose();
           onNavigateView('device_hub');

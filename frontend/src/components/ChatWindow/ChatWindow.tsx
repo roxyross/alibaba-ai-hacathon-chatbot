@@ -57,6 +57,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // Developer Workspace open state in task mode
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
+  // Draft prompt pre-filled when user edits an earlier message
+  const [composerDraft, setComposerDraft] = useState<string>('');
 
   // Auto-open workspace when code actions or events are dispatched from Chat code blocks
   useEffect(() => {
@@ -380,6 +382,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                       isStreaming={isLastAssistant && isStreaming}
                       onPin={onPinMessage}
                       onDelete={onDeleteMessage}
+                      onEditInComposer={(text) => setComposerDraft(text)}
                       onRegenerate={
                         isLastAssistant && !isStreaming
                           ? () => {
@@ -482,6 +485,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   onVoiceClick={onVoiceClick}
                   onAttachmentClick={onAttachmentClick}
                   onStop={onStop}
+                  draftText={composerDraft}
+                  onDraftConsumed={() => setComposerDraft('')}
                   placeholder={
                     mode === 'task'
                       ? 'Ask to write code, build a script, or debug…'

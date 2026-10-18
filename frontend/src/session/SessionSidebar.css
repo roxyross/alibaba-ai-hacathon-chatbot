@@ -18,6 +18,8 @@
   width: var(--sidebar-w);
   min-width: var(--sidebar-w);
   height: 100%;
+  max-height: 100vh;
+  min-height: 0;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-border);
   overflow: hidden;
@@ -1170,8 +1172,12 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  padding-top: 0.4rem;
+  padding: 0.45rem 0.65rem;
   border-top: 1px solid var(--sidebar-border);
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  position: relative;
+  z-index: 10;
 }
 
 .session-sidebar__account-link {
