@@ -106,15 +106,29 @@
     "capabilities": "Kabiliyat",
     "capability_reasoning": "Aala darjay ki soch o samajh",
     "capability_coding": "Poori coding aur debugging",
-    "capability_workflows": "Khudd-mukhtaar web o system tasks"
+    "capability_workflows": "Khudd-mukhtaar web o system tasks",
+    "feedback_title": "Jawab par Feedback",
+    "feedback_reason_inaccurate": "Ghair durust",
+    "feedback_reason_irrelevant": "Ghair mutaliqa",
+    "feedback_reason_incomplete": "Na-mukammal",
+    "feedback_reason_unsafe": "Ghair mehfooz ya nuqsandeh",
+    "feedback_details_placeholder": "Ikhtiyari tafseelat darj karein...",
+    "feedback_submit": "Feedback bhejein",
+    "feedback_submitted": "Aap ke feedback ka shukriya!"
   },
   "settings": {
-    "title": "Settings",
+    "title": "Settings aur Tarjeehat",
     "theme": "Theme",
     "theme_dark": "Dark Mode",
     "theme_light": "Light Mode",
-    "language": "Zuban",
-    "model": "Pasandeeda Model",
-    "save_success": "Settings kamyabi se mehfooz ho gayi!"
+    "language": "Zuban aur Khitta",
+    "model": "AI Model Configuration",
+    "save_success": "Settings kamyabi se mehfooz ho gayi!",
+    "profile": "Profile",
+    "appearance": "Zahiri Shakl",
+    "voice": "Awaz aur Guftagu",
+    "notifications": "Notifications",
+    "security": "Security aur Raazdaari",
+    "theme_system": "System Default"
   }
 }

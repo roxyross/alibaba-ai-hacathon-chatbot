@@ -106,15 +106,29 @@
     "capabilities": "機能・特徴",
     "capability_reasoning": "高度な推論と分析",
     "capability_coding": "フルスタックコーディング支援",
-    "capability_workflows": "自律的システムタスク実行"
+    "capability_workflows": "自律的システムタスク実行",
+    "feedback_title": "回答へのフィードバック",
+    "feedback_reason_inaccurate": "不正確",
+    "feedback_reason_irrelevant": "無関係",
+    "feedback_reason_incomplete": "不完全",
+    "feedback_reason_unsafe": "安全ではない・有害",
+    "feedback_details_placeholder": "詳細を入力（任意）...",
+    "feedback_submit": "フィードバックを送信",
+    "feedback_submitted": "フィードバックありがとうございます！"
   },
   "settings": {
-    "title": "設定",
+    "title": "設定と環境設定",
     "theme": "テーマ",
     "theme_dark": "ダークモード",
     "theme_light": "ライトモード",
-    "language": "言語",
-    "model": "優先モデル",
-    "save_success": "設定が保存されました！"
+    "language": "言語と地域",
+    "model": "AIモデル構成",
+    "save_success": "設定が保存されました！",
+    "profile": "プロフィール",
+    "appearance": "外観",
+    "voice": "音声と読み上げ",
+    "notifications": "通知",
+    "security": "セキュリティとプライバシー",
+    "theme_system": "システムデフォルト"
   }
 }

@@ -11,8 +11,27 @@ import jaTranslations from './locales/ja.json';
 import zhHantTranslations from './locales/zh-Hant.json';
 import frTranslations from './locales/fr.json';
 import faTranslations from './locales/fa.json';
+import hiTranslations from './locales/hi.json';
+import bnTranslations from './locales/bn.json';
+import ptTranslations from './locales/pt.json';
+import koTranslations from './locales/ko.json';
+import trTranslations from './locales/tr.json';
+import idTranslations from './locales/id.json';
+import msTranslations from './locales/ms.json';
+import itTranslations from './locales/it.json';
+import ruTranslations from './locales/ru.json';
+import thTranslations from './locales/th.json';
+import viTranslations from './locales/vi.json';
+import nlTranslations from './locales/nl.json';
+import plTranslations from './locales/pl.json';
+import paTranslations from './locales/pa.json';
+import taTranslations from './locales/ta.json';
+import teTranslations from './locales/te.json';
+import swTranslations from './locales/sw.json';
+import ukTranslations from './locales/uk.json';
+import elTranslations from './locales/el.json';
 
-const TRANSLATIONS: Record<string, Record<string, any>> = {
+export const TRANSLATIONS: Record<string, Record<string, any>> = {
   en: enTranslations,
   ur: urTranslations,
   ar: arTranslations,
@@ -24,6 +43,25 @@ const TRANSLATIONS: Record<string, Record<string, any>> = {
   'zh-Hant': zhHantTranslations,
   fr: frTranslations,
   fa: faTranslations,
+  hi: hiTranslations,
+  bn: bnTranslations,
+  pt: ptTranslations,
+  ko: koTranslations,
+  tr: trTranslations,
+  id: idTranslations,
+  ms: msTranslations,
+  it: itTranslations,
+  ru: ruTranslations,
+  th: thTranslations,
+  vi: viTranslations,
+  nl: nlTranslations,
+  pl: plTranslations,
+  pa: paTranslations,
+  ta: taTranslations,
+  te: teTranslations,
+  sw: swTranslations,
+  uk: ukTranslations,
+  el: elTranslations,
 };
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -47,6 +85,25 @@ function getInitialLocale(): Locale {
     if (navLang.startsWith('fa')) return 'fa';
     if (navLang.startsWith('es')) return 'es';
     if (navLang.startsWith('de')) return 'de';
+    if (navLang.startsWith('hi')) return 'hi';
+    if (navLang.startsWith('bn')) return 'bn';
+    if (navLang.startsWith('pt')) return 'pt';
+    if (navLang.startsWith('ko')) return 'ko';
+    if (navLang.startsWith('tr')) return 'tr';
+    if (navLang.startsWith('id')) return 'id';
+    if (navLang.startsWith('ms')) return 'ms';
+    if (navLang.startsWith('it')) return 'it';
+    if (navLang.startsWith('ru')) return 'ru';
+    if (navLang.startsWith('th')) return 'th';
+    if (navLang.startsWith('vi')) return 'vi';
+    if (navLang.startsWith('nl')) return 'nl';
+    if (navLang.startsWith('pl')) return 'pl';
+    if (navLang.startsWith('pa')) return 'pa';
+    if (navLang.startsWith('ta')) return 'ta';
+    if (navLang.startsWith('te')) return 'te';
+    if (navLang.startsWith('sw')) return 'sw';
+    if (navLang.startsWith('uk')) return 'uk';
+    if (navLang.startsWith('el')) return 'el';
   } catch {
     // Ignore storage errors in restricted contexts
   }

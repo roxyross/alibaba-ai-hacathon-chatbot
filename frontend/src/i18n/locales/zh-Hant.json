@@ -106,15 +106,29 @@
     "capabilities": "核心功能",
     "capability_reasoning": "高階推理與深度分析",
     "capability_coding": "全端程式碼編寫與除錯",
-    "capability_workflows": "自主網頁與系統工作流程"
+    "capability_workflows": "自主網頁與系統工作流程",
+    "feedback_title": "回答反饋",
+    "feedback_reason_inaccurate": "內容不準確",
+    "feedback_reason_irrelevant": "答非所問",
+    "feedback_reason_incomplete": "回答不完整",
+    "feedback_reason_unsafe": "有害或不安全",
+    "feedback_details_placeholder": "提供補充說明（選填）...",
+    "feedback_submit": "提交反饋",
+    "feedback_submitted": "感謝您的反饋！"
   },
   "settings": {
-    "title": "設定",
+    "title": "設定與偏好",
     "theme": "主題外觀",
     "theme_dark": "深色模式",
     "theme_light": "淺色模式",
-    "language": "語言選擇",
-    "model": "偏好模型",
-    "save_success": "設定已成功儲存！"
+    "language": "語言與地區",
+    "model": "AI 模型配置",
+    "save_success": "設定已成功儲存！",
+    "profile": "個人資料",
+    "appearance": "外觀",
+    "voice": "語音設定",
+    "notifications": "通知",
+    "security": "安全性與隱私",
+    "theme_system": "跟隨系統"
   }
 }

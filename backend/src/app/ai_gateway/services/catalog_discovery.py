@@ -23,6 +23,7 @@ Enforces:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -66,7 +67,12 @@ class DiscoveredModel:
     cost_per_1k_input: float = 0.0
     cost_per_1k_output: float = 0.0
     discovered_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    first_seen_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_seen_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_verified_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_successful_discovery: datetime | None = None
+    status: str = "active"  # active | deprecated | retired | retained
+    retirement_evidence: str | None = None
     supported_generation_methods: list[str] = field(default_factory=list)
     raw_metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -78,7 +84,101 @@ class DiscoveredModel:
             cost_per_1k_input=self.cost_per_1k_input,
             cost_per_1k_output=self.cost_per_1k_output,
             max_tokens=self.max_tokens,
-            enabled=not self.is_deprecated,
+            enabled=not self.is_deprecated and self.status != "retired",
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model_id": self.model_id,
+            "display_name": self.display_name,
+            "task_types": self.task_types,
+            "max_tokens": self.max_tokens,
+            "input_token_limit": self.input_token_limit,
+            "output_token_limit": self.output_token_limit,
+            "is_stable": self.is_stable,
+            "is_deprecated": self.is_deprecated,
+            "is_preview": self.is_preview,
+            "is_eligible_for_promotion": self.is_eligible_for_promotion,
+            "requires_api_key": self.requires_api_key,
+            "validation_status": self.validation_status,
+            "provenance": self.provenance,
+            "status": self.status,
+            "capabilities": self.capabilities,
+            "cost_per_1k_input": self.cost_per_1k_input,
+            "cost_per_1k_output": self.cost_per_1k_output,
+            "discovered_at": self.discovered_at.isoformat(),
+            "first_seen_at": self.first_seen_at.isoformat(),
+            "last_seen_at": self.last_seen_at.isoformat(),
+            "last_verified_at": self.last_verified_at.isoformat(),
+            "last_successful_discovery": (
+                self.last_successful_discovery.isoformat()
+                if self.last_successful_discovery
+                else None
+            ),
+            "retirement_evidence": self.retirement_evidence,
+            "supported_generation_methods": self.supported_generation_methods,
+            "raw_metadata": self.raw_metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DiscoveredModel:
+        now_utc = datetime.now(timezone.utc)
+        disc_at = (
+            datetime.fromisoformat(data["discovered_at"])
+            if "discovered_at" in data
+            else now_utc
+        )
+        first_seen = (
+            datetime.fromisoformat(data["first_seen_at"])
+            if "first_seen_at" in data
+            else disc_at
+        )
+        last_seen = (
+            datetime.fromisoformat(data["last_seen_at"])
+            if "last_seen_at" in data
+            else disc_at
+        )
+        last_ver = (
+            datetime.fromisoformat(data["last_verified_at"])
+            if "last_verified_at" in data
+            else disc_at
+        )
+        last_succ = (
+            datetime.fromisoformat(data["last_successful_discovery"])
+            if data.get("last_successful_discovery")
+            else None
+        )
+
+        return cls(
+            provider=data["provider"],
+            model_id=data["model_id"],
+            display_name=data["display_name"],
+            task_types=list(data.get("task_types", ["general"])),
+            max_tokens=data.get("max_tokens", 4096),
+            input_token_limit=data.get("input_token_limit", 32768),
+            output_token_limit=data.get("output_token_limit", 4096),
+            is_stable=data.get("is_stable", True),
+            is_deprecated=data.get("is_deprecated", False),
+            is_preview=data.get("is_preview", False),
+            is_eligible_for_promotion=data.get("is_eligible_for_promotion", False),
+            requires_api_key=data.get("requires_api_key", False),
+            validation_status=data.get("validation_status", "verified"),
+            provenance=data.get("provenance", "cached"),
+            capabilities=list(data.get("capabilities", [])),
+            cost_per_1k_input=float(data.get("cost_per_1k_input", 0.0)),
+            cost_per_1k_output=float(data.get("cost_per_1k_output", 0.0)),
+            discovered_at=disc_at,
+            first_seen_at=first_seen,
+            last_seen_at=last_seen,
+            last_verified_at=last_ver,
+            last_successful_discovery=last_succ,
+            status=data.get("status", "active"),
+            retirement_evidence=data.get("retirement_evidence"),
+            supported_generation_methods=list(
+                data.get("supported_generation_methods", [])
+            ),
+            raw_metadata=dict(data.get("raw_metadata", {})),
         )
 
 
@@ -106,8 +206,13 @@ class ModelCatalogDiscoveryService:
 
     _instance: ModelCatalogDiscoveryService | None = None
 
-    def __init__(self) -> None:
+    def __init__(self, cache_file_path: str | None = None) -> None:
         self._lock = asyncio.Lock()
+        self._active_refreshes: set[str] = set()
+        self.cache_file_path: str = cache_file_path or os.environ.get(
+            "ROXY_CATALOG_CACHE_PATH",
+            os.path.join(os.path.dirname(__file__), ".model_catalog_cache.json"),
+        )
         # Default active selections
         self._active_defaults: dict[str, str] = {
             "gemini": "gemini-4-argon",
@@ -137,11 +242,92 @@ class ModelCatalogDiscoveryService:
         # Promotion validation canary hook (can be mocked in tests)
         self.canary_hook: Callable[[str, str], bool] | None = None
 
+        # Load persisted catalog cache if available
+        self._load_cache_from_disk()
+
     @classmethod
     def get_instance(cls) -> ModelCatalogDiscoveryService:
         if cls._instance is None:
             cls._instance = ModelCatalogDiscoveryService()
         return cls._instance
+
+    def _save_cache_to_disk(self) -> None:
+        """Persist last-known-good catalog and model lifecycle state to disk atomically."""
+        if not self.cache_file_path:
+            return
+        try:
+            cache_path = self.cache_file_path
+            os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
+            data = {
+                "saved_at": datetime.now(timezone.utc).isoformat(),
+                "active_defaults": self._active_defaults,
+                "previous_defaults": self._previous_defaults,
+                "catalogs": {
+                    prov: [m.to_dict() for m in models]
+                    for prov, models in self._cached_catalogs.items()
+                },
+                "last_refresh_timestamps": {
+                    prov: dt.isoformat()
+                    for prov, dt in self._last_refresh_timestamps.items()
+                },
+                "last_refresh_status": self._last_refresh_status,
+            }
+            tmp_path = f"{cache_path}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, cache_path)
+        except Exception as exc:
+            log.warning("catalog_discovery.save_cache_failed", error=str(exc))
+
+    def _load_cache_from_disk(self) -> None:
+        """Load last-known-good catalog from disk if present."""
+        if not self.cache_file_path or not os.path.exists(self.cache_file_path):
+            return
+        try:
+            with open(self.cache_file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if "active_defaults" in data and isinstance(data["active_defaults"], dict):
+                self._active_defaults.update(data["active_defaults"])
+            if "previous_defaults" in data and isinstance(data["previous_defaults"], dict):
+                self._previous_defaults.update(data["previous_defaults"])
+
+            if "catalogs" in data and isinstance(data["catalogs"], dict):
+                for prov, model_dicts in data["catalogs"].items():
+                    restored = [DiscoveredModel.from_dict(md) for md in model_dicts]
+                    self._cached_catalogs[prov] = restored
+                    self._catalogs[prov] = restored
+
+            if "last_refresh_status" in data and isinstance(data["last_refresh_status"], dict):
+                self._last_refresh_status.update(data["last_refresh_status"])
+        except Exception as exc:
+            log.warning("catalog_discovery.load_cache_failed", error=str(exc))
+
+    def resolve_effective_model(
+        self,
+        provider: str,
+        user_selected_model: str | None = None,
+        task_type: str = "general",
+    ) -> str:
+        """Resolve effective model adhering strictly to user selection preservation."""
+        if user_selected_model:
+            return user_selected_model
+        return self.get_default_model(provider, task_type)
+
+    def mark_model_retired(self, provider: str, model_id: str, evidence: str) -> bool:
+        """Explicitly record verified official provider retirement for a model."""
+        canonical = "dashscope" if provider in ("qwen", "alibaba") else provider
+        models = self.get_active_models(canonical)
+        for m in models:
+            if m.model_id == model_id:
+                m.is_deprecated = True
+                m.status = "retired"
+                m.validation_status = "retired"
+                m.retirement_evidence = evidence
+                m.last_verified_at = datetime.now(timezone.utc)
+                self._save_cache_to_disk()
+                return True
+        return False
 
     def get_default_model(self, provider: str, task_type: str = "general") -> str:
         """Return the current active default model for a provider and task type."""
@@ -227,129 +413,195 @@ class ModelCatalogDiscoveryService:
     ) -> CatalogSyncResult:
         """Refresh a single provider's catalog from its official discovery endpoint."""
         canonical = "dashscope" if provider in ("qwen", "alibaba") else provider
-        async with self._lock:
-            prov_cfg = get_provider_config(canonical)
-            prev_def = self._active_defaults.get(canonical)
-
-            if prov_cfg is None:
-                return CatalogSyncResult(
-                    provider=canonical,
-                    success=False,
-                    discovered_count=0,
-                    models=[],
-                    promoted_default=prev_def,
-                    previous_default=self._previous_defaults.get(canonical),
-                    error_reason=f"Unknown provider: {canonical}",
-                    provider_state=ProviderState.UNAVAILABLE,
-                )
-
-            # Providers disabled by default (OpenAI, Anthropic) MUST NOT send outbound requests
-            if not prov_cfg.is_enabled:
-                log.info("catalog_discovery.provider_disabled", provider=canonical)
-                models = self.get_active_models(canonical)
-                for m in models:
-                    m.requires_api_key = not prov_cfg.has_api_key
-                return CatalogSyncResult(
-                    provider=canonical,
-                    success=True,
-                    discovered_count=len(models),
-                    models=models,
-                    promoted_default=prev_def,
-                    previous_default=self._previous_defaults.get(canonical),
-                    error_reason="Provider is disabled by configuration (is_enabled=False)",
-                    live_verified=False,
-                    provider_state=ProviderState.DISABLED,
-                    provenance="static_baseline",
-                )
-
-            # If provider lacks credentials, return cached or static baseline without calling out
-            if not prov_cfg.has_api_key:
-                log.info("catalog_discovery.missing_key", provider=canonical)
-                models = self.get_active_models(canonical)
-                for m in models:
-                    m.requires_api_key = True
-                self._last_refresh_status[canonical] = "credentials_missing"
-                return CatalogSyncResult(
-                    provider=canonical,
-                    success=True,
-                    discovered_count=len(models),
-                    models=models,
-                    promoted_default=prev_def,
-                    previous_default=self._previous_defaults.get(canonical),
-                    error_reason=f"API key not configured ({prov_cfg.api_key_env_var})",
-                    live_verified=False,
-                    provider_state=ProviderState.NOT_CONFIGURED,
-                    provenance="static_baseline" if canonical not in self._cached_catalogs else "cached",
-                )
-
-            # Fetch from official endpoint with bounded retries
-            try:
-                discovered, live_verified = await self._fetch_official_models(canonical, prov_cfg, client)
-            except Exception as exc:
-                log.warning("catalog_discovery.fetch_failed", provider=canonical, error=str(exc))
-                self._last_refresh_status[canonical] = f"error: {exc}"
-                # Preserve previously cached models if available! Never delete on single failure
-                cached_models = self.get_active_models(canonical)
-                for m in cached_models:
-                    m.provenance = "cached"
-                return CatalogSyncResult(
-                    provider=canonical,
-                    success=False,
-                    discovered_count=len(cached_models),
-                    models=cached_models,
-                    promoted_default=prev_def,
-                    previous_default=self._previous_defaults.get(canonical),
-                    error_reason=f"Discovery fetch failed: {exc}",
-                    live_verified=False,
-                    provider_state=ProviderState.DEGRADED,
-                    provenance="cached",
-                    is_stale=True,
-                )
-
-            if not discovered:
-                models = self.get_active_models(canonical)
-                return CatalogSyncResult(
-                    provider=canonical,
-                    success=True,
-                    discovered_count=len(models),
-                    models=models,
-                    promoted_default=prev_def,
-                    previous_default=self._previous_defaults.get(canonical),
-                    error_reason="No compatible models returned by provider",
-                    live_verified=live_verified,
-                    provider_state=ProviderState.HEALTHY,
-                    provenance="cached",
-                )
-
-            # Deduplicate discovered models by exact model_id
-            deduped_models: dict[str, DiscoveredModel] = {}
-            for m in discovered:
-                deduped_models[m.model_id] = m
-            final_models = list(deduped_models.values())
-
-            # Store in active catalog and persistent cache
-            self._catalogs[canonical] = final_models
-            self._cached_catalogs[canonical] = final_models
-            self._last_refresh_timestamps[canonical] = datetime.now(timezone.utc)
-            self._last_refresh_status[canonical] = "success"
-
-            # Promotion evaluation
-            promoted_default = prev_def
-            if validate_promotion:
-                promoted_default = await self._evaluate_and_promote_default(canonical, final_models)
-
+        if canonical in self._active_refreshes:
+            log.warning("catalog_discovery.concurrent_refresh_skipped", provider=canonical)
+            cached_models = self.get_active_models(canonical)
             return CatalogSyncResult(
                 provider=canonical,
                 success=True,
-                discovered_count=len(final_models),
-                models=final_models,
-                promoted_default=promoted_default,
+                discovered_count=len(cached_models),
+                models=cached_models,
+                promoted_default=self._active_defaults.get(canonical),
                 previous_default=self._previous_defaults.get(canonical),
-                voice_live_model=self._designated_audio_model if canonical == "gemini" else None,
-                live_verified=live_verified,
+                error_reason="Concurrent refresh in progress; returning cached catalog",
+                live_verified=False,
                 provider_state=ProviderState.HEALTHY,
-                provenance="official_api",
+                provenance="cached",
             )
+
+        self._active_refreshes.add(canonical)
+        try:
+            async with self._lock:
+                prov_cfg = get_provider_config(canonical)
+                prev_def = self._active_defaults.get(canonical)
+
+                if prov_cfg is None:
+                    return CatalogSyncResult(
+                        provider=canonical,
+                        success=False,
+                        discovered_count=0,
+                        models=[],
+                        promoted_default=prev_def,
+                        previous_default=self._previous_defaults.get(canonical),
+                        error_reason=f"Unknown provider: {canonical}",
+                        provider_state=ProviderState.UNAVAILABLE,
+                    )
+
+                # Providers disabled by default (OpenAI, Anthropic) MUST NOT send outbound requests
+                if not prov_cfg.is_enabled:
+                    log.info("catalog_discovery.provider_disabled", provider=canonical)
+                    models = self.get_active_models(canonical)
+                    for m in models:
+                        m.requires_api_key = not prov_cfg.has_api_key
+                    return CatalogSyncResult(
+                        provider=canonical,
+                        success=True,
+                        discovered_count=len(models),
+                        models=models,
+                        promoted_default=prev_def,
+                        previous_default=self._previous_defaults.get(canonical),
+                        error_reason="Provider is disabled by configuration (is_enabled=False)",
+                        live_verified=False,
+                        provider_state=ProviderState.DISABLED,
+                        provenance="static_baseline",
+                    )
+
+                # If provider lacks credentials, return cached or static baseline without calling out
+                if not prov_cfg.has_api_key:
+                    log.info("catalog_discovery.missing_key", provider=canonical)
+                    models = self.get_active_models(canonical)
+                    for m in models:
+                        m.requires_api_key = True
+                    self._last_refresh_status[canonical] = "credentials_missing"
+                    return CatalogSyncResult(
+                        provider=canonical,
+                        success=True,
+                        discovered_count=len(models),
+                        models=models,
+                        promoted_default=prev_def,
+                        previous_default=self._previous_defaults.get(canonical),
+                        error_reason=f"API key not configured ({prov_cfg.api_key_env_var})",
+                        live_verified=False,
+                        provider_state=ProviderState.NOT_CONFIGURED,
+                        provenance="static_baseline" if canonical not in self._cached_catalogs else "cached",
+                    )
+
+                # Fetch from official endpoint with bounded retries
+                try:
+                    discovered, live_verified = await self._fetch_official_models(canonical, prov_cfg, client)
+                except Exception as exc:
+                    log.warning("catalog_discovery.fetch_failed", provider=canonical, error=str(exc))
+                    self._last_refresh_status[canonical] = f"error: {exc}"
+                    # Preserve previously cached models if available! Never delete on single failure
+                    cached_models = self.get_active_models(canonical)
+                    for m in cached_models:
+                        m.provenance = "cached"
+                    return CatalogSyncResult(
+                        provider=canonical,
+                        success=False,
+                        discovered_count=len(cached_models),
+                        models=cached_models,
+                        promoted_default=prev_def,
+                        previous_default=self._previous_defaults.get(canonical),
+                        error_reason=f"Discovery fetch failed: {exc}",
+                        live_verified=False,
+                        provider_state=ProviderState.DEGRADED,
+                        provenance="cached",
+                        is_stale=True,
+                    )
+
+                if not discovered:
+                    models = self.get_active_models(canonical)
+                    return CatalogSyncResult(
+                        provider=canonical,
+                        success=True,
+                        discovered_count=len(models),
+                        models=models,
+                        promoted_default=prev_def,
+                        previous_default=self._previous_defaults.get(canonical),
+                        error_reason="No compatible models returned by provider",
+                        live_verified=live_verified,
+                        provider_state=ProviderState.HEALTHY,
+                        provenance="cached",
+                    )
+
+                # Durable model preservation: merge newly discovered models with historical known models
+                deduped_discovered: dict[str, DiscoveredModel] = {m.model_id: m for m in discovered}
+                now_utc = datetime.now(timezone.utc)
+
+                if canonical in self._catalogs and self._catalogs[canonical]:
+                    model_registry: dict[str, DiscoveredModel] = {
+                        m.model_id: m for m in self._catalogs[canonical]
+                    }
+                elif canonical in self._cached_catalogs and self._cached_catalogs[canonical]:
+                    model_registry = {
+                        m.model_id: m for m in self._cached_catalogs[canonical]
+                    }
+                else:
+                    model_registry = {}
+
+                for m in deduped_discovered.values():
+                    if m.model_id in model_registry:
+                        old = model_registry[m.model_id]
+                        m.first_seen_at = old.first_seen_at or old.discovered_at
+                        m.last_seen_at = now_utc
+                        m.last_verified_at = now_utc
+                        m.last_successful_discovery = now_utc
+                        # Preserve retirement if confirmed
+                        if old.status == "retired" and not m.is_stable:
+                            m.status = "retired"
+                            m.retirement_evidence = old.retirement_evidence
+                        elif m.is_deprecated:
+                            m.status = "deprecated"
+                        else:
+                            m.status = "active"
+                        m.provenance = "official_api"
+                        model_registry[m.model_id] = m
+                    else:
+                        m.first_seen_at = now_utc
+                        m.last_seen_at = now_utc
+                        m.last_verified_at = now_utc
+                        m.last_successful_discovery = now_utc
+                        m.status = "deprecated" if m.is_deprecated else "active"
+                        m.provenance = "official_api"
+                        model_registry[m.model_id] = m
+
+                # Models previously known but missing from this response:
+                # A transient omission MUST NOT delete previously known models!
+                for mid, m in list(model_registry.items()):
+                    if mid not in deduped_discovered:
+                        m.provenance = "cached"
+                        if m.status not in ("retired", "deprecated"):
+                            m.status = "retained"
+
+                final_models = list(model_registry.values())
+
+                # Store in active catalog and persistent cache
+                self._catalogs[canonical] = final_models
+                self._cached_catalogs[canonical] = final_models
+                self._last_refresh_timestamps[canonical] = now_utc
+                self._last_refresh_status[canonical] = "success"
+                self._save_cache_to_disk()
+
+                # Promotion evaluation
+                promoted_default = prev_def
+                if validate_promotion:
+                    promoted_default = await self._evaluate_and_promote_default(canonical, final_models)
+
+                return CatalogSyncResult(
+                    provider=canonical,
+                    success=True,
+                    discovered_count=len(deduped_discovered),
+                    models=final_models,
+                    promoted_default=promoted_default,
+                    previous_default=self._previous_defaults.get(canonical),
+                    voice_live_model=self._designated_audio_model if canonical == "gemini" else None,
+                    live_verified=live_verified,
+                    provider_state=ProviderState.HEALTHY,
+                    provenance="official_api",
+                )
+        finally:
+            self._active_refreshes.discard(canonical)
 
     # -------------------------------------------------------------------------
     # Provider-specific official discovery methods

@@ -40,6 +40,8 @@ def discovery_service() -> ModelCatalogDiscoveryService:
         "anthropic": "claude-3-5-haiku-latest",
     }
     service._catalogs = {}
+    service._cached_catalogs = {}
+    service.cache_file_path = ""
     service.canary_hook = None
     return service
 

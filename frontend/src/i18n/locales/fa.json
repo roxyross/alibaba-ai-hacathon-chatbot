@@ -106,15 +106,29 @@
     "capabilities": "قابلیت‌ها",
     "capability_reasoning": "استدلال و تحلیل پیشرفته",
     "capability_coding": "کدنویسی و رفع اشکال کامل",
-    "capability_workflows": "اجرای خودکار جریان‌های وب و سیستم"
+    "capability_workflows": "اجرای خودکار جریان‌های وب و سیستم",
+    "feedback_title": "بازخورد پاسخ",
+    "feedback_reason_inaccurate": "نادرست",
+    "feedback_reason_irrelevant": "نامربوط",
+    "feedback_reason_incomplete": "ناقص",
+    "feedback_reason_unsafe": "ناامن یا مضر",
+    "feedback_details_placeholder": "توضیحات اختیاری...",
+    "feedback_submit": "ارسال بازخورد",
+    "feedback_submitted": "از بازخورد شما متشکریم!"
   },
   "settings": {
-    "title": "تنظیمات",
+    "title": "تنظیمات و ترجیحات",
     "theme": "پوسته",
-    "theme_dark": "حالت تیره",
+    "theme_dark": "حالت تاریک",
     "theme_light": "حالت روشن",
-    "language": "زبان",
-    "model": "مدل ترجیحی",
-    "save_success": "تنظیمات با موفقیت ذخیره شد!"
+    "language": "زبان و منطقه",
+    "model": "پیکربندی مدل هوش مصنوعی",
+    "save_success": "تنظیمات با موفقیت ذخیره شد!",
+    "profile": "پروفایل",
+    "appearance": "ظاهر",
+    "voice": "صدا و گفتار",
+    "notifications": "اعلان‌ها",
+    "security": "امنیت و حریم خصوصی",
+    "theme_system": "پیش‌فرض سیستم"
   }
 }

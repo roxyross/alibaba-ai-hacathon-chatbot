@@ -304,6 +304,15 @@ async def on_startup() -> None:
         structlog.get_logger().warning("job_scheduler.startup_failed", error=str(exc))
 
     try:
+        # Non-blocking initial background model catalog discovery
+        import asyncio
+        from app.job_scheduler import _periodic_catalog_sync
+        asyncio.create_task(_periodic_catalog_sync())
+    except Exception as exc:
+        import structlog
+        structlog.get_logger().warning("catalog_discovery.startup_task_failed", error=str(exc))
+
+    try:
         from app.trust.confirmation_gate import ConfirmationGate
         ConfirmationGate._load_from_disk()
     except Exception as exc:

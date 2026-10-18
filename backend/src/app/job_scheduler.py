@@ -264,6 +264,19 @@ def load_jobs_into_scheduler(scheduler: AsyncIOScheduler) -> None:
             )
 
 
+async def _periodic_catalog_sync() -> None:
+    """Scheduled task to trigger background provider catalog synchronization."""
+    try:
+        from app.ai_gateway.services.catalog_discovery import ModelCatalogDiscoveryService
+
+        service = ModelCatalogDiscoveryService.get_instance()
+        log.info("job_scheduler.catalog_sync_starting")
+        results = await service.refresh_all()
+        log.info("job_scheduler.catalog_sync_completed", providers=list(results.keys()))
+    except Exception as exc:
+        log.warning("job_scheduler.catalog_sync_failed", error=str(exc))
+
+
 def start_scheduler() -> AsyncIOScheduler:
     """Create and start the APScheduler instance. Call from FastAPI startup."""
     global _scheduler
@@ -273,6 +286,17 @@ def start_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.start()
     load_jobs_into_scheduler(scheduler)
+
+    # Schedule periodic model catalog synchronization (default every 6 hours)
+    sync_interval_hours = int(os.environ.get("ROXY_CATALOG_SYNC_INTERVAL_HOURS", "6"))
+    scheduler.add_job(
+        _periodic_catalog_sync,
+        trigger="interval",
+        hours=sync_interval_hours,
+        id="system_catalog_sync_job",
+        replace_existing=True,
+    )
+
     _scheduler = scheduler
     log.info("job_scheduler.started", active_jobs=len(scheduler.get_jobs()))
     return scheduler

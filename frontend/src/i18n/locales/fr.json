@@ -106,15 +106,29 @@
     "capabilities": "Fonctionnalités",
     "capability_reasoning": "Raisonnement avancé et analyse",
     "capability_coding": "Développement et débogage complets",
-    "capability_workflows": "Exécution autonome de flux web et système"
+    "capability_workflows": "Exécution autonome de flux web et système",
+    "feedback_title": "Commentaires sur la réponse",
+    "feedback_reason_inaccurate": "Inexact",
+    "feedback_reason_irrelevant": "Hors sujet",
+    "feedback_reason_incomplete": "Incomplet",
+    "feedback_reason_unsafe": "Dangereux ou préjudiciable",
+    "feedback_details_placeholder": "Détails facultatifs...",
+    "feedback_submit": "Envoyer les commentaires",
+    "feedback_submitted": "Merci pour votre retour !"
   },
   "settings": {
-    "title": "Paramètres",
+    "title": "Paramètres et préférences",
     "theme": "Thème",
     "theme_dark": "Mode sombre",
     "theme_light": "Mode clair",
-    "language": "Langue",
-    "model": "Modèle préféré",
-    "save_success": "Paramètres enregistrés avec succès !"
+    "language": "Langue et région",
+    "model": "Configuration du modèle IA",
+    "save_success": "Paramètres enregistrés avec succès !",
+    "profile": "Profil",
+    "appearance": "Apparence",
+    "voice": "Voix et synthèse vocale",
+    "notifications": "Notifications",
+    "security": "Sécurité et confidentialité",
+    "theme_system": "Paramètre par défaut du système"
   }
 }
