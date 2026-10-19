@@ -2,9 +2,9 @@ name: ROXY-AI CI Pipeline
 
 on:
   push:
-    branches: [ master, main, "release/**", "release/audit-remediation" ]
+    branches: [ master, main, "release/**", "release/audit-remediation", "design/**" ]
   pull_request:
-    branches: [ master, main, "release/**", "release/audit-remediation" ]
+    branches: [ master, main, "release/**", "release/audit-remediation", "design/**" ]
   workflow_dispatch:
 
 permissions:

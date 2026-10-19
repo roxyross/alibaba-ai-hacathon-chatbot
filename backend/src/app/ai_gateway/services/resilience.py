@@ -217,12 +217,18 @@ class UniversalResilienceManager:
             await self.continuity.save_checkpoint(ckpt)
 
         # 2. Modality check: Audio/Voice tasks MUST NOT route to text-only providers
-        is_audio_task = task_type in ("audio", "voice", "live") or getattr(request, "task_type", None) == "audio"
+        is_audio_task = (
+            task_type in ("audio", "voice", "live", "tts", "stt", "text-to-speech", "speech-to-text", "live_audio", "live-audio")
+            or getattr(request, "task_type", None) in ("audio", "voice", "live", "tts", "stt")
+        )
 
         # 3. Candidate provider resolution
-        from app.ai_gateway.services.router import _get_adapter, _sorted_providers
+        from app.ai_gateway.services.router import _get_adapter
 
-        available_providers = _sorted_providers()
+        configs = get_all_provider_configs()
+        enabled = [c for c in configs if c.is_enabled and c.has_api_key]
+        enabled.sort(key=lambda c: c.routing_priority)
+        available_providers = [c.name for c in enabled]
 
         if is_audio_task:
             # Audio/Voice tasks are restricted to Gemini
@@ -267,7 +273,12 @@ class UniversalResilienceManager:
                 try:
                     # Model assignment with modality preservation
                     if is_audio_task and provider_name == "gemini":
-                        request.model = "gemini-3.8-flash"
+                        if task_type in ("tts", "stt", "live", "text-to-speech", "speech-to-text", "live_audio", "live-audio"):
+                            request.model = "gemini-3.8-plus"
+                        else:
+                            request.model = "gemini-3.8-flash"
+                    elif provider_name == "gemini" and not request.model:
+                        request.model = "gemini-4-argon"
 
                     response = await adapter.chatCompletion(request)
 

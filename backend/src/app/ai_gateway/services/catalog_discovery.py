@@ -332,8 +332,11 @@ class ModelCatalogDiscoveryService:
     def get_default_model(self, provider: str, task_type: str = "general") -> str:
         """Return the current active default model for a provider and task type."""
         canonical = "dashscope" if provider in ("qwen", "alibaba") else provider
-        if task_type in ("audio", "voice", "live") and canonical == "gemini":
-            return self._designated_audio_model
+        if canonical == "gemini":
+            if task_type in ("tts", "stt", "live", "text-to-speech", "speech-to-text", "live_audio", "live-audio"):
+                return "gemini-3.8-plus"
+            if task_type in ("audio", "voice"):
+                return self._designated_audio_model
         return self._active_defaults.get(canonical, "gemini-4-argon")
 
     def get_previous_default(self, provider: str) -> str | None:

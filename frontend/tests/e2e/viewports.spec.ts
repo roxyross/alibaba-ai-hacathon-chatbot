@@ -48,7 +48,7 @@ test.describe('Responsive Viewport Matrix Audit (11 Viewports)', () => {
       });
     });
 
-    await page.route('**/api/v1/reminders/**', async (route) => {
+    await page.route('**/api/v1/reminders*', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -56,7 +56,7 @@ test.describe('Responsive Viewport Matrix Audit (11 Viewports)', () => {
       });
     });
 
-    await page.route('**/api/v1/devices/**', async (route) => {
+    await page.route('**/api/v1/devices*', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -64,7 +64,7 @@ test.describe('Responsive Viewport Matrix Audit (11 Viewports)', () => {
       });
     });
 
-    await page.route('**/api/v1/settings/**', async (route) => {
+    await page.route('**/api/v1/settings*', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -194,40 +194,35 @@ test.describe('Responsive Viewport Matrix Audit (11 Viewports)', () => {
       const taskBtn = page.locator('.app__header .app__header-quick-action--task, .app__header button[aria-label*="New Task"]').first();
       if (await taskBtn.isVisible()) {
         await taskBtn.click();
-        const taskModal = page.locator('.new-task-modal__window, .new-task-modal, [class*="new-task"]').first();
-        if (await taskModal.isVisible()) {
-          const modalBox = await taskModal.boundingBox();
-          if (modalBox) {
-            expect(modalBox.width).toBeLessThanOrEqual(vp.width + 1);
-          }
-          // Close modal
-          const closeBtn = page.locator('.new-task-modal__close-btn, button[aria-label="Close"], button:has-text("Cancel")').first();
-          if (await closeBtn.isVisible()) {
-            await closeBtn.click();
-          } else {
-            await page.keyboard.press('Escape');
-          }
+        const taskModal = page.locator('.new-task-modal__window');
+        await expect(taskModal).toBeVisible({ timeout: 5000 });
+        const modalBox = await taskModal.boundingBox();
+        if (modalBox) {
+          expect(modalBox.width).toBeLessThanOrEqual(vp.width + 1);
         }
+        // Close modal
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.new-task-modal__backdrop')).toHaveCount(0, { timeout: 5000 });
       }
 
       // 2. Open Settings modal via header action
       const settingsBtn = page.locator('.app__header .app__settings-btn, .app__header button[aria-label*="Settings"]').first();
       if (await settingsBtn.isVisible()) {
         await settingsBtn.click();
-        const settingsModal = page.locator('.settings-card, .settings-overlay, [class*="settings-modal"]').first();
-        if (await settingsModal.isVisible()) {
-          const modalBox = await settingsModal.boundingBox();
-          if (modalBox) {
-            expect(modalBox.width).toBeLessThanOrEqual(vp.width + 1);
-          }
-          // Close settings modal
-          const closeSettingsBtn = page.locator('.settings-close-btn, button[aria-label*="Close settings"], button:has-text("Close")').first();
-          if (await closeSettingsBtn.isVisible()) {
-            await closeSettingsBtn.click();
-          } else {
-            await page.keyboard.press('Escape');
-          }
+        const settingsModal = page.locator('.settings-card');
+        await expect(settingsModal).toBeVisible({ timeout: 5000 });
+        const modalBox = await settingsModal.boundingBox();
+        if (modalBox) {
+          expect(modalBox.width).toBeLessThanOrEqual(vp.width + 1);
         }
+        // Close settings modal
+        const closeSettingsBtn = page.locator('.settings-close-btn');
+        if (await closeSettingsBtn.isVisible()) {
+          await closeSettingsBtn.click();
+        } else {
+          await page.locator('.settings-overlay').click({ position: { x: 5, y: 5 }, force: true });
+        }
+        await expect(page.locator('.settings-overlay')).toHaveCount(0, { timeout: 5000 });
       }
     });
   }

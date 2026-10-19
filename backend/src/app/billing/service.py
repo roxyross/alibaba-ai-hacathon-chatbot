@@ -377,24 +377,14 @@ class PaymentService:
 
             if user_id:
                 now = datetime.now(UTC)
-                # Record payment record
-                if event.amount is not None:
-                    await self.repo.record_payment(
-                        user_id=user_id,
-                        payment_data={
-                            "provider": prov_name,
-                            "provider_payment_id": event.payment_id or event.event_id,
-                            "provider_customer_id": event.customer_id,
-                            "amount": event.amount,
-                            "currency": event.currency or ("PKR" if prov_name == "safepay" else "USD"),
-                            "status": "paid" if event_type == "payment.succeeded" else "failed",
-                            "payment_type": "topup" if pack_id else "subscription",
-                            "plan_id": plan_id or pack_id,
-                        },
-                    )
 
                 # Handle successful payment
                 if event_type == "payment.succeeded":
+                    # Mandatory amount check: payment.succeeded requires amount
+                    if event.amount is None:
+                        logger.error("Webhook payment.succeeded missing mandatory amount: %s", event.event_id)
+                        return {"status": "error", "message": "Missing mandatory payment amount"}
+
                     # A. Subscription checkout
                     if plan_id and not pack_id:
                         matched_plan = next((p for p in PLANS if p["id"] == plan_id), None)
@@ -406,19 +396,34 @@ class PaymentService:
                         expected_curr = "PKR" if prov_name in ("safepay", "nayapay", "sadapay") or (event.currency or "").upper() == "PKR" else "USD"
                         expected_amount = float(matched_plan["price_pkr"]) if expected_curr == "PKR" else float(matched_plan["price_usd"])
 
-                        if event.amount is not None and abs(float(event.amount) - expected_amount) > 0.01:
+                        if abs(float(event.amount) - expected_amount) > 0.01:
                             logger.error(
                                 "Webhook amount mismatch for user %s plan %s: received %s, expected %s",
                                 user_id, plan_id, event.amount, expected_amount,
                             )
                             return {"status": "error", "message": "Payment amount mismatch"}
 
-                        if event.currency and event.currency.upper() != expected_curr:
+                        if not event.currency or event.currency.upper() != expected_curr:
                             logger.error(
                                 "Webhook currency mismatch for user %s plan %s: received %s, expected %s",
                                 user_id, plan_id, event.currency, expected_curr,
                             )
                             return {"status": "error", "message": "Payment currency mismatch"}
+
+                        # Record payment record as paid only after full validation
+                        await self.repo.record_payment(
+                            user_id=user_id,
+                            payment_data={
+                                "provider": prov_name,
+                                "provider_payment_id": event.payment_id or event.event_id,
+                                "provider_customer_id": event.customer_id,
+                                "amount": event.amount,
+                                "currency": event.currency,
+                                "status": "paid",
+                                "payment_type": "subscription",
+                                "plan_id": plan_id,
+                            },
+                        )
 
                         name = matched_plan["name"]
                         p_usd = float(matched_plan["price_usd"])
@@ -458,19 +463,34 @@ class PaymentService:
                         expected_curr = "PKR" if prov_name in ("safepay", "nayapay", "sadapay") or (event.currency or "").upper() == "PKR" else "USD"
                         expected_amount = float(matched_pack["pkr"]) if expected_curr == "PKR" else float(matched_pack["usd"])
 
-                        if event.amount is not None and abs(float(event.amount) - expected_amount) > 0.01:
+                        if abs(float(event.amount) - expected_amount) > 0.01:
                             logger.error(
                                 "Webhook amount mismatch for user %s pack %s: received %s, expected %s",
                                 user_id, pack_id, event.amount, expected_amount,
                             )
                             return {"status": "error", "message": "Top-up amount mismatch"}
 
-                        if event.currency and event.currency.upper() != expected_curr:
+                        if not event.currency or event.currency.upper() != expected_curr:
                             logger.error(
                                 "Webhook currency mismatch for user %s pack %s: received %s, expected %s",
                                 user_id, pack_id, event.currency, expected_curr,
                             )
                             return {"status": "error", "message": "Top-up currency mismatch"}
+
+                        # Record payment record as paid only after full validation
+                        await self.repo.record_payment(
+                            user_id=user_id,
+                            payment_data={
+                                "provider": prov_name,
+                                "provider_payment_id": event.payment_id or event.event_id,
+                                "provider_customer_id": event.customer_id,
+                                "amount": event.amount,
+                                "currency": event.currency,
+                                "status": "paid",
+                                "payment_type": "topup",
+                                "plan_id": pack_id,
+                            },
+                        )
 
                         credits = float(matched_pack["credits"])
                         cost_usd = expected_amount if expected_curr == "USD" else 0.0
@@ -497,6 +517,22 @@ class PaymentService:
                                 "invoice_pdf_url": "#",
                             },
                         )
+
+                # Handle failed payment
+                elif event_type == "payment.failed":
+                    await self.repo.record_payment(
+                        user_id=user_id,
+                        payment_data={
+                            "provider": prov_name,
+                            "provider_payment_id": event.payment_id or event.event_id,
+                            "provider_customer_id": event.customer_id,
+                            "amount": event.amount or 0.0,
+                            "currency": event.currency or ("PKR" if prov_name in ("safepay", "nayapay", "sadapay") else "USD"),
+                            "status": "failed",
+                            "payment_type": "topup" if pack_id else "subscription",
+                            "plan_id": plan_id or pack_id,
+                        },
+                    )
 
                 # Handle subscription cancellation
                 elif event_type == "subscription.deleted":

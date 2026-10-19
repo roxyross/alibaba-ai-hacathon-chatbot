@@ -190,6 +190,7 @@ def _default_models(provider: str) -> tuple[ModelConfig, ...]:
         "gemini": (
             ModelConfig(name="gemini-4-argon", display_name="Gemini 4 Argon (Default General Reasoning)", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=2000000),
             ModelConfig(name="gemini-3.8-flash", display_name="Gemini 3.8 Flash (Multimodal Audio & Modulation)", task_types=("general", "coding", "reasoning", "multimodal", "audio"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
+            ModelConfig(name="gemini-3.8-plus", display_name="Gemini 3.8 Plus (Dedicated TTS, STT & Live Audio)", task_types=("audio", "tts", "stt", "live", "general", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
             ModelConfig(name="gemini-3.6-flash", display_name="Gemini 3.6 Flash (Fast & Full Reasoning)", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
             ModelConfig(name="gemini-3.7-flash", display_name="Gemini 3.7 Flash", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),
             ModelConfig(name="gemini-3.1-flash", display_name="Gemini 3.1 Flash", task_types=("general", "coding", "reasoning", "multimodal"), cost_per_1k_input=0.0, cost_per_1k_output=0.0, max_tokens=1000000),

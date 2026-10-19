@@ -1,0 +1,109 @@
+{
+  "commitSha": "a72670a31cd8641d00fa5516ecaf1d07a8ecfe53",
+  "shortSha": "a72670a",
+  "branch": "design/roxy-ui-ux-redesign",
+  "capturedAt": "2026-10-19T13:27:41.521Z",
+  "timezone": "Asia/Karachi",
+  "browser": "Chromium (Playwright E2E Engine)",
+  "testedViewports": [
+    {
+      "width": 1440,
+      "height": 900,
+      "name": "desktop-standard-1440"
+    },
+    {
+      "width": 768,
+      "height": 1024,
+      "name": "tablet-portrait-768"
+    },
+    {
+      "width": 375,
+      "height": 812,
+      "name": "mobile-iphone-375"
+    }
+  ],
+  "isMocked": true,
+  "authMethod": "Test-Isolated Deterministic JWT Mock (Bearer Authorization)",
+  "skippedSurfaces": [],
+  "testCommand": "npx playwright test tests/e2e/capture_redesign_screens.spec.ts --project=desktop-standard",
+  "testStatus": "PASSED",
+  "captures": [
+    {
+      "filename": "07-redesign-desktop-1440-code-studio.png",
+      "surface": "Code Studio (IDE)",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "assertedLocator": ".code-studio-root",
+      "capturedAt": "2026-10-19T13:27:31.478Z",
+      "status": "captured"
+    },
+    {
+      "filename": "08-redesign-desktop-1440-cowork.png",
+      "surface": "Cowork Pair Agent Workspace",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "assertedLocator": ".cowork-workspace",
+      "capturedAt": "2026-10-19T13:27:33.902Z",
+      "status": "captured"
+    },
+    {
+      "filename": "09-redesign-desktop-1440-collapsed-rail.png",
+      "surface": "Collapsed Sidebar Rail",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "assertedLocator": ".session-sidebar--collapsed",
+      "capturedAt": "2026-10-19T13:27:35.200Z",
+      "status": "captured"
+    },
+    {
+      "filename": "10-redesign-desktop-1440-browser-studio.png",
+      "surface": "Autonomous Browser Studio",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "assertedLocator": ".browser-studio",
+      "capturedAt": "2026-10-19T13:27:38.811Z",
+      "status": "captured"
+    },
+    {
+      "filename": "11-redesign-desktop-1440-device-hub.png",
+      "surface": "Universal App Control & Device Hub",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "assertedLocator": ".device-hub",
+      "capturedAt": "2026-10-19T13:27:39.964Z",
+      "status": "captured"
+    },
+    {
+      "filename": "12-redesign-desktop-1440-deep-research.png",
+      "surface": "Deep Research Hub",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "assertedLocator": ".research-hub",
+      "capturedAt": "2026-10-19T13:27:40.736Z",
+      "status": "captured"
+    },
+    {
+      "filename": "13-redesign-desktop-1440-knowledge-vault.png",
+      "surface": "Knowledge Vault & Document Base",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "assertedLocator": ".knowledge-vault",
+      "capturedAt": "2026-10-19T13:27:41.486Z",
+      "status": "captured"
+    }
+  ]
+}
